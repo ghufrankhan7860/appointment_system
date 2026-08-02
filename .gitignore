@@ -1,0 +1,16 @@
+# Local configuration and secrets
+.env
+.env.*
+!envs/.env.example
+
+# Go build and test output
+bin/
+coverage.out
+*.test
+*.prof
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
