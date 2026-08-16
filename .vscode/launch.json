@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Appointment API",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Start PostgreSQL",
+            "env": {
+                "APP_NAME": "appointment-system",
+                "HTTP_ADDRESS": ":8080",
+                "DB_HOST": "127.0.0.1",
+                "DB_PORT": "5434",
+                "DB_USER": "appointment",
+                "DB_PASSWORD": "appointment-local",
+                "DB_NAME": "appointment_system",
+                "GIN_MODE": "debug"
+            },
+            "showLog": true
+        }
+    ]
+}

@@ -60,5 +60,29 @@ go test ./...
 go vet ./...
 ```
 
+## Run and Debug
+
+Start PostgreSQL and run the API normally:
+
+```powershell
+docker compose -f deploy/compose.yaml up -d --wait
+Get-Content migrations/000001_create_users.up.sql -Raw | docker compose -f deploy/compose.yaml exec -T postgres psql -U appointment -d appointment_system
+go run .
+```
+
+Apply each ordered migration once per database. Schema migrations are explicit and are not
+run automatically when the application starts.
+
+To debug in VS Code, install the official Go extension, open **Run and Debug**, select
+**Debug Appointment API**, and press `F5`. The pre-launch task starts PostgreSQL, then
+Delve launches the application with the local development environment. Set breakpoints in
+handlers, controllers, services, or repositories and call `http://localhost:8080/health`.
+
+Stop the database with the **Stop PostgreSQL** task or:
+
+```powershell
+docker compose -f deploy/compose.yaml down
+```
+
 Replace the temporary module path `appointment_system` in `go.mod` and imports with the
 final repository path before publishing the module.

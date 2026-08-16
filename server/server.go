@@ -6,10 +6,78 @@
 // Do not construct repositories or put business rules in route registration.
 package server
 
-import "github.com/gin-gonic/gin"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+)
 
-func AppointmentServer() {
-	router := gin.Default()
+// Config defines HTTP listener and graceful-shutdown policy supplied by cmd.
+type Config struct {
+	Address           string
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+}
 
-	
+// Server owns the HTTP server lifecycle.
+type Server struct {
+	httpServer      *http.Server
+	shutdownTimeout time.Duration
+}
+
+// New constructs a server from validated runtime policy.
+func New(config Config, healthChecker HealthChecker, authRoutes RouteRegistrar) (*Server, error) {
+	if config.Address == "" {
+		return nil, errors.New("server address is required")
+	}
+	if config.ReadHeaderTimeout <= 0 || config.ReadTimeout <= 0 || config.WriteTimeout <= 0 || config.IdleTimeout <= 0 || config.ShutdownTimeout <= 0 {
+		return nil, errors.New("server timeouts must be greater than zero")
+	}
+	if healthChecker == nil {
+		return nil, errors.New("health checker is required")
+	}
+	if authRoutes == nil {
+		return nil, errors.New("auth routes are required")
+	}
+
+	return &Server{
+		httpServer: &http.Server{
+			Addr:              config.Address,
+			Handler:           NewRouter(healthChecker, authRoutes),
+			ReadHeaderTimeout: config.ReadHeaderTimeout,
+			ReadTimeout:       config.ReadTimeout,
+			WriteTimeout:      config.WriteTimeout,
+			IdleTimeout:       config.IdleTimeout,
+		},
+		shutdownTimeout: config.ShutdownTimeout,
+	}, nil
+}
+
+// Run serves HTTP until the parent context is canceled or the server fails.
+func (server *Server) Run(ctx context.Context) error {
+	serveErrors := make(chan error, 1)
+	go func() {
+		serveErrors <- server.httpServer.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serveErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serve HTTP: %w", err)
+	case <-ctx.Done():
+		shutdownContext, cancel := context.WithTimeout(context.Background(), server.shutdownTimeout)
+		defer cancel()
+
+		if err := server.httpServer.Shutdown(shutdownContext); err != nil {
+			return fmt.Errorf("shutdown HTTP server: %w", err)
+		}
+		return nil
+	}
 }

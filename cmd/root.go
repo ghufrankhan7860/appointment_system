@@ -12,8 +12,81 @@
 // composition root.
 package cmd
 
-// Execute is the process-level command entry point. It is intentionally a no-op
-// until the first runtime command is implemented.
+import (
+	"context"
+	"fmt"
+	"log"
+	"os/signal"
+	"syscall"
+
+	"appointment_system/config"
+	"appointment_system/internal/apps/appointment/controller"
+	"appointment_system/internal/apps/appointment/handler"
+	"appointment_system/internal/apps/appointment/repositories"
+	"appointment_system/internal/apps/appointment/services"
+	"appointment_system/internal/platform/datastore"
+	"appointment_system/server"
+)
+
+// Execute builds and runs the HTTP application until an interrupt is received.
 func Execute() error {
-	return nil
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	config, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load configuration: %w", err)
+	}
+
+	store, err := datastore.Open(ctx, datastore.Config{
+		Host:            config.Database.Host,
+		Port:            config.Database.Port,
+		User:            config.Database.User,
+		Password:        config.Database.Password,
+		Database:        config.Database.Name,
+		MaxOpenConns:    config.Database.MaxOpenConns,
+		MaxIdleConns:    config.Database.MaxIdleConns,
+		ConnMaxLifetime: config.Database.ConnMaxLifetime,
+		ConnectTimeout:  config.Database.ConnectTimeout,
+	})
+	if err != nil {
+		return fmt.Errorf("initialize datastore: %w", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("close datastore: %v", err)
+		}
+	}()
+
+	userRepository, err := repositories.NewUserRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize user repository: %w", err)
+	}
+	authService, err := services.NewAuthService(userRepository)
+	if err != nil {
+		return fmt.Errorf("initialize auth service: %w", err)
+	}
+	authController, err := controller.NewAuthController(authService)
+	if err != nil {
+		return fmt.Errorf("initialize auth controller: %w", err)
+	}
+	authHandler, err := handler.NewAuthHandler(authController)
+	if err != nil {
+		return fmt.Errorf("initialize auth handler: %w", err)
+	}
+
+	httpServer, err := server.New(server.Config{
+		Address:           config.HTTP.Address,
+		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
+		ReadTimeout:       config.HTTP.ReadTimeout,
+		WriteTimeout:      config.HTTP.WriteTimeout,
+		IdleTimeout:       config.HTTP.IdleTimeout,
+		ShutdownTimeout:   config.HTTP.ShutdownTimeout,
+	}, store, authHandler)
+	if err != nil {
+		return fmt.Errorf("initialize HTTP server: %w", err)
+	}
+
+	log.Printf("starting %s HTTP server on %s", config.App.Name, config.HTTP.Address)
+	return httpServer.Run(ctx)
 }

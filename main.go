@@ -3,6 +3,7 @@
 package main
 
 import (
+	"log"
 	"os"
 
 	"appointment_system/cmd"
@@ -10,6 +11,7 @@ import (
 
 func main() {
 	if err := cmd.Execute(); err != nil {
+		log.Printf("application stopped: %v", err)
 		os.Exit(1)
 	}
 }
