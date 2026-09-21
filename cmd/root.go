@@ -24,6 +24,7 @@ import (
 	"appointment_system/internal/apps/appointment/handler"
 	"appointment_system/internal/apps/appointment/repositories"
 	"appointment_system/internal/apps/appointment/services"
+	"appointment_system/internal/apps/appointment/utils"
 	"appointment_system/internal/platform/datastore"
 	"appointment_system/server"
 )
@@ -62,7 +63,15 @@ func Execute() error {
 	if err != nil {
 		return fmt.Errorf("initialize user repository: %w", err)
 	}
-	authService, err := services.NewAuthService(userRepository)
+	sessionRepository, err := repositories.NewSessionRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize session repository: %w", err)
+	}
+	tokenGenerator, err := utils.NewJWTManager(config.Auth.JWTSecret, config.Auth.JWTIssuer, config.Auth.TokenTTL)
+	if err != nil {
+		return fmt.Errorf("initialize token generator: %w", err)
+	}
+	authService, err := services.NewAuthService(userRepository, sessionRepository, tokenGenerator)
 	if err != nil {
 		return fmt.Errorf("initialize auth service: %w", err)
 	}

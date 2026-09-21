@@ -1,10 +1,13 @@
 package services
 
 import (
-	"appointment_system/internal/apps/appointment/models"
 	"context"
+
+	"appointment_system/internal/apps/appointment/models"
 )
 
 type UserRepository interface {
 	Create(ctx context.Context, user *models.User) (*models.User, error)
+	FindByLogin(ctx context.Context, identifier string) (*models.User, error)
+	GetByID(ctx context.Context, id uint64) (*models.User, error)
 }
