@@ -42,6 +42,8 @@ services:
             DB_USER: appointment
             DB_PASSWORD: appointment-local
             DB_NAME: appointment_system
+            JWT_SECRET: appointment-local-jwt-secret-change-me
+            JWT_ISSUER: appointment-system
             GIN_MODE: release
         ports:
             - "8080:8080"

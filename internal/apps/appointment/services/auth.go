@@ -1,36 +1,201 @@
 package services
 
 import (
-	"appointment_system/internal/apps/appointment/constant"
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/utils"
-	"context"
-	"fmt"
 )
 
 type AuthService struct {
-	users UserRepository
+	users    UserRepository
+	sessions SessionRepository
+	tokens   TokenGenerator
 }
 
-func NewAuthService(users UserRepository) (*AuthService, error) {
+type TokenGenerator interface {
+	Generate(user models.User) (string, error)
+}
+
+func NewAuthService(
+	users UserRepository,
+	sessions SessionRepository,
+	tokens TokenGenerator,
+) (*AuthService, error) {
 	if users == nil {
-		return nil, constant.ErrNilUserRepository
+		return nil, apperrors.ErrNilUserRepository
 	}
+	if sessions == nil {
+		return nil, apperrors.ErrNilSessionRepository
+	}
+	if tokens == nil {
+		return nil, apperrors.ErrNilTokenGenerator
+	}
+
 	return &AuthService{
-		users: users,
+		users:    users,
+		sessions: sessions,
+		tokens:   tokens,
 	}, nil
 }
 
-func (as *AuthService) Register(ctx context.Context, user *models.User, password string) (*models.User, error) {
-
+func (as *AuthService) Register(
+	ctx context.Context,
+	user *models.User,
+	password string,
+) (*models.User, error) {
 	passwordHash, err := utils.HashPassword(password)
 	if err != nil {
 		return nil, fmt.Errorf("error hashing password: %w", err)
 	}
+
 	user.PasswordHash = passwordHash
+
 	createdUser, err := as.users.Create(ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
+
 	return createdUser, nil
+}
+
+func (as *AuthService) Login(
+	ctx context.Context,
+	email *string,
+	mobileNo *string,
+	password string,
+) (*models.User, string, string, error) {
+	identifier, err := loginIdentifier(email, mobileNo)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	user, err := as.users.FindByLogin(ctx, identifier)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrInvalidCredentials) {
+			return nil, "", "", apperrors.ErrInvalidCredentials
+		}
+
+		return nil, "", "", fmt.Errorf("find login user: %w", err)
+	}
+
+	if err := utils.CheckPassword(user.PasswordHash, password); err != nil {
+		return nil, "", "", apperrors.ErrInvalidCredentials
+	}
+
+	accessToken, err := as.tokens.Generate(*user)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("generate auth token: %w", err)
+	}
+
+	refreshToken, err := utils.NewOpaqueToken()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	if err := as.sessions.Create(ctx, &models.Session{
+		UserID:    user.ID,
+		TokenHash: utils.HashToken(refreshToken),
+	}); err != nil {
+		return nil, "", "", fmt.Errorf("create session: %w", err)
+	}
+
+	return user, accessToken, refreshToken, nil
+}
+
+func (as *AuthService) Refresh(
+	ctx context.Context,
+	refreshToken string,
+) (string, string, error) {
+	if strings.TrimSpace(refreshToken) == "" {
+		return "", "", apperrors.ErrSessionNotFound
+	}
+
+	session, err := as.sessions.GetByTokenHash(
+		ctx,
+		utils.HashToken(refreshToken),
+	)
+	if err != nil {
+		return "", "", err
+	}
+
+	if session.IsRevoked {
+		return "", "", apperrors.ErrSessionRevoked
+	}
+
+	if time.Now().After(session.Expiry) {
+		return "", "", apperrors.ErrSessionExpired
+	}
+
+	user, err := as.users.GetByID(ctx, session.UserID)
+	if err != nil {
+		return "", "", fmt.Errorf("get session user: %w", err)
+	}
+
+	accessToken, err := as.tokens.Generate(*user)
+	if err != nil {
+		return "", "", fmt.Errorf("generate access token: %w", err)
+	}
+
+	nextRefreshToken, err := utils.NewOpaqueToken()
+	if err != nil {
+		return "", "", fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	if err := as.sessions.Create(ctx, &models.Session{
+		UserID:    user.ID,
+		TokenHash: utils.HashToken(nextRefreshToken),
+	}); err != nil {
+		return "", "", fmt.Errorf("create session: %w", err)
+	}
+
+	if err := as.sessions.RevokeByID(ctx, session.ID); err != nil {
+		return "", "", fmt.Errorf("revoke session: %w", err)
+	}
+
+	return accessToken, nextRefreshToken, nil
+}
+
+func (as *AuthService) Logout(ctx context.Context, refreshToken string) error {
+	if strings.TrimSpace(refreshToken) == "" {
+		return apperrors.ErrSessionNotFound
+	}
+
+	session, err := as.sessions.GetByTokenHash(
+		ctx,
+		utils.HashToken(refreshToken),
+	)
+	if err != nil {
+		return err
+	}
+
+	if session.IsRevoked {
+		return nil
+	}
+
+	if err := as.sessions.RevokeByID(ctx, session.ID); err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+
+	return nil
+}
+
+func loginIdentifier(email, mobileNo *string) (string, error) {
+	hasEmail := email != nil && strings.TrimSpace(*email) != ""
+	hasMobileNo := mobileNo != nil && strings.TrimSpace(*mobileNo) != ""
+
+	if hasEmail == hasMobileNo {
+		return "", apperrors.ErrLoginIdentifier
+	}
+
+	if hasEmail {
+		return strings.ToLower(strings.TrimSpace(*email)), nil
+	}
+
+	return strings.TrimSpace(*mobileNo), nil
 }
