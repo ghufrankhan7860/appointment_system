@@ -8,6 +8,7 @@
 package config
 
 import (
+	"appointment_system/internal/apps/appointment/constant"
 	"fmt"
 	"os"
 	"strconv"
@@ -19,6 +20,7 @@ type Config struct {
 	App      AppConfig
 	HTTP     HTTPConfig
 	Database DatabaseConfig
+	Auth     AuthConfig
 }
 
 type AppConfig struct {
@@ -46,6 +48,12 @@ type DatabaseConfig struct {
 	ConnectTimeout  time.Duration
 }
 
+type AuthConfig struct {
+	JWTSecret string
+	JWTIssuer string
+	TokenTTL  time.Duration
+}
+
 // Load reads environment variables once and returns typed configuration.
 func Load() (Config, error) {
 	config := Config{
@@ -65,6 +73,11 @@ func Load() (Config, error) {
 			Name:            env("DB_NAME", "appointment_system"),
 			ConnMaxLifetime: 5 * time.Minute,
 			ConnectTimeout:  5 * time.Second,
+		},
+		Auth: AuthConfig{
+			JWTSecret: env("JWT_SECRET", "appointment-local-jwt-secret-change-me"),
+			JWTIssuer: env("JWT_ISSUER", "appointment-system"),
+			TokenTTL:  constant.AccessTokenTTL,
 		},
 	}
 
@@ -97,6 +110,15 @@ func Load() (Config, error) {
 	}
 	if config.Database.MaxOpenConns < 1 || config.Database.MaxIdleConns < 0 || config.Database.MaxIdleConns > config.Database.MaxOpenConns {
 		return Config{}, fmt.Errorf("database pool limits are invalid")
+	}
+	if len(config.Auth.JWTSecret) < 32 || config.Auth.JWTIssuer == "" || config.Auth.TokenTTL <= 0 {
+		return Config{}, fmt.Errorf("JWT_SECRET must contain at least 32 characters and JWT settings must be valid")
+	}
+	if _, explicitlySet := os.LookupEnv("JWT_SECRET"); !explicitlySet {
+		switch env("APP_ENV", env("GIN_MODE", "development")) {
+		case "production", "prod", "release":
+			return Config{}, fmt.Errorf("JWT_SECRET must be set explicitly in production; default local secret is not allowed")
+		}
 	}
 
 	return config, nil

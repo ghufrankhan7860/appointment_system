@@ -20,10 +20,7 @@ import (
 	"syscall"
 
 	"appointment_system/config"
-	"appointment_system/internal/apps/appointment/controller"
-	"appointment_system/internal/apps/appointment/handler"
-	"appointment_system/internal/apps/appointment/repositories"
-	"appointment_system/internal/apps/appointment/services"
+	"appointment_system/internal/apps/appointment"
 	"appointment_system/internal/platform/datastore"
 	"appointment_system/server"
 )
@@ -58,21 +55,14 @@ func Execute() error {
 		}
 	}()
 
-	userRepository, err := repositories.NewUserRepository(store.DB)
+	app, err := appointment.NewContainer(
+		store.DB,
+		config.Auth.JWTSecret,
+		config.Auth.JWTIssuer,
+		config.Auth.TokenTTL,
+	)
 	if err != nil {
-		return fmt.Errorf("initialize user repository: %w", err)
-	}
-	authService, err := services.NewAuthService(userRepository)
-	if err != nil {
-		return fmt.Errorf("initialize auth service: %w", err)
-	}
-	authController, err := controller.NewAuthController(authService)
-	if err != nil {
-		return fmt.Errorf("initialize auth controller: %w", err)
-	}
-	authHandler, err := handler.NewAuthHandler(authController)
-	if err != nil {
-		return fmt.Errorf("initialize auth handler: %w", err)
+		return fmt.Errorf("initialize appointment application: %w", err)
 	}
 
 	httpServer, err := server.New(server.Config{
@@ -82,7 +72,7 @@ func Execute() error {
 		WriteTimeout:      config.HTTP.WriteTimeout,
 		IdleTimeout:       config.HTTP.IdleTimeout,
 		ShutdownTimeout:   config.HTTP.ShutdownTimeout,
-	}, store, authHandler)
+	}, store, app)
 	if err != nil {
 		return fmt.Errorf("initialize HTTP server: %w", err)
 	}

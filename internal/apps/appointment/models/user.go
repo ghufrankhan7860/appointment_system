@@ -5,8 +5,8 @@ import "time"
 type Role string
 
 const (
-	RoleUser   Role = "patient"
-	RoleDoctor Role = "doctor"
+	RolePatient Role = "patient"
+	RoleDoctor  Role = "doctor"
 )
 
 type User struct {

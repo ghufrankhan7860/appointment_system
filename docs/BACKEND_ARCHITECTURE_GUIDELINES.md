@@ -40,7 +40,7 @@ This guide prescribes:
 - Testing, observability, security, and delivery expectations.
 
 It does not prescribe the application's entities, API resources, database schema, cloud,
-or external providers. Gin, GORM with MySQL, Redis, Kafka, Cobra, Viper, and Zap are useful
+or external providers. Gin, GORM with PostgreSQL, Redis, Kafka, Cobra, Viper, and Zap are useful
 defaults, not dependencies that business rules may assume.
 
 ### Core principles
@@ -317,7 +317,7 @@ must respect context cancellation and operation idempotency.
 
 ## 8. Persistence and transactions
 
-GORM with MySQL is a recommended default adapter. The domain does not import GORM.
+GORM with PostgreSQL is a recommended default adapter. The domain does not import GORM.
 
 - Services own transaction boundaries because they know the complete unit of work.
 - Repositories accept a narrow query/transaction interface or a transaction-scoped store.
