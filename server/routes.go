@@ -21,7 +21,7 @@ type RouteRegistrar interface {
 }
 
 // NewRouter constructs the HTTP transport and registers global middleware and routes.
-func NewRouter(healthChecker HealthChecker, authRoutes RouteRegistrar) *gin.Engine {
+func NewRouter(healthChecker HealthChecker, appRoutes RouteRegistrar) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		gin.Logger(),
@@ -31,12 +31,8 @@ func NewRouter(healthChecker HealthChecker, authRoutes RouteRegistrar) *gin.Engi
 
 	registerHealthRoute(router, healthChecker)
 
-	// Register future versioned API groups here, for example:
-	// api := router.Group("/api/v1")
-	// appointmentHandler.RegisterRoutes(api)
-
 	api := router.Group("/api/v1")
-	authRoutes.RegisterRoutes(api)
+	appRoutes.RegisterRoutes(api)
 	return router
 }
 
