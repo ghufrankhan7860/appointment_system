@@ -44,12 +44,16 @@ func (repo *UserRepository) Create(ctx context.Context, user *models.User) (*mod
 		return nil, apperrors.ErrNilRegisterRequest
 	}
 
+	now := time.Now().UTC()
+
 	record := userRecord{
 		Name:         user.Name,
 		Email:        strings.ToLower(strings.TrimSpace(user.Email)),
 		PasswordHash: user.PasswordHash,
-		MobileNo:     user.MobileNo,
+		MobileNo:     strings.TrimSpace(user.MobileNo),
 		Role:         string(user.Role),
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := repo.db.WithContext(ctx).Create(&record).Error; err != nil {
@@ -74,8 +78,11 @@ func (repo *UserRepository) Create(ctx context.Context, user *models.User) (*mod
 func (repo *UserRepository) FindByLogin(ctx context.Context, identifier string) (*models.User, error) {
 	var record userRecord
 
+	emailIdentifier := strings.ToLower(strings.TrimSpace(identifier))
+	mobileIdentifier := strings.TrimSpace(identifier)
+
 	if err := repo.db.WithContext(ctx).
-		Where("LOWER(email) = ? OR mobile_no = ?", identifier, identifier).
+		Where("LOWER(email) = ? OR mobile_no = ?", emailIdentifier, mobileIdentifier).
 		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrInvalidCredentials

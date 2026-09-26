@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/utils"
 )
@@ -98,10 +99,10 @@ func (as *AuthService) Login(
 		return nil, "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	if err := as.sessions.Create(ctx, &models.Session{
-		UserID:    user.ID,
-		TokenHash: utils.HashToken(refreshToken),
-	}); err != nil {
+	if err := as.sessions.Create(ctx, newRefreshSession(
+		user.ID,
+		utils.HashToken(refreshToken),
+	)); err != nil {
 		return nil, "", "", fmt.Errorf("create session: %w", err)
 	}
 
@@ -124,11 +125,11 @@ func (as *AuthService) Refresh(
 		return "", "", err
 	}
 
-	if session.IsRevoked {
+	if session.RevokedAt != nil {
 		return "", "", apperrors.ErrSessionRevoked
 	}
 
-	if time.Now().After(session.Expiry) {
+	if time.Now().UTC().After(session.ExpiresAt) {
 		return "", "", apperrors.ErrSessionExpired
 	}
 
@@ -147,15 +148,11 @@ func (as *AuthService) Refresh(
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	if err := as.sessions.Create(ctx, &models.Session{
-		UserID:    user.ID,
-		TokenHash: utils.HashToken(nextRefreshToken),
-	}); err != nil {
-		return "", "", fmt.Errorf("create session: %w", err)
-	}
-
-	if err := as.sessions.RevokeByID(ctx, session.ID); err != nil {
-		return "", "", fmt.Errorf("revoke session: %w", err)
+	if err := as.sessions.Rotate(ctx, newRefreshSession(
+		user.ID,
+		utils.HashToken(nextRefreshToken),
+	), session.ID); err != nil {
+		return "", "", fmt.Errorf("rotate session: %w", err)
 	}
 
 	return accessToken, nextRefreshToken, nil
@@ -174,7 +171,7 @@ func (as *AuthService) Logout(ctx context.Context, refreshToken string) error {
 		return err
 	}
 
-	if session.IsRevoked {
+	if session.RevokedAt != nil {
 		return nil
 	}
 
@@ -198,4 +195,12 @@ func loginIdentifier(email, mobileNo *string) (string, error) {
 	}
 
 	return strings.TrimSpace(*mobileNo), nil
+}
+
+func newRefreshSession(userID uint64, tokenHash string) *models.Session {
+	return &models.Session{
+		UserID:    userID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().UTC().Add(constant.RefreshTokenTTL),
+	}
 }

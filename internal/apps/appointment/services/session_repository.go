@@ -9,4 +9,5 @@ type SessionRepository interface {
 	Create(ctx context.Context, session *models.Session) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*models.Session, error)
 	RevokeByID(ctx context.Context, ID uint64) error
+	Rotate(ctx context.Context, next *models.Session, currentID uint64) error
 }

@@ -77,7 +77,7 @@ func Load() (Config, error) {
 		Auth: AuthConfig{
 			JWTSecret: env("JWT_SECRET", "appointment-local-jwt-secret-change-me"),
 			JWTIssuer: env("JWT_ISSUER", "appointment-system"),
-			TokenTTL:  constant.ACCESS_TOKEN_EXPIRATION * time.Second,
+			TokenTTL:  constant.AccessTokenTTL,
 		},
 	}
 
@@ -113,6 +113,12 @@ func Load() (Config, error) {
 	}
 	if len(config.Auth.JWTSecret) < 32 || config.Auth.JWTIssuer == "" || config.Auth.TokenTTL <= 0 {
 		return Config{}, fmt.Errorf("JWT_SECRET must contain at least 32 characters and JWT settings must be valid")
+	}
+	if _, explicitlySet := os.LookupEnv("JWT_SECRET"); !explicitlySet {
+		switch env("APP_ENV", env("GIN_MODE", "development")) {
+		case "production", "prod", "release":
+			return Config{}, fmt.Errorf("JWT_SECRET must be set explicitly in production; default local secret is not allowed")
+		}
 	}
 
 	return config, nil
