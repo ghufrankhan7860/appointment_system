@@ -5,7 +5,9 @@
 // strings, configuration keys, or mutable state.
 package constant
 
+import "time"
+
 const (
-	ACCESS_TOKEN_EXPIRATION       = 15 * 60 // 15 minutes in seconds
-	REFRESH_TOKEN_EXPIRATION_DAYS = 7       // 7 days
+	AccessTokenTTL  time.Duration = 15 * time.Minute
+	RefreshTokenTTL time.Duration = 7 * 24 * time.Hour
 )

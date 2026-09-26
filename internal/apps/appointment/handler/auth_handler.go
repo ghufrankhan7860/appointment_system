@@ -34,21 +34,21 @@ func (handler *AuthHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (handler *AuthHandler) Login(ctx *gin.Context) {
 	var loginRequest auth.LoginRequest
 	if err := ctx.ShouldBindJSON(&loginRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
 		return
 	}
 
 	response, err := handler.authController.Login(ctx.Request.Context(), &loginRequest)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrLoginIdentifier) {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Provide exactly one of email or mobileNo"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Provide exactly one of email or mobileNo"})
 			return
 		}
 		if errors.Is(err, apperrors.ErrInvalidCredentials) {
-			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid credentials"})
 			return
 		}
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to login"})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to login"})
 		return
 	}
 
@@ -62,21 +62,25 @@ func (handler *AuthHandler) Login(ctx *gin.Context) {
 func (ah *AuthHandler) Register(ctx *gin.Context) {
 	var registerRequest auth.RegisterRequest
 	if err := ctx.ShouldBindJSON(&registerRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
 		return
 	}
 
 	response, err := ah.authController.Register(ctx.Request.Context(), &registerRequest)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNilRegisterRequest) {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
 			return
 		}
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
+		if errors.Is(err, apperrors.ErrUserAlreadyExists) {
+			ctx.JSON(http.StatusConflict, gin.H{"success": false, "error": "User already exists"})
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to register user"})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
+	ctx.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"data":    response,
 		"message": "User registered successfully",
@@ -87,7 +91,7 @@ func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 	var refreshRequest auth.RefreshRequest
 	if err := ctx.ShouldBindJSON(&refreshRequest); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid Request payload"})
+			"success": false, "error": "Invalid Request payload"})
 		return
 	}
 
@@ -97,9 +101,9 @@ func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 		case errors.Is(err, apperrors.ErrSessionNotFound),
 			errors.Is(err, apperrors.ErrSessionRevoked),
 			errors.Is(err, apperrors.ErrSessionExpired):
-			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired refresh token"})
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid or expired refresh token"})
 		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh token"})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to refresh token"})
 		}
 		return
 	}
@@ -114,12 +118,19 @@ func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 func (handler *AuthHandler) Logout(ctx *gin.Context) {
 	var refreshRequest auth.RefreshRequest
 	if err := ctx.ShouldBindJSON(&refreshRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid Request payload"})
 		return
 	}
 
 	if err := handler.authController.Logout(ctx.Request.Context(), &refreshRequest); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout"})
+		if errors.Is(err, apperrors.ErrSessionNotFound) {
+			ctx.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"message": "Logged out successfully",
+			})
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to logout"})
 		return
 	}
 

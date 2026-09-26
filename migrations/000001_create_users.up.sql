@@ -5,6 +5,6 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     mobile_no VARCHAR(32) NOT NULL,
     role VARCHAR(32) NOT NULL CHECK (role IN ('patient', 'doctor')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
