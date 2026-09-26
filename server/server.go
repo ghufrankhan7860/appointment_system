@@ -31,7 +31,7 @@ type Server struct {
 }
 
 // New constructs a server from validated runtime policy.
-func New(config Config, healthChecker HealthChecker, authRoutes RouteRegistrar) (*Server, error) {
+func New(config Config, healthChecker HealthChecker, appRoutes RouteRegistrar) (*Server, error) {
 	if config.Address == "" {
 		return nil, errors.New("server address is required")
 	}
@@ -41,14 +41,14 @@ func New(config Config, healthChecker HealthChecker, authRoutes RouteRegistrar) 
 	if healthChecker == nil {
 		return nil, errors.New("health checker is required")
 	}
-	if authRoutes == nil {
-		return nil, errors.New("auth routes are required")
+	if appRoutes == nil {
+		return nil, errors.New("app routes are required")
 	}
 
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              config.Address,
-			Handler:           NewRouter(healthChecker, authRoutes),
+			Handler:           NewRouter(healthChecker, appRoutes),
 			ReadHeaderTimeout: config.ReadHeaderTimeout,
 			ReadTimeout:       config.ReadTimeout,
 			WriteTimeout:      config.WriteTimeout,
