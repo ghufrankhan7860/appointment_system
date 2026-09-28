@@ -44,6 +44,11 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize session repository: %w", err)
 	}
 
+	txManager, err := repositories.NewGORMTransactionManager(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize transaction manager: %w", err)
+	}
+
 	tokenGenerator, err := utils.NewJWTManager(jwtSecret, jwtIssuer, tokenTTL)
 	if err != nil {
 		return nil, fmt.Errorf("initialize token generator: %w", err)
@@ -53,6 +58,7 @@ func NewContainer(
 		userRepository,
 		sessionRepository,
 		tokenGenerator,
+		txManager,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize auth service: %w", err)

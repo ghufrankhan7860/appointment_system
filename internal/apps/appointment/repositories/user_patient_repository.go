@@ -52,7 +52,7 @@ func (repo *UserPatientRepository) Create(ctx context.Context, userPatient *mode
 		UpdatedAt:           now,
 	}
 
-	if err := repo.db.WithContext(ctx).Create(&record).Error; err != nil {
+	if err := dbFromContext(ctx, repo.db).Create(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return nil, apperrors.ErrUserPatientAlreadyExists
 		}
@@ -65,7 +65,7 @@ func (repo *UserPatientRepository) Create(ctx context.Context, userPatient *mode
 func (repo *UserPatientRepository) GetByUserAndPatient(ctx context.Context, userID uint64, patientID uint64) (*models.UserPatient, error) {
 	var record userPatientRecord
 
-	if err := repo.db.WithContext(ctx).
+	if err := dbFromContext(ctx, repo.db).
 		Where("user_id = ? AND patient_id = ?", userID, patientID).
 		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -77,10 +77,25 @@ func (repo *UserPatientRepository) GetByUserAndPatient(ctx context.Context, user
 	return toUserPatientModel(record), nil
 }
 
+func (repo *UserPatientRepository) GetActiveByUserAndPatient(ctx context.Context, userID uint64, patientID uint64) (*models.UserPatient, error) {
+	var record userPatientRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("user_id = ? AND patient_id = ? AND status = ?", userID, patientID, string(models.UserPatientStatusActive)).
+		First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrUserPatientNotFound
+		}
+		return nil, fmt.Errorf("get active user-patient by ids: %w", err)
+	}
+
+	return toUserPatientModel(record), nil
+}
+
 func (repo *UserPatientRepository) ListByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.UserPatient, error) {
 	var records []userPatientRecord
 
-	if err := repo.db.WithContext(ctx).
+	if err := dbFromContext(ctx, repo.db).
 		Where("patient_id = ?", patientID).
 		Order("user_id ASC").
 		Limit(limit).
@@ -99,7 +114,7 @@ func (repo *UserPatientRepository) ListByPatient(ctx context.Context, patientID 
 func (repo *UserPatientRepository) ListByUser(ctx context.Context, userID uint64, limit int, offset int) ([]*models.UserPatient, error) {
 	var records []userPatientRecord
 
-	if err := repo.db.WithContext(ctx).
+	if err := dbFromContext(ctx, repo.db).
 		Where("user_id = ?", userID).
 		Order("patient_id ASC").
 		Limit(limit).
@@ -128,7 +143,7 @@ func (repo *UserPatientRepository) Update(ctx context.Context, userPatient *mode
 		"updated_at":           now,
 	}
 
-	result := repo.db.WithContext(ctx).
+	result := dbFromContext(ctx, repo.db).
 		Model(&userPatientRecord{}).
 		Where("user_id = ? AND patient_id = ?", userPatient.UserID, userPatient.PatientID).
 		Updates(updates)
@@ -140,6 +155,25 @@ func (repo *UserPatientRepository) Update(ctx context.Context, userPatient *mode
 	}
 
 	return repo.GetByUserAndPatient(ctx, userPatient.UserID, userPatient.PatientID)
+}
+
+func (repo *UserPatientRepository) Revoke(ctx context.Context, userID uint64, patientID uint64) (*models.UserPatient, error) {
+	now := time.Now().UTC()
+	result := dbFromContext(ctx, repo.db).
+		Model(&userPatientRecord{}).
+		Where("user_id = ? AND patient_id = ?", userID, patientID).
+		Updates(map[string]interface{}{
+			"status":     string(models.UserPatientStatusRevoked),
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return nil, fmt.Errorf("revoke user-patient record: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, apperrors.ErrUserPatientNotFound
+	}
+
+	return repo.GetByUserAndPatient(ctx, userID, patientID)
 }
 
 func toUserPatientModel(record userPatientRecord) *models.UserPatient {
