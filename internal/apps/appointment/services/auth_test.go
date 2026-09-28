@@ -32,12 +32,12 @@ type fakeSessionRepo struct {
 	getErr       error
 	createErr    error
 	revokeErr    error
-	rotateErr    error
+	createCalled bool
 	revokeCalled bool
-	rotateCalled bool
 }
 
 func (f *fakeSessionRepo) Create(ctx context.Context, session *models.Session) error {
+	f.createCalled = true
 	return f.createErr
 }
 
@@ -51,14 +51,6 @@ func (f *fakeSessionRepo) GetByTokenHash(ctx context.Context, tokenHash string) 
 func (f *fakeSessionRepo) RevokeByID(ctx context.Context, id uint64) error {
 	f.revokeCalled = true
 	return f.revokeErr
-}
-
-func (f *fakeSessionRepo) Rotate(ctx context.Context, next *models.Session, currentID uint64) error {
-	f.rotateCalled = true
-	if f.rotateErr != nil {
-		return f.rotateErr
-	}
-	return f.createErr
 }
 
 type fakeTokenGen struct {
@@ -109,6 +101,7 @@ func TestAuthServiceRefreshSessionState(t *testing.T) {
 				&fakeUserRepo{user: &models.User{ID: 7}},
 				sessions,
 				&fakeTokenGen{token: "access-token"},
+				&fakeTxManager{},
 			)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
@@ -122,7 +115,8 @@ func TestAuthServiceRefreshSessionState(t *testing.T) {
 	}
 }
 
-func TestAuthServiceRefreshActiveSessionRotatesWithoutNewRevocation(t *testing.T) {
+func TestAuthServiceRefreshActiveSessionRotatesAtomically(t *testing.T) {
+	tx := &fakeTxManager{}
 	sessions := &fakeSessionRepo{
 		session: &models.Session{
 			ID:        3,
@@ -136,6 +130,7 @@ func TestAuthServiceRefreshActiveSessionRotatesWithoutNewRevocation(t *testing.T
 		&fakeUserRepo{user: &models.User{ID: 7}},
 		sessions,
 		&fakeTokenGen{token: "access-token"},
+		tx,
 	)
 	if err != nil {
 		t.Fatalf("NewAuthService returned error: %v", err)
@@ -148,11 +143,14 @@ func TestAuthServiceRefreshActiveSessionRotatesWithoutNewRevocation(t *testing.T
 	if accessToken == "" || nextRefreshToken == "" {
 		t.Fatalf("Refresh returned empty tokens: %q, %q", accessToken, nextRefreshToken)
 	}
-	if !sessions.rotateCalled {
-		t.Fatalf("Refresh did not rotate the consumed session")
+	if !tx.called {
+		t.Fatalf("Refresh did not run rotation in a transaction")
 	}
-	if sessions.revokeCalled {
-		t.Fatalf("Refresh should rotate atomically instead of revoking separately")
+	if !sessions.createCalled {
+		t.Fatalf("Refresh did not create the rotated session")
+	}
+	if !sessions.revokeCalled {
+		t.Fatalf("Refresh did not revoke the consumed session")
 	}
 }
 
@@ -171,6 +169,7 @@ func TestAuthServiceLogoutRevokedSessionIsIdempotent(t *testing.T) {
 		&fakeUserRepo{},
 		sessions,
 		&fakeTokenGen{},
+		&fakeTxManager{},
 	)
 	if err != nil {
 		t.Fatalf("NewAuthService returned error: %v", err)
@@ -181,5 +180,21 @@ func TestAuthServiceLogoutRevokedSessionIsIdempotent(t *testing.T) {
 	}
 	if sessions.revokeCalled {
 		t.Fatalf("Logout revoked an already-revoked session")
+	}
+}
+
+func TestNewAuthServiceValidation(t *testing.T) {
+	tx := &fakeTxManager{}
+	if _, err := NewAuthService(nil, &fakeSessionRepo{}, &fakeTokenGen{}, tx); !errors.Is(err, apperrors.ErrNilUserRepository) {
+		t.Fatalf("nil users error = %v", err)
+	}
+	if _, err := NewAuthService(&fakeUserRepo{}, nil, &fakeTokenGen{}, tx); !errors.Is(err, apperrors.ErrNilSessionRepository) {
+		t.Fatalf("nil sessions error = %v", err)
+	}
+	if _, err := NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, nil, tx); !errors.Is(err, apperrors.ErrNilTokenGenerator) {
+		t.Fatalf("nil tokens error = %v", err)
+	}
+	if _, err := NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, &fakeTokenGen{}, nil); !errors.Is(err, apperrors.ErrNilTransactionManager) {
+		t.Fatalf("nil tx error = %v", err)
 	}
 }

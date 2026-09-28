@@ -56,7 +56,7 @@ func (repo *UserRepository) Create(ctx context.Context, user *models.User) (*mod
 		UpdatedAt:    now,
 	}
 
-	if err := repo.db.WithContext(ctx).Create(&record).Error; err != nil {
+	if err := dbFromContext(ctx, repo.db).Create(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return nil, apperrors.ErrUserAlreadyExists
 		}
@@ -81,7 +81,7 @@ func (repo *UserRepository) FindByLogin(ctx context.Context, identifier string) 
 	emailIdentifier := strings.ToLower(strings.TrimSpace(identifier))
 	mobileIdentifier := strings.TrimSpace(identifier)
 
-	if err := repo.db.WithContext(ctx).
+	if err := dbFromContext(ctx, repo.db).
 		Where("LOWER(email) = ? OR mobile_no = ?", emailIdentifier, mobileIdentifier).
 		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -106,7 +106,7 @@ func (repo *UserRepository) FindByLogin(ctx context.Context, identifier string) 
 func (repo *UserRepository) GetByID(ctx context.Context, id uint64) (*models.User, error) {
 	var record userRecord
 
-	if err := repo.db.WithContext(ctx).
+	if err := dbFromContext(ctx, repo.db).
 		Where("id = ?", id).
 		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

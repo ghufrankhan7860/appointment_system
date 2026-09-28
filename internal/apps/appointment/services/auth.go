@@ -17,6 +17,7 @@ type AuthService struct {
 	users    UserRepository
 	sessions SessionRepository
 	tokens   TokenGenerator
+	tx       TransactionManager
 }
 
 type TokenGenerator interface {
@@ -27,6 +28,7 @@ func NewAuthService(
 	users UserRepository,
 	sessions SessionRepository,
 	tokens TokenGenerator,
+	tx TransactionManager,
 ) (*AuthService, error) {
 	if users == nil {
 		return nil, apperrors.ErrNilUserRepository
@@ -37,11 +39,15 @@ func NewAuthService(
 	if tokens == nil {
 		return nil, apperrors.ErrNilTokenGenerator
 	}
+	if tx == nil {
+		return nil, apperrors.ErrNilTransactionManager
+	}
 
 	return &AuthService{
 		users:    users,
 		sessions: sessions,
 		tokens:   tokens,
+		tx:       tx,
 	}, nil
 }
 
@@ -148,10 +154,19 @@ func (as *AuthService) Refresh(
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	if err := as.sessions.Rotate(ctx, newRefreshSession(
+	nextSession := newRefreshSession(
 		user.ID,
 		utils.HashToken(nextRefreshToken),
-	), session.ID); err != nil {
+	)
+	if err := as.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := as.sessions.Create(txCtx, nextSession); err != nil {
+			return fmt.Errorf("create rotated session: %w", err)
+		}
+		if err := as.sessions.RevokeByID(txCtx, session.ID); err != nil {
+			return fmt.Errorf("revoke rotated session: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return "", "", fmt.Errorf("rotate session: %w", err)
 	}
 

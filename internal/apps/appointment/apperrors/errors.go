@@ -11,6 +11,7 @@ var (
 	ErrNilSessionRepository     = errors.New("session repository is nil")
 	ErrNilPatientRepository     = errors.New("patient repository is nil")
 	ErrNilUserPatientRepository = errors.New("user-patient repository is nil")
+	ErrNilTransactionManager    = errors.New("transaction manager is nil")
 )
 
 var (
@@ -33,7 +34,9 @@ var (
 
 var (
 	ErrNilPatientRequest        = errors.New("patient request is nil")
+	ErrInvalidPatientInput      = errors.New("invalid patient input")
 	ErrPatientNotFound          = errors.New("patient not found")
+	ErrPatientForbidden         = errors.New("patient access forbidden")
 	ErrPatientAlreadyExists     = errors.New("patient already exists")
 	ErrNilUserPatientRequest    = errors.New("user-patient request is nil")
 	ErrUserPatientNotFound      = errors.New("user-patient not found")

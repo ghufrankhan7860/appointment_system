@@ -59,7 +59,7 @@ func (sr *SessionRepository) Create(
 		UpdatedAt: now,
 	}
 
-	if err := sr.db.WithContext(ctx).Create(&record).Error; err != nil {
+	if err := dbFromContext(ctx, sr.db).Create(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return apperrors.ErrTokenAlreadyExists
 		}
@@ -82,7 +82,7 @@ func (sr *SessionRepository) GetByTokenHash(
 ) (*models.Session, error) {
 	var record sessionRecord
 
-	if err := sr.db.WithContext(ctx).
+	if err := dbFromContext(ctx, sr.db).
 		Where("token_hash = ?", tokenHash).
 		First(&record).Error; err != nil {
 
@@ -111,7 +111,7 @@ func (sr *SessionRepository) RevokeByID(
 	id uint64,
 ) error {
 	now := time.Now().UTC()
-	result := sr.db.WithContext(ctx).
+	result := dbFromContext(ctx, sr.db).
 		Model(&sessionRecord{}).
 		Where("id = ? AND revoked_at IS NULL", id).
 		Updates(map[string]interface{}{
@@ -128,57 +128,4 @@ func (sr *SessionRepository) RevokeByID(
 	}
 
 	return nil
-}
-
-func (sr *SessionRepository) Rotate(
-	ctx context.Context,
-	next *models.Session,
-	currentID uint64,
-) error {
-	if next == nil {
-		return apperrors.ErrNilSessionRequest
-	}
-	if next.ExpiresAt.IsZero() {
-		return apperrors.ErrSessionExpiryMissing
-	}
-
-	return sr.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := time.Now().UTC()
-
-		nextRecord := sessionRecord{
-			UserID:    next.UserID,
-			TokenHash: next.TokenHash,
-			ExpiresAt: next.ExpiresAt,
-			RevokedAt: nil,
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
-		if err := tx.Create(&nextRecord).Error; err != nil {
-			if errors.Is(err, gorm.ErrDuplicatedKey) {
-				return apperrors.ErrTokenAlreadyExists
-			}
-			return fmt.Errorf("error saving rotated refresh token: %w", err)
-		}
-
-		revoke := tx.Model(&sessionRecord{}).
-			Where("id = ? AND revoked_at IS NULL", currentID).
-			Updates(map[string]interface{}{
-				"revoked_at": now,
-				"updated_at": now,
-			})
-		if revoke.Error != nil {
-			return fmt.Errorf("error revoking rotated session: %w", revoke.Error)
-		}
-		if revoke.RowsAffected == 0 {
-			return apperrors.ErrSessionNotFound
-		}
-
-		next.ID = nextRecord.ID
-		next.ExpiresAt = nextRecord.ExpiresAt
-		next.RevokedAt = nextRecord.RevokedAt
-		next.CreatedAt = nextRecord.CreatedAt
-		next.UpdatedAt = nextRecord.UpdatedAt
-
-		return nil
-	})
 }
