@@ -55,3 +55,20 @@ func (manager *JWTManager) Generate(user models.User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(manager.secret)
 }
+
+// ParseUserID validates an access token (HS256 only, issuer, expiry) and
+// returns the user ID carried in its subject claim.
+func (manager *JWTManager) ParseUserID(tokenString string) (uint64, error) {
+	var claims authClaims
+	_, err := jwt.ParseWithClaims(tokenString, &claims, func(*jwt.Token) (any, error) {
+		return manager.secret, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(manager.issuer), jwt.WithExpirationRequired())
+	if err != nil {
+		return 0, err
+	}
+	userID, err := strconv.ParseUint(claims.Subject, 10, 64)
+	if err != nil || userID == 0 {
+		return 0, errors.New("invalid token subject")
+	}
+	return userID, nil
+}

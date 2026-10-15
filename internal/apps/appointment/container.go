@@ -25,7 +25,8 @@ import (
 // It takes only narrow infrastructure values (a query handle plus token
 // policy), never a broad store, config object, or request-scoped state.
 type Container struct {
-	AuthHandler *handler.AuthHandler
+	AuthHandler    *handler.AuthHandler
+	PatientHandler *handler.PatientHandler
 }
 
 func NewContainer(
@@ -74,11 +75,38 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize auth handler: %w", err)
 	}
 
+	patientRepository, err := repositories.NewPatientRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient repository: %w", err)
+	}
+
+	userPatientRepository, err := repositories.NewUserPatientRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize user-patient repository: %w", err)
+	}
+
+	patientService, err := services.NewPatientService(patientRepository, userPatientRepository, txManager)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient service: %w", err)
+	}
+
+	patientController, err := controller.NewPatientController(patientService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient controller: %w", err)
+	}
+
+	patientHandler, err := handler.NewPatientHandler(patientController, tokenGenerator.ParseUserID)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient handler: %w", err)
+	}
+
 	return &Container{
-		AuthHandler: authHandler,
+		AuthHandler:    authHandler,
+		PatientHandler: patientHandler,
 	}, nil
 }
 
 func (c *Container) RegisterRoutes(router *gin.RouterGroup) {
 	c.AuthHandler.RegisterRoutes(router)
+	c.PatientHandler.RegisterRoutes(router)
 }

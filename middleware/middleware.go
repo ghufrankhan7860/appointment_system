@@ -40,7 +40,38 @@ func AppContext() gin.HandlerFunc {
 	}
 }
 
-func newCorrelationID() (string, error) {
+const userIDKey = "userID"
+
+// RequireAuth rejects requests without a valid Bearer token. verify returns the
+// authenticated user ID; handlers read it with UserID.
+func RequireAuth(verify func(token string) (uint64, error)) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		scheme, token, ok := strings.Cut(ctx.GetHeader("Authorization"), " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") {
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Missing or invalid authorization header"})
+			return
+		}
+		userID, err := verify(strings.TrimSpace(token))
+		if err != nil {
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid or expired token"})
+			return
+		}
+		ctx.Set(userIDKey, userID)
+		ctx.Next()
+	}
+}
+
+// UserID returns the user ID set by RequireAuth.
+func UserID(ctx *gin.Context) (uint64, bool) {
+	id, ok := ctx.Get(userIDKey)
+	if !ok {
+		return 0, false
+	}
+	userID, ok := id.(uint64)
+	return userID, ok
+}
+
+func newCorrelationID()(string, error) {
 	value := make([]byte, 16)
 	if _, err := rand.Read(value); err != nil {
 		return "", err
