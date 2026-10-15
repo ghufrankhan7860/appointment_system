@@ -9,6 +9,8 @@ var (
 	ErrNilAuthService           = errors.New("auth service is nil")
 	ErrNilAuthController        = errors.New("auth controller is nil")
 	ErrNilSessionRepository     = errors.New("session repository is nil")
+	ErrNilPatientService        = errors.New("patient service is nil")
+	ErrNilPatientController     = errors.New("patient controller is nil")
 	ErrNilPatientRepository     = errors.New("patient repository is nil")
 	ErrNilUserPatientRepository = errors.New("user-patient repository is nil")
 	ErrNilTransactionManager    = errors.New("transaction manager is nil")

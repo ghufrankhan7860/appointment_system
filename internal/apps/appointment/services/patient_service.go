@@ -20,26 +20,26 @@ const (
 // cross-repository orchestration. It never deletes a canonical patient;
 // access removal is a link revoke owned elsewhere.
 type PatientService struct {
-	patients PatientRepository
-	links    UserPatientRepository
-	tx       TransactionManager
+	patients     PatientRepository
+	userPatients UserPatientRepository
+	tx           TransactionManager
 }
 
 func NewPatientService(
 	patients PatientRepository,
-	links UserPatientRepository,
+	userPatients UserPatientRepository,
 	tx TransactionManager,
 ) (*PatientService, error) {
 	if patients == nil {
 		return nil, apperrors.ErrNilPatientRepository
 	}
-	if links == nil {
+	if userPatients == nil {
 		return nil, apperrors.ErrNilUserPatientRepository
 	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
-	return &PatientService{patients: patients, links: links, tx: tx}, nil
+	return &PatientService{patients: patients, userPatients: userPatients, tx: tx}, nil
 }
 
 func (s *PatientService) Create(
@@ -77,7 +77,7 @@ func (s *PatientService) Create(
 			AccessLevel:         models.AccessLevelFull,
 			Status:              models.UserPatientStatusActive,
 		}
-		if _, err := s.links.Create(txCtx, link); err != nil {
+		if _, err := s.userPatients.Create(txCtx, link); err != nil {
 			if errors.Is(err, apperrors.ErrUserPatientAlreadyExists) {
 				return err
 			}
@@ -112,7 +112,7 @@ func (s *PatientService) GetByID(
 		return nil, fmt.Errorf("get patient with missing ids: %w", apperrors.ErrInvalidPatientInput)
 	}
 
-	if _, err := s.links.GetActiveByUserAndPatient(ctx, actingUserID, patientID); err != nil {
+	if _, err := s.userPatients.GetActiveByUserAndPatient(ctx, actingUserID, patientID); err != nil {
 		if errors.Is(err, apperrors.ErrUserPatientNotFound) {
 			return nil, apperrors.ErrPatientNotFound
 		}
@@ -145,16 +145,16 @@ func (s *PatientService) List(
 
 	limit, offset = clampPatientPagination(limit, offset)
 
-	links, err := s.links.ListByUser(ctx, actingUserID, limit, offset)
+	userPatients, err := s.userPatients.ListByUser(ctx, actingUserID, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("list user-patient links: %w", err)
+		return nil, fmt.Errorf("list user-patient userPatients: %w", err)
 	}
-	if len(links) == 0 {
+	if len(userPatients) == 0 {
 		return []*models.Patient{}, nil
 	}
 
-	ids := make([]uint64, 0, len(links))
-	for _, link := range links {
+	ids := make([]uint64, 0, len(userPatients))
+	for _, link := range userPatients {
 		if link == nil {
 			continue
 		}
@@ -205,7 +205,7 @@ func (s *PatientService) Update(
 		return nil, err
 	}
 
-	link, err := s.links.GetActiveByUserAndPatient(ctx, actingUserID, patient.ID)
+	link, err := s.userPatients.GetActiveByUserAndPatient(ctx, actingUserID, patient.ID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrUserPatientNotFound) {
 			return nil, apperrors.ErrPatientNotFound
