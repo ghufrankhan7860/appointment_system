@@ -4,7 +4,7 @@
         {
             "label": "Start PostgreSQL",
             "type": "shell",
-            "command": "docker compose -f deploy/compose.yaml up -d --wait",
+            "command": "docker compose -f deploy/compose.yaml up -d --wait postgres migrate",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
