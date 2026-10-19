@@ -34,6 +34,7 @@ type HTTPConfig struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
+	SwaggerEnabled    bool
 }
 
 type DatabaseConfig struct {
@@ -115,11 +116,12 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("JWT_SECRET must contain at least 32 characters and JWT settings must be valid")
 	}
 	if _, explicitlySet := os.LookupEnv("JWT_SECRET"); !explicitlySet {
-		switch env("APP_ENV", env("GIN_MODE", "development")) {
-		case "production", "prod", "release":
+		if isProductionEnvironment() {
 			return Config{}, fmt.Errorf("JWT_SECRET must be set explicitly in production; default local secret is not allowed")
 		}
 	}
+
+	config.HTTP.SwaggerEnabled = !isProductionEnvironment()
 
 	return config, nil
 }
@@ -142,4 +144,13 @@ func envInt(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
 	}
 	return parsed, nil
+}
+
+func isProductionEnvironment() bool {
+	switch env("APP_ENV", env("GIN_MODE", "development")) {
+	case "production", "prod", "release":
+		return true
+	default:
+		return false
+	}
 }

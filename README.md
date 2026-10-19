@@ -715,6 +715,26 @@ PUT  /patients/:id       update a patient (requires full access)
 
 Appointment endpoints are not implemented yet.
 
+### Swagger UI
+
+With the API running, open:
+
+`http://localhost:8080/swagger/index.html`
+
+To call the protected patient endpoints: run **POST /auth/register** then **POST /auth/login**, copy the `jwtToken` from the response, click **Authorize**, and enter `Bearer <jwtToken>`.
+
+The UI is served only outside production. It is disabled when `APP_ENV` (or, if unset, `GIN_MODE`) is `production`, `prod` or `release`, which includes the `api` service in `deploy/compose.yaml`.
+
+The spec is generated from the `// @...` annotations above each handler and is committed in `docs/swagger/`. After changing a route, DTO or status code, update the annotations and regenerate:
+
+```powershell
+
+go install github.com/swaggo/swag/cmd/swag@v1.16.6
+
+go generate ./...
+
+```
+
 ## First Commands
 
 ```powershell

@@ -28,6 +28,11 @@ Also follow `.github/copilot-instructions.md` and `docs/BACKEND_ARCHITECTURE_GUI
 - Multi-parameter service signatures use one parameter per line.
 - New files match the line endings of their neighbours; do not run gofmt over files you did not change.
 
+## API docs
+- Every handler method carries swaggo annotations (`// Create godoc`, `@Summary`, `@Tags`, `@Param`, `@Success`, one `@Failure` per status the handler returns, `@Router`; add `@Security BearerAuth` on protected routes). These are the one allowed exception to the "no narrating comments" rule.
+- Responses are still written with `gin.H`; `dtos.SuccessResponse` / `dtos.ErrorResponse` exist only to document the envelope.
+- After changing a route, DTO or status code, update the annotations and run `go generate ./...`, then commit `docs/swagger/`. The Swagger UI is mounted only outside production (`HTTPConfig.SwaggerEnabled`).
+
 ## Tests
 - Same package, stdlib `testing` only, no testify, no mock libraries.
 - Hand-written `fakeXxx` types with receiver `f`, table-driven tests with `name` / `wantErr` / `t.Run`, `errors.Is` for error checks.

@@ -40,6 +40,20 @@ func (ph *PatientHandler) RegisterRoutes(router *gin.RouterGroup) {
 	patients.PUT("/:id", ph.Update)
 }
 
+// Create godoc
+// @Summary Create a patient
+// @Description Creates a patient and links it to the caller with full access.
+// @Tags patients
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body patient.CreatePatientRequest true "Patient details"
+// @Success 201 {object} dtos.SuccessResponse{data=patient.CreatePatientResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 409 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /patients [post]
 func (ph *PatientHandler) Create(ctx *gin.Context) {
 	var createPatientRequest patient.CreatePatientRequest
 	if err := ctx.ShouldBindJSON(&createPatientRequest); err != nil {
@@ -70,6 +84,19 @@ func (ph *PatientHandler) Create(ctx *gin.Context) {
 	})
 }
 
+// GetByID godoc
+// @Summary Get a patient
+// @Description Returns a patient the caller has active access to. Other patients are reported as not found.
+// @Tags patients
+// @Security BearerAuth
+// @Produce json
+// @Param id path int true "Patient ID"
+// @Success 200 {object} dtos.SuccessResponse{data=patient.GetPatientResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /patients/{id} [get]
 func (ph *PatientHandler) GetByID(ctx *gin.Context) {
 	var getPatientRequest patient.GetPatientRequest
 	if err := ctx.ShouldBindUri(&getPatientRequest); err != nil {
@@ -99,6 +126,19 @@ func (ph *PatientHandler) GetByID(ctx *gin.Context) {
 	})
 }
 
+// List godoc
+// @Summary List patients
+// @Description Lists the patients the caller has active access to. Limit defaults to 20 and is capped at 100.
+// @Tags patients
+// @Security BearerAuth
+// @Produce json
+// @Param limit query int false "Page size"
+// @Param offset query int false "Number of patients to skip"
+// @Success 200 {object} dtos.SuccessResponse{data=patient.ListPatientsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /patients [get]
 func (ph *PatientHandler) List(ctx *gin.Context) {
 	var listPatientsRequest patient.ListPatientsRequest
 	if err := ctx.ShouldBindQuery(&listPatientsRequest); err != nil {
@@ -126,6 +166,22 @@ func (ph *PatientHandler) List(ctx *gin.Context) {
 	})
 }
 
+// Update godoc
+// @Summary Update a patient
+// @Description Updates a patient. Requires full access to the patient.
+// @Tags patients
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path int true "Patient ID"
+// @Param request body patient.UpdatePatientRequest true "Patient details"
+// @Success 200 {object} dtos.SuccessResponse{data=patient.UpdatePatientResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /patients/{id} [put]
 func (ph *PatientHandler) Update(ctx *gin.Context) {
 	var updatePatientRequest patient.UpdatePatientRequest
 	if err := ctx.ShouldBindJSON(&updatePatientRequest); err != nil {

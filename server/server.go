@@ -22,6 +22,7 @@ type Config struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
+	SwaggerEnabled    bool
 }
 
 // Server owns the HTTP server lifecycle.
@@ -45,10 +46,15 @@ func New(config Config, healthChecker HealthChecker, appRoutes RouteRegistrar) (
 		return nil, errors.New("app routes are required")
 	}
 
+	router := NewRouter(healthChecker, appRoutes)
+	if config.SwaggerEnabled {
+		registerSwaggerRoute(router)
+	}
+
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              config.Address,
-			Handler:           NewRouter(healthChecker, appRoutes),
+			Handler:           router,
 			ReadHeaderTimeout: config.ReadHeaderTimeout,
 			ReadTimeout:       config.ReadTimeout,
 			WriteTimeout:      config.WriteTimeout,

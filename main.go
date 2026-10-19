@@ -9,6 +9,16 @@ import (
 	"appointment_system/cmd"
 )
 
+//go:generate swag init -g main.go -o docs/swagger --parseInternal
+
+// @title Appointment System API
+// @version 1.0
+// @description Appointment management backend: accounts, patients and the user-patient access model.
+// @BasePath /api/v1
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and the jwtToken returned by login.
 func main() {
 	if err := cmd.Execute(); err != nil {
 		log.Printf("application stopped: %v", err)

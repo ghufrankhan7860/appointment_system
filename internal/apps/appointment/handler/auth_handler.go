@@ -31,6 +31,18 @@ func (handler *AuthHandler) RegisterRoutes(router *gin.RouterGroup) {
 	auth.POST("/logout", handler.Logout)
 }
 
+// Login godoc
+// @Summary Log in
+// @Description Log in with exactly one of email or mobileNo and a password.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body auth.LoginRequest true "Login credentials"
+// @Success 200 {object} dtos.SuccessResponse{data=auth.LoginResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /auth/login [post]
 func (handler *AuthHandler) Login(ctx *gin.Context) {
 	var loginRequest auth.LoginRequest
 	if err := ctx.ShouldBindJSON(&loginRequest); err != nil {
@@ -59,6 +71,17 @@ func (handler *AuthHandler) Login(ctx *gin.Context) {
 	})
 }
 
+// Register godoc
+// @Summary Register an account
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body auth.RegisterRequest true "Account details"
+// @Success 201 {object} dtos.SuccessResponse{data=auth.RegisterResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 409 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /auth/register [post]
 func (ah *AuthHandler) Register(ctx *gin.Context) {
 	var registerRequest auth.RegisterRequest
 	if err := ctx.ShouldBindJSON(&registerRequest); err != nil {
@@ -87,6 +110,18 @@ func (ah *AuthHandler) Register(ctx *gin.Context) {
 	})
 }
 
+// RefreshToken godoc
+// @Summary Refresh the access token
+// @Description Rotates the refresh token and returns a new jwtToken and refreshToken.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body auth.RefreshRequest true "Refresh token"
+// @Success 200 {object} dtos.SuccessResponse{data=auth.RefreshResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /auth/refresh [post]
 func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 	var refreshRequest auth.RefreshRequest
 	if err := ctx.ShouldBindJSON(&refreshRequest); err != nil {
@@ -115,6 +150,17 @@ func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 	})
 }
 
+// Logout godoc
+// @Summary Log out
+// @Description Revokes the refresh token. Logging out an unknown token still succeeds.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body auth.RefreshRequest true "Refresh token"
+// @Success 200 {object} dtos.SuccessResponse
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /auth/logout [post]
 func (handler *AuthHandler) Logout(ctx *gin.Context) {
 	var refreshRequest auth.RefreshRequest
 	if err := ctx.ShouldBindJSON(&refreshRequest); err != nil {

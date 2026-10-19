@@ -1,0 +1,582 @@
+basePath: /api/v1
+definitions:
+  auth.LoginRequest:
+    properties:
+      email:
+        type: string
+      mobileNo:
+        type: string
+      password:
+        maxLength: 72
+        minLength: 6
+        type: string
+    required:
+    - password
+    type: object
+  auth.LoginResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      jwtToken:
+        type: string
+      mobileNo:
+        type: string
+      name:
+        type: string
+      refreshToken:
+        type: string
+      role:
+        type: string
+    type: object
+  auth.RefreshRequest:
+    properties:
+      token:
+        type: string
+    required:
+    - token
+    type: object
+  auth.RefreshResponse:
+    properties:
+      jwtToken:
+        type: string
+      refreshToken:
+        type: string
+    type: object
+  auth.RegisterRequest:
+    properties:
+      email:
+        type: string
+      mobileNo:
+        type: string
+      name:
+        type: string
+      password:
+        maxLength: 72
+        minLength: 6
+        type: string
+      role:
+        enum:
+        - patient
+        - doctor
+        type: string
+    required:
+    - email
+    - mobileNo
+    - name
+    - password
+    - role
+    type: object
+  auth.RegisterResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      mobileNo:
+        type: string
+      name:
+        type: string
+      role:
+        type: string
+    type: object
+  dtos.ErrorResponse:
+    properties:
+      error:
+        type: string
+      success:
+        type: boolean
+    type: object
+  dtos.SuccessResponse:
+    properties:
+      data: {}
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  patient.CreatePatientRequest:
+    properties:
+      bloodType:
+        enum:
+        - A+
+        - A-
+        - B+
+        - B-
+        - AB+
+        - AB-
+        - O+
+        - O-
+        example: O+
+        type: string
+      dateOfBirth:
+        example: "1990-01-02"
+        type: string
+      emergencyContact:
+        example: "9876543210"
+        type: string
+      gender:
+        enum:
+        - Male
+        - Female
+        - Other
+        - Unknown
+        example: Female
+        type: string
+      name:
+        example: Asha Verma
+        type: string
+      relationship:
+        enum:
+        - self
+        - father
+        - mother
+        - spouse
+        - child
+        - sibling
+        - guardian
+        - caregiver
+        - other
+        example: self
+        type: string
+    required:
+    - bloodType
+    - dateOfBirth
+    - gender
+    - name
+    - relationship
+    type: object
+  patient.CreatePatientResponse:
+    properties:
+      bloodType:
+        type: string
+      dateOfBirth:
+        example: "1990-01-02"
+        type: string
+      emergencyContact:
+        type: string
+      gender:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  patient.GetPatientResponse:
+    properties:
+      bloodType:
+        type: string
+      dateOfBirth:
+        type: string
+      emergencyContact:
+        type: string
+      gender:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  patient.ListPatientsResponse:
+    properties:
+      patients:
+        items:
+          $ref: '#/definitions/patient.GetPatientResponse'
+        type: array
+    type: object
+  patient.UpdatePatientRequest:
+    properties:
+      bloodType:
+        enum:
+        - A+
+        - A-
+        - B+
+        - B-
+        - AB+
+        - AB-
+        - O+
+        - O-
+        example: O+
+        type: string
+      dateOfBirth:
+        example: "1990-01-02"
+        type: string
+      emergencyContact:
+        example: "9876543210"
+        type: string
+      gender:
+        enum:
+        - Male
+        - Female
+        - Other
+        - Unknown
+        example: Female
+        type: string
+      name:
+        example: Asha Verma
+        type: string
+    required:
+    - bloodType
+    - dateOfBirth
+    - gender
+    - name
+    type: object
+  patient.UpdatePatientResponse:
+    properties:
+      bloodType:
+        type: string
+      dateOfBirth:
+        example: "1990-01-02"
+        type: string
+      emergencyContact:
+        type: string
+      gender:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: 'Appointment management backend: accounts, patients and the user-patient
+    access model.'
+  title: Appointment System API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Log in with exactly one of email or mobileNo and a password.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.LoginResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Log in
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Revokes the refresh token. Logging out an unknown token still succeeds.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Log out
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Rotates the refresh token and returns a new jwtToken and refreshToken.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.RefreshResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Refresh the access token
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Account details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.RegisterResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Register an account
+      tags:
+      - auth
+  /patients:
+    get:
+      description: Lists the patients the caller has active access to. Limit defaults
+        to 20 and is capped at 100.
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Number of patients to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.ListPatientsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List patients
+      tags:
+      - patients
+    post:
+      consumes:
+      - application/json
+      description: Creates a patient and links it to the caller with full access.
+      parameters:
+      - description: Patient details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/patient.CreatePatientRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.CreatePatientResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a patient
+      tags:
+      - patients
+  /patients/{id}:
+    get:
+      description: Returns a patient the caller has active access to. Other patients
+        are reported as not found.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.GetPatientResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a patient
+      tags:
+      - patients
+    put:
+      consumes:
+      - application/json
+      description: Updates a patient. Requires full access to the patient.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Patient details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/patient.UpdatePatientRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.UpdatePatientResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a patient
+      tags:
+      - patients
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and the jwtToken returned by login.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
