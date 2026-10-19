@@ -31,7 +31,7 @@ Also follow `.github/copilot-instructions.md` and `docs/BACKEND_ARCHITECTURE_GUI
 ## API docs
 - Every handler method carries swaggo annotations (`// Create godoc`, `@Summary`, `@Tags`, `@Param`, `@Success`, one `@Failure` per status the handler returns, `@Router`; add `@Security BearerAuth` on protected routes). These are the one allowed exception to the "no narrating comments" rule.
 - Responses are still written with `gin.H`; `dtos.SuccessResponse` / `dtos.ErrorResponse` exist only to document the envelope.
-- After changing a route, DTO or status code, update the annotations and run `go generate ./...`, then commit `docs/swagger/`. The Swagger UI is mounted only outside production (`HTTPConfig.SwaggerEnabled`).
+- After changing a route, DTO or status code, update the annotations and run `go generate ./...`, then commit `docs/swagger/`. The Swagger UI exists only in builds with `-tags swagger` (`server/swagger.go`); `server/swagger_off.go` is the default no-op, so production builds compile it out. Never gate Swagger with a runtime flag or env var. Run `make test` and `make vet`, which cover both builds.
 
 ## Tests
 - Same package, stdlib `testing` only, no testify, no mock libraries.

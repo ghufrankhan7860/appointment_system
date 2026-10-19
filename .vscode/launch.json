@@ -7,6 +7,7 @@
             "request": "launch",
             "mode": "debug",
             "program": "${workspaceFolder}",
+            "buildFlags": "-tags=swagger",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Start PostgreSQL",
             "env": {

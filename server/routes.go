@@ -5,12 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	_ "appointment_system/docs/swagger"
 	"appointment_system/middleware"
 
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 // HealthChecker describes the dependency readiness behavior consumed by HTTP.
@@ -33,6 +30,7 @@ func NewRouter(healthChecker HealthChecker, appRoutes RouteRegistrar) *gin.Engin
 	)
 
 	registerHealthRoute(router, healthChecker)
+	registerSwaggerRoute(router)
 
 	api := router.Group("/api/v1")
 	appRoutes.RegisterRoutes(api)
@@ -57,8 +55,4 @@ func registerHealthRoute(router gin.IRoutes, healthChecker HealthChecker) {
 			"database": "ok",
 		})
 	})
-}
-
-func registerSwaggerRoute(router gin.IRoutes) {
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }

@@ -72,7 +72,6 @@ func Execute() error {
 		WriteTimeout:      config.HTTP.WriteTimeout,
 		IdleTimeout:       config.HTTP.IdleTimeout,
 		ShutdownTimeout:   config.HTTP.ShutdownTimeout,
-		SwaggerEnabled:    config.HTTP.SwaggerEnabled,
 	}, store, app)
 	if err != nil {
 		return fmt.Errorf("initialize HTTP server: %w", err)

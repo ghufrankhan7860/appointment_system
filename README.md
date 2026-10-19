@@ -723,7 +723,17 @@ With the API running, open:
 
 To call the protected patient endpoints: run **POST /auth/register** then **POST /auth/login**, copy the `jwtToken` from the response, click **Authorize**, and enter `Bearer <jwtToken>`.
 
-The UI is served only outside production. It is disabled when `APP_ENV` (or, if unset, `GIN_MODE`) is `production`, `prod` or `release`, which includes the `api` service in `deploy/compose.yaml`.
+Swagger is chosen at build time with the `swagger` Go build tag, not by an environment variable. Local builds include it: `make up`, `make run` and the VS Code **Debug Appointment API** launch all build with `-tags swagger`. A plain `go build` or `docker build` (what production uses) compiles it out, so the binary contains no Swagger code or route and no setting can turn it on.
+
+```powershell
+
+make up                    # Docker, Swagger on
+
+make run                   # go run -tags swagger .
+
+go run .                   # no tag, no Swagger
+
+```
 
 The spec is generated from the `// @...` annotations above each handler and is committed in `docs/swagger/`. After changing a route, DTO or status code, update the annotations and regenerate:
 

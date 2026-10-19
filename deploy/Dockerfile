@@ -6,7 +6,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+
+# Empty for production. make up passes "swagger" to include the Swagger UI.
+ARG GO_BUILD_TAGS=
+RUN CGO_ENABLED=0 GOOS=linux go build -tags "${GO_BUILD_TAGS}" -trimpath -ldflags="-s -w" \
     -o /out/appointment-api .
 
 FROM gcr.io/distroless/static-debian12:nonroot

@@ -34,7 +34,6 @@ type HTTPConfig struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
-	SwaggerEnabled    bool
 }
 
 type DatabaseConfig struct {
@@ -120,8 +119,6 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("JWT_SECRET must be set explicitly in production; default local secret is not allowed")
 		}
 	}
-
-	config.HTTP.SwaggerEnabled = !isProductionEnvironment()
 
 	return config, nil
 }
