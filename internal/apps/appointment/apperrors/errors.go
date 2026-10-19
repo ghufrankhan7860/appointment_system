@@ -6,6 +6,7 @@ var (
 	ErrNilDB                    = errors.New("db is nil")
 	ErrNilUserRepository        = errors.New("user repository is nil")
 	ErrNilTokenGenerator        = errors.New("token generator is nil")
+	ErrNilTokenVerifier         = errors.New("token verifier is nil")
 	ErrNilAuthService           = errors.New("auth service is nil")
 	ErrNilAuthController        = errors.New("auth controller is nil")
 	ErrNilSessionRepository     = errors.New("session repository is nil")
@@ -43,4 +44,5 @@ var (
 	ErrNilUserPatientRequest    = errors.New("user-patient request is nil")
 	ErrUserPatientNotFound      = errors.New("user-patient not found")
 	ErrUserPatientAlreadyExists = errors.New("user-patient already exists")
+	ErrPrincipalNotFound        = errors.New("principal not found")
 )

@@ -145,9 +145,9 @@ func (s *PatientService) List(
 
 	limit, offset = clampPatientPagination(limit, offset)
 
-	userPatients, err := s.userPatients.ListByUser(ctx, actingUserID, limit, offset)
+	userPatients, err := s.userPatients.ListActiveByUser(ctx, actingUserID, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("list user-patient userPatients: %w", err)
+		return nil, fmt.Errorf("list active user-patients: %w", err)
 	}
 	if len(userPatients) == 0 {
 		return []*models.Patient{}, nil
@@ -156,9 +156,6 @@ func (s *PatientService) List(
 	ids := make([]uint64, 0, len(userPatients))
 	for _, link := range userPatients {
 		if link == nil {
-			continue
-		}
-		if link.Status != models.UserPatientStatusActive {
 			continue
 		}
 		ids = append(ids, link.PatientID)

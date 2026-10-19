@@ -1,143 +1,163 @@
 package handler
 
 import (
-	"errors"
-	"net/http"
-	"strconv"
-
-	"github.com/gin-gonic/gin"
-
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/controller"
-	dto "appointment_system/internal/apps/appointment/dtos/patient"
+	"appointment_system/internal/apps/appointment/dtos/patient"
 	"appointment_system/middleware"
+	"errors"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type PatientHandler struct {
 	patientController *controller.PatientController
-	verifyToken       func(token string) (uint64, error)
+	tokenVerifier     middleware.TokenVerifier
 }
 
-func NewPatientHandler(patientController *controller.PatientController, verifyToken func(token string) (uint64, error)) (*PatientHandler, error) {
+func NewPatientHandler(
+	patientController *controller.PatientController,
+	tokenVerifier middleware.TokenVerifier,
+) (*PatientHandler, error) {
 	if patientController == nil {
 		return nil, apperrors.ErrNilPatientController
 	}
-	if verifyToken == nil {
-		return nil, apperrors.ErrNilTokenGenerator
+	if tokenVerifier == nil {
+		return nil, apperrors.ErrNilTokenVerifier
 	}
-	return &PatientHandler{patientController: patientController, verifyToken: verifyToken}, nil
+	return &PatientHandler{
+		patientController: patientController,
+		tokenVerifier:     tokenVerifier,
+	}, nil
 }
 
 func (ph *PatientHandler) RegisterRoutes(router *gin.RouterGroup) {
-	patients := router.Group("/patients", middleware.RequireAuth(ph.verifyToken))
+	patients := router.Group("/patients", middleware.Authenticate(ph.tokenVerifier))
 	patients.POST("", ph.Create)
 	patients.GET("", ph.List)
-	patients.GET("/:id", ph.Get)
+	patients.GET("/:id", ph.GetByID)
 	patients.PUT("/:id", ph.Update)
 }
 
 func (ph *PatientHandler) Create(ctx *gin.Context) {
-	userID, _ := middleware.UserID(ctx)
-	var request dto.CreateRequest
-	if err := ctx.ShouldBindJSON(&request); err != nil {
+	var createPatientRequest patient.CreatePatientRequest
+	if err := ctx.ShouldBindJSON(&createPatientRequest); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
 		return
 	}
 
-	response, err := ph.patientController.Create(ctx.Request.Context(), userID, &request)
+	response, err := ph.patientController.Create(ctx.Request.Context(), &createPatientRequest)
 	if err != nil {
-		writePatientError(ctx, err, "Failed to create patient")
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPatientInput),
+			errors.Is(err, apperrors.ErrNilPatientRequest):
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient details"})
+		case errors.Is(err, apperrors.ErrUserPatientAlreadyExists):
+			ctx.JSON(http.StatusConflict, gin.H{"success": false, "error": "Patient already linked to user"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to create patient"})
+		}
 		return
 	}
-	ctx.JSON(http.StatusCreated, gin.H{"success": true, "data": response, "message": "Patient created successfully"})
+
+	ctx.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Patient created successfully",
+	})
+}
+
+func (ph *PatientHandler) GetByID(ctx *gin.Context) {
+	var getPatientRequest patient.GetPatientRequest
+	if err := ctx.ShouldBindUri(&getPatientRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient id"})
+		return
+	}
+
+	response, err := ph.patientController.GetByID(ctx.Request.Context(), &getPatientRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPatientInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient id"})
+		case errors.Is(err, apperrors.ErrPatientNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Patient not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to get patient"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Patient retrieved successfully",
+	})
 }
 
 func (ph *PatientHandler) List(ctx *gin.Context) {
-	userID, _ := middleware.UserID(ctx)
-	limit, err := queryInt(ctx, "limit")
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid limit"})
-		return
-	}
-	offset, err := queryInt(ctx, "offset")
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid offset"})
+	var listPatientsRequest patient.ListPatientsRequest
+	if err := ctx.ShouldBindQuery(&listPatientsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid query parameters"})
 		return
 	}
 
-	response, err := ph.patientController.List(ctx.Request.Context(), userID, limit, offset)
+	response, err := ph.patientController.List(ctx.Request.Context(), &listPatientsRequest)
 	if err != nil {
-		writePatientError(ctx, err, "Failed to list patients")
-		return
-	}
-	ctx.JSON(http.StatusOK, gin.H{"success": true, "data": response, "message": "Patients retrieved successfully"})
-}
-
-func (ph *PatientHandler) Get(ctx *gin.Context) {
-	userID, _ := middleware.UserID(ctx)
-	patientID, ok := patientIDParam(ctx)
-	if !ok {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPatientInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid query parameters"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list patients"})
+		}
 		return
 	}
 
-	response, err := ph.patientController.Get(ctx.Request.Context(), userID, patientID)
-	if err != nil {
-		writePatientError(ctx, err, "Failed to get patient")
-		return
-	}
-	ctx.JSON(http.StatusOK, gin.H{"success": true, "data": response, "message": "Patient retrieved successfully"})
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Patients retrieved successfully",
+	})
 }
 
 func (ph *PatientHandler) Update(ctx *gin.Context) {
-	userID, _ := middleware.UserID(ctx)
-	patientID, ok := patientIDParam(ctx)
-	if !ok {
-		return
-	}
-	var request dto.UpdateRequest
-	if err := ctx.ShouldBindJSON(&request); err != nil {
+	var updatePatientRequest patient.UpdatePatientRequest
+	if err := ctx.ShouldBindJSON(&updatePatientRequest); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
 		return
 	}
-
-	response, err := ph.patientController.Update(ctx.Request.Context(), userID, patientID, &request)
-	if err != nil {
-		writePatientError(ctx, err, "Failed to update patient")
+	if err := ctx.ShouldBindUri(&updatePatientRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient id"})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"success": true, "data": response, "message": "Patient updated successfully"})
-}
 
-// patientIDParam parses :id; on failure it writes the 400 response and returns false.
-func patientIDParam(ctx *gin.Context) (uint64, bool) {
-	id, err := strconv.ParseUint(ctx.Param("id"), 10, 64)
-	if err != nil || id == 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient id"})
-		return 0, false
+	response, err := ph.patientController.Update(ctx.Request.Context(), &updatePatientRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPatientInput),
+			errors.Is(err, apperrors.ErrNilPatientRequest):
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient details"})
+		case errors.Is(err, apperrors.ErrPatientForbidden):
+			ctx.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Patient access forbidden"})
+		case errors.Is(err, apperrors.ErrPatientNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Patient not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to update patient"})
+		}
+		return
 	}
-	return id, true
-}
 
-// queryInt returns 0 (service default) when the parameter is absent.
-func queryInt(ctx *gin.Context, name string) (int, error) {
-	value := ctx.Query(name)
-	if value == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(value)
-}
-
-func writePatientError(ctx *gin.Context, err error, fallback string) {
-	switch {
-	case errors.Is(err, apperrors.ErrInvalidPatientInput), errors.Is(err, apperrors.ErrNilPatientRequest):
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient data"})
-	case errors.Is(err, apperrors.ErrPatientForbidden):
-		ctx.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Patient access forbidden"})
-	case errors.Is(err, apperrors.ErrPatientNotFound):
-		ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Patient not found"})
-	case errors.Is(err, apperrors.ErrUserPatientAlreadyExists):
-		ctx.JSON(http.StatusConflict, gin.H{"success": false, "error": "Patient already linked to user"})
-	default:
-		ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fallback})
-	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Patient updated successfully",
+	})
 }

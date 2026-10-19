@@ -104,6 +104,10 @@ func (f *fakeUserPatientRepo) ListByPatient(ctx context.Context, patientID uint6
 }
 
 func (f *fakeUserPatientRepo) ListByUser(ctx context.Context, userID uint64, limit int, offset int) ([]*models.UserPatient, error) {
+	return f.ListActiveByUser(ctx, userID, limit, offset)
+}
+
+func (f *fakeUserPatientRepo) ListActiveByUser(ctx context.Context, userID uint64, limit int, offset int) ([]*models.UserPatient, error) {
 	f.listLimit = limit
 	f.listOffset = offset
 	if f.listErr != nil {
@@ -368,7 +372,7 @@ func TestPatientServiceList(t *testing.T) {
 			listResult: []*models.UserPatient{
 				{UserID: 7, PatientID: 10, Status: models.UserPatientStatusActive},
 				{UserID: 7, PatientID: 11, Status: models.UserPatientStatusActive},
-				{UserID: 7, PatientID: 12, Status: models.UserPatientStatusRevoked},
+				{UserID: 7, PatientID: 12, Status: models.UserPatientStatusActive},
 			},
 		}
 		patients := &fakePatientRepo{

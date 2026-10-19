@@ -669,6 +669,52 @@ The following invariants should be preserved throughout the application:
 
 ```
 
+## API
+
+All routes are served under `/api/v1`. Responses use one envelope:
+
+```text
+
+{"success": true, "data": {...}, "message": "..."}
+
+{"success": false, "error": "..."}
+
+```
+
+Auth (public):
+
+```text
+
+POST /auth/register      create an account
+
+POST /auth/login         returns jwtToken and refreshToken
+
+POST /auth/refresh       rotates the refresh token
+
+POST /auth/logout        revokes the refresh token
+
+```
+
+Patients (require `Authorization: Bearer <jwtToken>`):
+
+```text
+
+POST /patients           create a patient and link it to the caller (relationship, full access)
+
+GET  /patients           list the caller's patients (?limit=&offset=)
+
+GET  /patients/:id       get one patient the caller has active access to
+
+PUT  /patients/:id       update a patient (requires full access)
+
+```
+
+`dateOfBirth` is sent as `YYYY-MM-DD`. A patient the caller has no active link to is reported as `404`, so patient IDs are not revealed. Updating with a non-full access level returns `403`.
+
+`GET /health` (outside `/api/v1`) reports database readiness.
+
+Appointment endpoints are not implemented yet.
+
 ## First Commands
 
 ```powershell
@@ -685,15 +731,17 @@ Start PostgreSQL and run the API normally:
 
 ```powershell
 
-docker compose -f deploy/compose.yaml up -d --wait
+docker compose -f deploy/compose.yaml up -d --wait postgres
 
-Get-Content migrations/000001_create_users.up.sql -Raw | docker compose -f deploy/compose.yaml exec -T postgres psql -U appointment -d appointment_system
+docker compose -f deploy/compose.yaml run --rm migrate
 
 go run .
 
 ```
 
-Apply each ordered migration once per database. Schema migrations are explicit and are not run automatically when the application starts.
+The `migrate` service applies every ordered migration in `migrations/` (`000001` onwards) and skips the ones already applied, so it is safe to run again after pulling new migrations. Schema migrations are explicit and are not run automatically when the application starts.
+
+Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 

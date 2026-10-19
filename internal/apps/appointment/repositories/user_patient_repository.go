@@ -130,6 +130,25 @@ func (repo *UserPatientRepository) ListByUser(ctx context.Context, userID uint64
 	return result, nil
 }
 
+func (repo *UserPatientRepository) ListActiveByUser(ctx context.Context, userID uint64, limit int, offset int) ([]*models.UserPatient, error) {
+	var records []userPatientRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("user_id = ? AND status = ?", userID, string(models.UserPatientStatusActive)).
+		Order("patient_id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list active user-patients by user: %w", err)
+	}
+
+	result := make([]*models.UserPatient, 0, len(records))
+	for _, record := range records {
+		result = append(result, toUserPatientModel(record))
+	}
+	return result, nil
+}
+
 func (repo *UserPatientRepository) Update(ctx context.Context, userPatient *models.UserPatient) (*models.UserPatient, error) {
 	if userPatient == nil {
 		return nil, apperrors.ErrNilUserPatientRequest

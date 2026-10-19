@@ -1,41 +1,64 @@
 package utils
 
 import (
-	"strings"
+	"appointment_system/internal/apps/appointment/models"
 	"testing"
 	"time"
-
-	"appointment_system/internal/apps/appointment/models"
 )
 
-const testSecret = "0123456789abcdef0123456789abcdef"
+const testJWTSecret = "0123456789abcdef0123456789abcdef"
 
-func TestParseUserID(t *testing.T) {
-	manager, err := NewJWTManager(testSecret, "issuer", time.Minute)
+func TestJWTManagerVerify(t *testing.T) {
+	manager, err := NewJWTManager(testJWTSecret, "issuer", time.Minute)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NewJWTManager returned error: %v", err)
 	}
-	token, err := manager.Generate(models.User{ID: 42, Role: "patient"})
+	otherIssuer, err := NewJWTManager(testJWTSecret, "other-issuer", time.Minute)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NewJWTManager returned error: %v", err)
+	}
+	expiring, err := NewJWTManager(testJWTSecret, "issuer", time.Nanosecond)
+	if err != nil {
+		t.Fatalf("NewJWTManager returned error: %v", err)
 	}
 
-	if id, err := manager.ParseUserID(token); err != nil || id != 42 {
-		t.Fatalf("ParseUserID = %d, %v; want 42, nil", id, err)
+	user := models.User{ID: 42, Role: models.RolePatient}
+	validToken, err := manager.Generate(user)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
 	}
-	if _, err := manager.ParseUserID(token + "x"); err == nil {
-		t.Fatal("tampered token accepted")
+	otherIssuerToken, err := otherIssuer.Generate(user)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
 	}
-
-	other, _ := NewJWTManager(testSecret, "other-issuer", time.Minute)
-	if _, err := other.ParseUserID(token); err == nil {
-		t.Fatal("wrong issuer accepted")
+	expiredToken, err := expiring.Generate(user)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
 	}
-
-	expired, _ := NewJWTManager(testSecret, "issuer", time.Nanosecond)
-	old, _ := expired.Generate(models.User{ID: 42})
 	time.Sleep(5 * time.Millisecond)
-	if _, err := expired.ParseUserID(old); err == nil || !strings.Contains(err.Error(), "expired") {
-		t.Fatalf("expired token: err = %v", err)
+
+	tests := []struct {
+		name    string
+		token   string
+		wantID  uint64
+		wantErr bool
+	}{
+		{name: "valid token", token: validToken, wantID: 42},
+		{name: "tampered token", token: validToken + "x", wantErr: true},
+		{name: "other issuer token", token: otherIssuerToken, wantErr: true},
+		{name: "expired token", token: expiredToken, wantErr: true},
+		{name: "empty token", token: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			userID, err := manager.Verify(tt.token)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Verify error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if userID != tt.wantID {
+				t.Fatalf("Verify user id = %d, want %d", userID, tt.wantID)
+			}
+		})
 	}
 }

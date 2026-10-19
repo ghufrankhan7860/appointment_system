@@ -95,7 +95,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize patient controller: %w", err)
 	}
 
-	patientHandler, err := handler.NewPatientHandler(patientController, tokenGenerator.ParseUserID)
+	patientHandler, err := handler.NewPatientHandler(patientController, tokenGenerator)
 	if err != nil {
 		return nil, fmt.Errorf("initialize patient handler: %w", err)
 	}
