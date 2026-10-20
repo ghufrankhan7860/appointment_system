@@ -9,6 +9,7 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +19,12 @@ import (
 	"appointment_system/internal/appcontext"
 )
 
-const correlationIDHeader = "X-Correlation-ID"
+const (
+	correlationIDHeader = "X-Correlation-ID"
+	authorizationHeader = "Authorization"
+	bearerScheme        = "Bearer"
+	correlationIDBytes = 16
+)
 
 // AppContext creates and propagates narrow request-scoped application context.
 func AppContext() gin.HandlerFunc {
@@ -42,20 +48,20 @@ func AppContext() gin.HandlerFunc {
 }
 
 type TokenVerifier interface {
-	Verify(token string) (uint64, error)
+	Verify(token string) (uint64, string, error)
 }
 
 // Authenticate rejects requests without a valid Bearer token and records the
-// authenticated user as the principal of the request-scoped application context.
+// authenticated user ID and role as the principal of the request-scoped application context.
 func Authenticate(verifier TokenVerifier) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		scheme, token, found := strings.Cut(ctx.GetHeader("Authorization"), " ")
-		if !found || !strings.EqualFold(scheme, "Bearer") {
+		scheme, token, found := strings.Cut(ctx.GetHeader(authorizationHeader), " ")
+		if !found || !strings.EqualFold(scheme, bearerScheme) {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Missing or invalid authorization header"})
 			return
 		}
 
-		userID, err := verifier.Verify(strings.TrimSpace(token))
+		userID, role, err := verifier.Verify(strings.TrimSpace(token))
 		if err != nil {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid or expired token"})
 			return
@@ -68,14 +74,35 @@ func Authenticate(verifier TokenVerifier) gin.HandlerFunc {
 		}
 
 		applicationContext.PrincipalID = strconv.FormatUint(userID, 10)
+		applicationContext.PrincipalRole = role
 		ctx.Next()
 	}
 }
 
 func newCorrelationID() (string, error) {
-	value := make([]byte, 16)
+	value := make([]byte, correlationIDBytes)
 	if _, err := rand.Read(value); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(value), nil
+}
+
+// LogAdminRequest logs who called an admin route and the response status. It
+// runs before the permission check so refused attempts are logged too.
+func LogAdminRequest() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		ctx.Next()
+
+		userID := ""
+		if applicationContext, ok := appcontext.From(ctx.Request.Context()); ok {
+			userID = applicationContext.PrincipalID
+		}
+		log.Printf(
+			"admin request user_id=%s method=%s route=%s status=%d",
+			userID,
+			ctx.Request.Method,
+			ctx.FullPath(),
+			ctx.Writer.Status(),
+		)
+	}
 }

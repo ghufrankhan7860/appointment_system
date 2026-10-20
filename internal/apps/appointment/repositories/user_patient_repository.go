@@ -53,7 +53,7 @@ func (repo *UserPatientRepository) Create(ctx context.Context, userPatient *mode
 	}
 
 	if err := dbFromContext(ctx, repo.db).Create(&record).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
+		if userPatientLinkUnique.ViolatedBy(err) {
 			return nil, apperrors.ErrUserPatientAlreadyExists
 		}
 		return nil, fmt.Errorf("create user-patient record: %w", err)

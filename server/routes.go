@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const healthCheckTimeout = 2 * time.Second
+
 // HealthChecker describes the dependency readiness behavior consumed by HTTP.
 type HealthChecker interface {
 	Ping(ctx context.Context) error
@@ -22,6 +24,8 @@ type RouteRegistrar interface {
 
 // NewRouter constructs the HTTP transport and registers global middleware and routes.
 func NewRouter(healthChecker HealthChecker, appRoutes RouteRegistrar) *gin.Engine {
+	registerJSONFieldNames()
+
 	router := gin.New()
 	router.Use(
 		gin.Logger(),
@@ -39,7 +43,7 @@ func NewRouter(healthChecker HealthChecker, appRoutes RouteRegistrar) *gin.Engin
 
 func registerHealthRoute(router gin.IRoutes, healthChecker HealthChecker) {
 	router.GET("/health", func(ctx *gin.Context) {
-		checkContext, cancel := context.WithTimeout(ctx.Request.Context(), 2*time.Second)
+		checkContext, cancel := context.WithTimeout(ctx.Request.Context(), healthCheckTimeout)
 		defer cancel()
 
 		if err := healthChecker.Ping(checkContext); err != nil {

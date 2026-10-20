@@ -27,6 +27,8 @@ import (
 type Container struct {
 	AuthHandler    *handler.AuthHandler
 	PatientHandler *handler.PatientHandler
+	DoctorHandler  *handler.DoctorHandler
+	AdminHandler   *handler.AdminHandler
 }
 
 func NewContainer(
@@ -34,6 +36,7 @@ func NewContainer(
 	jwtSecret string,
 	jwtIssuer string,
 	tokenTTL time.Duration,
+	clinicLocation *time.Location,
 ) (*Container, error) {
 	userRepository, err := repositories.NewUserRepository(db)
 	if err != nil {
@@ -100,13 +103,92 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize patient handler: %w", err)
 	}
 
+	doctorRepository, err := repositories.NewDoctorRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor repository: %w", err)
+	}
+
+	specialityRepository, err := repositories.NewSpecialityRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize speciality repository: %w", err)
+	}
+
+	doctorVerificationRepository, err := repositories.NewDoctorVerificationRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor verification repository: %w", err)
+	}
+
+	doctorService, err := services.NewDoctorService(
+		doctorRepository,
+		specialityRepository,
+		doctorVerificationRepository,
+		txManager,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor service: %w", err)
+	}
+
+	doctorVerificationService, err := services.NewDoctorVerificationService(
+		doctorRepository,
+		doctorVerificationRepository,
+		txManager,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor verification service: %w", err)
+	}
+
+	adminUserService, err := services.NewAdminUserService(userRepository)
+	if err != nil {
+		return nil, fmt.Errorf("initialize admin user service: %w", err)
+	}
+
+	availabilityRepository, err := repositories.NewAvailabilityRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize availability repository: %w", err)
+	}
+
+	availabilityService, err := services.NewAvailabilityService(
+		doctorRepository,
+		availabilityRepository,
+		txManager,
+		clinicLocation,
+		time.Now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize availability service: %w", err)
+	}
+
+	doctorController, err := controller.NewDoctorController(doctorService, availabilityService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor controller: %w", err)
+	}
+
+	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize admin controller: %w", err)
+	}
+
+	doctorHandler, err := handler.NewDoctorHandler(doctorController, tokenGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor handler: %w", err)
+	}
+
+	adminHandler, err := handler.NewAdminHandler(adminController, tokenGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("initialize admin handler: %w", err)
+	}
+
 	return &Container{
 		AuthHandler:    authHandler,
 		PatientHandler: patientHandler,
+		DoctorHandler:  doctorHandler,
+		AdminHandler:   adminHandler,
 	}, nil
 }
 
 func (c *Container) RegisterRoutes(router *gin.RouterGroup) {
 	c.AuthHandler.RegisterRoutes(router)
 	c.PatientHandler.RegisterRoutes(router)
+	c.DoctorHandler.RegisterRoutes(router)
+	c.AdminHandler.RegisterRoutes(router)
 }

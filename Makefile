@@ -6,7 +6,7 @@ GO_TAGS = swagger
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy
+.PHONY: help up down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy create-admin cover
 
 help:
 	@echo Docker:
@@ -25,8 +25,11 @@ help:
 	@echo   make run       go run . against the local database
 	@echo   make test      go test ./...
 	@echo   make vet       go vet ./...
+	@echo   make cover     go test -coverpkg=./... ./tests/... with a coverage report
 	@echo   make swagger   regenerate docs/swagger
 	@echo   make tidy      go mod tidy
+	@echo Admin:
+	@echo   make create-admin  NAME=... EMAIL=... MOBILE=..., first admin only, password from ADMIN_PASSWORD
 
 up: export GO_BUILD_TAGS = $(GO_TAGS)
 up:
@@ -73,8 +76,15 @@ vet:
 	go vet ./...
 	go vet -tags $(GO_TAGS) ./...
 
+cover:
+	go test -tags $(GO_TAGS) -coverpkg=./... ./tests/... -coverprofile=coverage.out
+	go tool cover -func=coverage.out
+
 swagger:
 	go generate ./...
 
 tidy:
 	go mod tidy
+
+create-admin:
+	go run ./scripts/bootstrap -name "$(NAME)" -email "$(EMAIL)" -mobile "$(MOBILE)"

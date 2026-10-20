@@ -1,5 +1,137 @@
 basePath: /api/v1
 definitions:
+  admin.CreateAdminRequest:
+    properties:
+      email:
+        example: ops@example.com
+        type: string
+      mobileNo:
+        example: "9876543210"
+        type: string
+      name:
+        example: Ops Admin
+        type: string
+      password:
+        maxLength: 72
+        minLength: 12
+        type: string
+    required:
+    - email
+    - mobileNo
+    - name
+    - password
+    type: object
+  admin.CreateAdminResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      mobileNo:
+        type: string
+      name:
+        type: string
+      role:
+        example: admin
+        type: string
+    type: object
+  admin.CreateSpecialityRequest:
+    properties:
+      name:
+        example: Nephrology
+        type: string
+      slug:
+        example: nephrology
+        type: string
+    required:
+    - name
+    - slug
+    type: object
+  admin.CreateSpecialityResponse:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  admin.GetDoctorResponse:
+    properties:
+      bio:
+        type: string
+      clinic:
+        $ref: '#/definitions/doctor.ClinicResponse'
+      consultationFee:
+        type: integer
+      consultationModes:
+        items:
+          type: string
+        type: array
+      fullName:
+        type: string
+      id:
+        type: integer
+      isAcceptingPatients:
+        type: boolean
+      qualification:
+        type: string
+      registrationCouncil:
+        type: string
+      registrationNumber:
+        type: string
+      registrationYear:
+        type: integer
+      slotDurationMin:
+        type: integer
+      specialities:
+        items:
+          $ref: '#/definitions/doctor.SpecialityResponse'
+        type: array
+      tags:
+        items:
+          type: string
+        type: array
+      userId:
+        type: integer
+      verificationStatus:
+        example: verified
+        type: string
+      verifications:
+        items:
+          $ref: '#/definitions/admin.VerificationResponse'
+        type: array
+      verifiedAt:
+        type: string
+      yearsOfExperience:
+        type: integer
+    type: object
+  admin.ListDoctorsResponse:
+    properties:
+      doctors:
+        items:
+          $ref: '#/definitions/admin.GetDoctorResponse'
+        type: array
+    type: object
+  admin.ReviewDoctorRequest:
+    properties:
+      reason:
+        example: Registration number not found in the council register
+        type: string
+    type: object
+  admin.VerificationResponse:
+    properties:
+      createdAt:
+        type: string
+      fromStatus:
+        type: string
+      reason:
+        type: string
+      reviewedByUserId:
+        type: integer
+      toStatus:
+        type: string
+    type: object
   auth.LoginRequest:
     properties:
       email:
@@ -81,9 +213,387 @@ definitions:
       role:
         type: string
     type: object
+  doctor.AvailabilityRuleRequest:
+    properties:
+      dayOfWeek:
+        example: 1
+        maximum: 6
+        minimum: 0
+        type: integer
+      endTime:
+        example: "13:00"
+        type: string
+      mode:
+        enum:
+        - in_person
+        - video
+        - phone
+        example: in_person
+        type: string
+      startTime:
+        example: "09:00"
+        type: string
+    required:
+    - endTime
+    - mode
+    - startTime
+    type: object
+  doctor.AvailabilityRuleResponse:
+    properties:
+      day:
+        example: Monday
+        type: string
+      dayOfWeek:
+        example: 1
+        type: integer
+      endTime:
+        example: "13:00"
+        type: string
+      mode:
+        example: in_person
+        type: string
+      startTime:
+        example: "09:00"
+        type: string
+    type: object
+  doctor.ClinicRequest:
+    properties:
+      address:
+        example: 12 Park Street
+        type: string
+      city:
+        example: New Delhi
+        type: string
+      name:
+        example: Verma Clinic
+        type: string
+      pincode:
+        example: "110001"
+        type: string
+    type: object
+  doctor.ClinicResponse:
+    properties:
+      address:
+        type: string
+      city:
+        type: string
+      name:
+        type: string
+      pincode:
+        type: string
+    type: object
+  doctor.CreateDoctorRequest:
+    properties:
+      bio:
+        example: Physician focused on diabetes and thyroid care.
+        type: string
+      clinic:
+        $ref: '#/definitions/doctor.ClinicRequest'
+      consultationFee:
+        example: 60000
+        minimum: 0
+        type: integer
+      consultationModes:
+        example:
+        - in_person
+        - video
+        items:
+          type: string
+        minItems: 1
+        type: array
+      fullName:
+        example: Dr. Asha Verma
+        type: string
+      qualification:
+        example: MBBS, MD (Medicine)
+        type: string
+      registrationCouncil:
+        example: Delhi Medical Council
+        type: string
+      registrationNumber:
+        example: DMC/R/12345
+        type: string
+      registrationYear:
+        example: 2012
+        type: integer
+      slotDurationMin:
+        example: 15
+        type: integer
+      specialities:
+        example:
+        - general-medicine
+        - diabetology
+        items:
+          type: string
+        minItems: 1
+        type: array
+      tags:
+        example:
+        - diabetes
+        - thyroid
+        - hindi
+        - english
+        items:
+          type: string
+        type: array
+      yearsOfExperience:
+        example: 11
+        minimum: 0
+        type: integer
+    required:
+    - consultationModes
+    - fullName
+    - qualification
+    - registrationCouncil
+    - registrationNumber
+    - specialities
+    type: object
+  doctor.CreateOverrideRequest:
+    properties:
+      date:
+        example: "2026-10-26"
+        type: string
+      endTime:
+        example: "17:00"
+        type: string
+      isAvailable:
+        example: false
+        type: boolean
+      mode:
+        enum:
+        - in_person
+        - video
+        - phone
+        example: in_person
+        type: string
+      reason:
+        example: Conference
+        type: string
+      startTime:
+        example: "14:00"
+        type: string
+    required:
+    - date
+    type: object
+  doctor.DoctorResponse:
+    properties:
+      bio:
+        type: string
+      clinic:
+        $ref: '#/definitions/doctor.ClinicResponse'
+      consultationFee:
+        type: integer
+      consultationModes:
+        items:
+          type: string
+        type: array
+      fullName:
+        type: string
+      id:
+        type: integer
+      isAcceptingPatients:
+        type: boolean
+      qualification:
+        type: string
+      registrationCouncil:
+        type: string
+      registrationNumber:
+        type: string
+      registrationYear:
+        type: integer
+      slotDurationMin:
+        type: integer
+      specialities:
+        items:
+          $ref: '#/definitions/doctor.SpecialityResponse'
+        type: array
+      tags:
+        items:
+          type: string
+        type: array
+      verificationStatus:
+        example: verified
+        type: string
+      verifiedAt:
+        type: string
+      yearsOfExperience:
+        type: integer
+    type: object
+  doctor.GetAvailabilityResponse:
+    properties:
+      overrides:
+        items:
+          $ref: '#/definitions/doctor.OverrideResponse'
+        type: array
+      rules:
+        items:
+          $ref: '#/definitions/doctor.AvailabilityRuleResponse'
+        type: array
+      timezone:
+        example: Asia/Kolkata
+        type: string
+    type: object
+  doctor.ListDoctorsResponse:
+    properties:
+      doctors:
+        items:
+          $ref: '#/definitions/doctor.DoctorResponse'
+        type: array
+    type: object
+  doctor.ListSlotsResponse:
+    properties:
+      date:
+        example: "2026-10-26"
+        type: string
+      slots:
+        items:
+          $ref: '#/definitions/doctor.SlotResponse'
+        type: array
+      timezone:
+        example: Asia/Kolkata
+        type: string
+    type: object
+  doctor.ListSpecialitiesResponse:
+    properties:
+      specialities:
+        items:
+          $ref: '#/definitions/doctor.SpecialityResponse'
+        type: array
+    type: object
+  doctor.OverrideResponse:
+    properties:
+      date:
+        example: "2026-10-26"
+        type: string
+      endTime:
+        example: "17:00"
+        type: string
+      id:
+        type: integer
+      isAvailable:
+        type: boolean
+      mode:
+        type: string
+      reason:
+        type: string
+      startTime:
+        example: "14:00"
+        type: string
+    type: object
+  doctor.ReplaceAvailabilityRequest:
+    properties:
+      rules:
+        items:
+          $ref: '#/definitions/doctor.AvailabilityRuleRequest'
+        type: array
+    type: object
+  doctor.ReplaceAvailabilityResponse:
+    properties:
+      rules:
+        items:
+          $ref: '#/definitions/doctor.AvailabilityRuleResponse'
+        type: array
+    type: object
+  doctor.SlotResponse:
+    properties:
+      endsAt:
+        example: "2026-10-26T09:15:00+05:30"
+        type: string
+      mode:
+        example: in_person
+        type: string
+      startTime:
+        example: "09:00"
+        type: string
+      startsAt:
+        example: "2026-10-26T09:00:00+05:30"
+        type: string
+    type: object
+  doctor.SpecialityResponse:
+    properties:
+      isPrimary:
+        type: boolean
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  doctor.UpdateDoctorRequest:
+    properties:
+      bio:
+        example: Physician focused on diabetes and thyroid care.
+        type: string
+      clinic:
+        $ref: '#/definitions/doctor.ClinicRequest'
+      consultationFee:
+        example: 60000
+        minimum: 0
+        type: integer
+      consultationModes:
+        example:
+        - in_person
+        - video
+        items:
+          type: string
+        minItems: 1
+        type: array
+      fullName:
+        example: Dr. Asha Verma
+        type: string
+      isAcceptingPatients:
+        example: true
+        type: boolean
+      qualification:
+        example: MBBS, MD (Medicine)
+        type: string
+      registrationCouncil:
+        example: Delhi Medical Council
+        type: string
+      registrationNumber:
+        example: DMC/R/12345
+        type: string
+      registrationYear:
+        example: 2012
+        type: integer
+      slotDurationMin:
+        example: 15
+        type: integer
+      specialities:
+        example:
+        - general-medicine
+        - diabetology
+        items:
+          type: string
+        minItems: 1
+        type: array
+      tags:
+        example:
+        - diabetes
+        - thyroid
+        - hindi
+        - english
+        items:
+          type: string
+        type: array
+      yearsOfExperience:
+        example: 11
+        minimum: 0
+        type: integer
+    required:
+    - consultationModes
+    - fullName
+    - qualification
+    - registrationCouncil
+    - registrationNumber
+    - specialities
+    type: object
   dtos.ErrorResponse:
     properties:
+      details:
+        example: dateOfBirth cannot be in the future
+        type: string
       error:
+        example: Invalid patient details
         type: string
       success:
         type: boolean
@@ -245,6 +755,433 @@ info:
   title: Appointment System API
   version: "1.0"
 paths:
+  /admin/doctors:
+    get:
+      description: Lists doctors in any status, oldest first. Use status=pending for
+        the review queue.
+      parameters:
+      - description: Verification status
+        enum:
+        - pending
+        - verified
+        - rejected
+        - suspended
+        in: query
+        name: status
+        type: string
+      - description: Page size, default 20, max 100
+        in: query
+        name: limit
+        type: integer
+      - description: Number of doctors to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.ListDoctorsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List doctors for review
+      tags:
+      - admin
+  /admin/doctors/{id}:
+    get:
+      description: Returns a doctor in any status with its verification history, newest
+        first.
+      parameters:
+      - description: Doctor ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.GetDoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a doctor for review
+      tags:
+      - admin
+  /admin/doctors/{id}/reinstate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Doctor ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional note
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/admin.ReviewDoctorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.GetDoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reinstate a suspended doctor
+      tags:
+      - admin
+  /admin/doctors/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: A reason is required and is stored in the verification history.
+        The doctor resubmits by updating the profile, which moves it back to pending.
+      parameters:
+      - description: Doctor ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.ReviewDoctorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.GetDoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reject a pending doctor
+      tags:
+      - admin
+  /admin/doctors/{id}/suspend:
+    post:
+      consumes:
+      - application/json
+      description: A reason is required. A suspended doctor disappears from search.
+      parameters:
+      - description: Doctor ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.ReviewDoctorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.GetDoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Suspend a verified doctor
+      tags:
+      - admin
+  /admin/doctors/{id}/verify:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Doctor ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional note
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/admin.ReviewDoctorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.GetDoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Verify a pending doctor
+      tags:
+      - admin
+  /admin/specialities:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Speciality
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.CreateSpecialityRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.CreateSpecialityResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a speciality
+      tags:
+      - admin
+  /admin/users:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Admin account
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.CreateAdminRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.CreateAdminResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create another admin
+      tags:
+      - admin
   /auth/login:
     post:
       consumes:
@@ -391,6 +1328,462 @@ paths:
       summary: Register an account
       tags:
       - auth
+  /doctors:
+    get:
+      description: Lists verified doctors who accept patients. Speciality and tag
+        match any of the given values; all other filters must all match.
+      parameters:
+      - description: Free text over name, qualification, bio and tags
+        in: query
+        name: q
+        type: string
+      - collectionFormat: multi
+        description: Speciality slug, repeatable
+        in: query
+        items:
+          type: string
+        name: speciality
+        type: array
+      - collectionFormat: multi
+        description: Exact tag, repeatable
+        in: query
+        items:
+          type: string
+        name: tag
+        type: array
+      - description: City, case-insensitive
+        in: query
+        name: city
+        type: string
+      - description: Consultation mode
+        enum:
+        - in_person
+        - video
+        - phone
+        in: query
+        name: mode
+        type: string
+      - description: Maximum consultation fee in paise
+        in: query
+        name: feeMax
+        type: integer
+      - description: Page size, default 20, max 100
+        in: query
+        name: limit
+        type: integer
+      - description: Number of doctors to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.ListDoctorsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Search doctors
+      tags:
+      - doctors
+    post:
+      consumes:
+      - application/json
+      description: Creates the profile for a doctor account. It starts as pending
+        and is not searchable until an admin verifies it.
+      parameters:
+      - description: Doctor profile
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/doctor.CreateDoctorRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.DoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create the caller's doctor profile
+      tags:
+      - doctors
+  /doctors/{id}:
+    get:
+      description: Returns a verified doctor. Doctors in any other status are reported
+        as not found.
+      parameters:
+      - description: Doctor ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.DoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a doctor's public profile
+      tags:
+      - doctors
+  /doctors/{id}/slots:
+    get:
+      description: 'Free slots of a verified doctor on one date, from today up to
+        90 days ahead: weekly rules, minus leave, plus extra sessions. Slots already
+        started today are left out.'
+      parameters:
+      - description: Doctor ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Date as YYYY-MM-DD
+        in: query
+        name: date
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.ListSlotsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List a doctor's free slots for a day
+      tags:
+      - doctors
+  /doctors/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.DoctorResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get the caller's doctor profile
+      tags:
+      - doctors
+    put:
+      consumes:
+      - application/json
+      description: Replaces the profile. A rejected profile, or a verified one whose
+        registration details change, goes back to pending.
+      parameters:
+      - description: Doctor profile
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/doctor.UpdateDoctorRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.DoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update the caller's doctor profile
+      tags:
+      - doctors
+  /doctors/me/availability:
+    get:
+      description: Weekly rules and the overrides from today on. Times are in the
+        clinic timezone.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.GetAvailabilityResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get the caller's availability
+      tags:
+      - doctors
+    put:
+      consumes:
+      - application/json
+      description: Replaces every weekly rule. dayOfWeek is 0 (Sunday) to 6 (Saturday);
+        times are HH:MM in the clinic timezone, endTime may be 24:00. Blocks on the
+        same day may not overlap, each must fit one slot, and the mode must be one
+        the doctor offers. An empty list clears the schedule.
+      parameters:
+      - description: Weekly rules
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/doctor.ReplaceAvailabilityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.ReplaceAvailabilityResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Replace the caller's weekly availability
+      tags:
+      - doctors
+  /doctors/me/overrides:
+    post:
+      consumes:
+      - application/json
+      description: For one date from today up to a year ahead. Not available without
+        times is a whole day off; not available with times is a partial leave; available
+        with times is an extra session.
+      parameters:
+      - description: Override
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/doctor.CreateOverrideRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.OverrideResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a leave or an extra session
+      tags:
+      - doctors
   /patients:
     get:
       description: Lists the patients the caller has active access to. Limit defaults
@@ -573,6 +1966,35 @@ paths:
       summary: Update a patient
       tags:
       - patients
+  /specialities:
+    get:
+      description: The controlled list of speciality slugs a doctor profile and search
+        can use.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.ListSpecialitiesResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List specialities
+      tags:
+      - doctors
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and the jwtToken returned by login.

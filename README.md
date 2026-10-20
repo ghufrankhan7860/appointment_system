@@ -126,12 +126,13 @@ patient
 
 doctor
 
+admin
+
 ```
 
-These lowercase values match the `users.role` CHECK constraint in
-`migrations/000001_create_users.up.sql`, `models.Role` (`RolePatient`,
-`RoleDoctor`) and the `oneof=patient doctor` validation in
-`dtos/auth/register.go`.
+These lowercase values match the `users.role` CHECK constraint (`000001`, widened by `000007_add_admin_role`) and `models.Role` (`RolePatient`, `RoleDoctor`, `RoleAdmin`). Public registration (`dtos/auth/register.go`) accepts only `oneof=patient doctor`: an admin is never self-registered. The first admin comes from `make create-admin`, later admins from an existing admin through `POST /admin/users`.
+
+What a role may do is decided by named permissions in `internal/apps/appointment/authz`, not by checking the role in handlers. Adding a narrower role later (for example a reviewer who can only verify doctors) is one map entry.
 
 The role answers:
 
@@ -677,9 +678,11 @@ All routes are served under `/api/v1`. Responses use one envelope:
 
 {"success": true, "data": {...}, "message": "..."}
 
-{"success": false, "error": "..."}
+{"success": false, "error": "...", "details": "..."}
 
 ```
+
+`error` is a stable, generic message for the case (for example `Invalid patient details`). `details` is the exact reason the client can act on, such as `dateOfBirth cannot be in the future`, `email is already registered`, `name is required` or `request body is not valid JSON`. It appears on 4xx responses when there is a reason to give, and is omitted otherwise. A `500` never includes `details`; the real cause is written to the server log next to the request line.
 
 Auth (public):
 
@@ -710,6 +713,100 @@ PUT  /patients/:id       update a patient (requires full access)
 ```
 
 `dateOfBirth` is sent as `YYYY-MM-DD`. A patient the caller has no active link to is reported as `404`, so patient IDs are not revealed. Updating with a non-full access level returns `403`.
+
+Doctors:
+
+```text
+
+POST /doctors                     doctor   create own profile (starts pending)
+
+GET  /doctors/me                  doctor   own profile, any status
+
+PUT  /doctors/me                  doctor   replace own profile
+
+GET  /doctors                     any      search verified doctors (?q=&speciality=&tag=&city=&mode=&feeMax=&limit=&offset=)
+
+GET  /doctors/:id                 any      public profile of a verified doctor
+
+GET  /specialities                any      speciality slugs for profiles and search
+
+GET  /doctors/me/availability     doctor   own weekly rules and upcoming overrides
+
+PUT  /doctors/me/availability     doctor   replace the weekly rules
+
+POST /doctors/me/overrides        doctor   add a day off, partial leave or extra session
+
+GET  /doctors/:id/slots?date=     any      free slots of a verified doctor on one date
+
+```
+
+Admin (each route needs an admin token and its own permission):
+
+```text
+
+POST /admin/users                          create another admin           admin:manage
+
+GET  /admin/doctors?status=pending         review queue, any status       doctor:verify
+
+GET  /admin/doctors/:id                    profile + verification history doctor:verify
+
+POST /admin/doctors/:id/verify             pending   -> verified          doctor:verify
+
+POST /admin/doctors/:id/reject   {reason}  pending   -> rejected          doctor:verify
+
+POST /admin/doctors/:id/suspend  {reason}  verified  -> suspended         doctor:suspend
+
+POST /admin/doctors/:id/reinstate          suspended -> verified          doctor:suspend
+
+POST /admin/specialities                   add a speciality               speciality:manage
+
+```
+
+### Doctor onboarding
+
+1. Register with `role = doctor` and log in. The account exists but is not searchable.
+2. `POST /doctors` with registration number, council, qualification, specialities (the first is the primary), tags, consultation modes, fee in paise and clinic. The profile is `pending`.
+3. An admin finds it in `GET /admin/doctors?status=pending` and verifies or rejects it. Every decision is stored in `doctor_verifications` with the admin and the reason.
+4. Only `verified` doctors who accept patients appear in `GET /doctors` and `GET /doctors/:id`.
+
+Status rules:
+
+```text
+
+pending ──verify──▶ verified ──suspend──▶ suspended ──reinstate──▶ verified
+
+   └──reject──▶ rejected ──doctor updates profile──▶ pending
+
+```
+
+A verified doctor who changes the registration number or council also goes back to `pending`. A suspended doctor cannot clear the suspension by editing the profile.
+
+Search: `speciality` and `tag` may repeat and match any of the given values; every other filter must match. The `date` filter needs doctor availability and is not supported yet.
+
+### Availability and slots
+
+Availability is stored as rules, never as one row per slot. Slots are computed when asked for.
+
+- **Weekly rules** (`PUT /doctors/me/availability`): blocks like `{"dayOfWeek": 1, "startTime": "09:00", "endTime": "13:00", "mode": "in_person"}`. `dayOfWeek` is 0 (Sunday) to 6 (Saturday), `endTime` may be `24:00`, blocks on the same day may not overlap, each must fit at least one slot, and the mode must be one the doctor offers. The request replaces the whole week; an empty list clears it.
+- **Overrides** (`POST /doctors/me/overrides`) change one date, from today up to a year ahead:
+  - not available, no times: whole day off;
+  - not available, with times: leave for that part of the day;
+  - available, with times and a mode: extra session.
+- **Slots** (`GET /doctors/:id/slots?date=YYYY-MM-DD`): the day's rules plus extra sessions, minus leave, merged per mode and cut into `slotDurationMin` pieces. A whole day off returns nothing. Dates from today up to 90 days ahead; slots that already started today are left out. Only verified doctors who accept patients have slots. Booked appointments will be subtracted once appointments exist.
+
+All times are wall-clock times in the clinic timezone, `APP_TIMEZONE` (default `Asia/Kolkata`). Slot responses also carry `startsAt` / `endsAt` with the UTC offset. Times are stored as minutes from midnight (`540` = 09:00).
+
+### First admin
+
+```powershell
+
+$env:ADMIN_PASSWORD = "<at least 12 characters>"
+
+make create-admin NAME="Ops Admin" EMAIL=ops@example.com MOBILE=9876543210
+
+```
+
+It uses the same database settings as the API and refuses to run once any admin exists.
 
 `GET /health` (outside `/api/v1`) reports database readiness.
 

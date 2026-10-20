@@ -15,6 +15,32 @@ import (
 	"time"
 )
 
+const (
+	defaultAppName        = "appointment-system"
+	defaultHTTPAddress    = ":8080"
+	defaultDBHost         = "127.0.0.1"
+	defaultDBPort         = 5434
+	defaultDBUser         = "appointment"
+	defaultDBPassword     = "appointment-local"
+	defaultDBName         = "appointment_system"
+	defaultDBMaxOpenConns = 25
+	defaultDBMaxIdleConns = 5
+	defaultJWTSecret      = "appointment-local-jwt-secret-change-me"
+	defaultJWTIssuer      = "appointment-system"
+	defaultEnvironment    = "development"
+)
+
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 15 * time.Second
+	idleTimeout       = 60 * time.Second
+	shutdownTimeout   = 10 * time.Second
+	dbConnMaxLifetime = 5 * time.Minute
+	dbConnectTimeout  = 5 * time.Second
+	maxTCPPort        = 65535
+)
+
 // Config contains validated settings for the application runtime.
 type Config struct {
 	App      AppConfig
@@ -25,6 +51,8 @@ type Config struct {
 
 type AppConfig struct {
 	Name string
+	// Location is the clinic timezone. Doctor availability times are local to it.
+	Location *time.Location
 }
 
 type HTTPConfig struct {
@@ -57,26 +85,26 @@ type AuthConfig struct {
 // Load reads environment variables once and returns typed configuration.
 func Load() (Config, error) {
 	config := Config{
-		App: AppConfig{Name: env("APP_NAME", "appointment-system")},
+		App: AppConfig{Name: env("APP_NAME", defaultAppName)},
 		HTTP: HTTPConfig{
-			Address:           env("HTTP_ADDRESS", ":8080"),
-			ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout:       10 * time.Second,
-			WriteTimeout:      15 * time.Second,
-			IdleTimeout:       60 * time.Second,
-			ShutdownTimeout:   10 * time.Second,
+			Address:           env("HTTP_ADDRESS", defaultHTTPAddress),
+			ReadHeaderTimeout: readHeaderTimeout,
+			ReadTimeout:       readTimeout,
+			WriteTimeout:      writeTimeout,
+			IdleTimeout:       idleTimeout,
+			ShutdownTimeout:   shutdownTimeout,
 		},
 		Database: DatabaseConfig{
-			Host:            env("DB_HOST", "127.0.0.1"),
-			User:            env("DB_USER", "appointment"),
-			Password:        env("DB_PASSWORD", "appointment-local"),
-			Name:            env("DB_NAME", "appointment_system"),
-			ConnMaxLifetime: 5 * time.Minute,
-			ConnectTimeout:  5 * time.Second,
+			Host:            env("DB_HOST", defaultDBHost),
+			User:            env("DB_USER", defaultDBUser),
+			Password:        env("DB_PASSWORD", defaultDBPassword),
+			Name:            env("DB_NAME", defaultDBName),
+			ConnMaxLifetime: dbConnMaxLifetime,
+			ConnectTimeout:  dbConnectTimeout,
 		},
 		Auth: AuthConfig{
-			JWTSecret: env("JWT_SECRET", "appointment-local-jwt-secret-change-me"),
-			JWTIssuer: env("JWT_ISSUER", "appointment-system"),
+			JWTSecret: env("JWT_SECRET", defaultJWTSecret),
+			JWTIssuer: env("JWT_ISSUER", defaultJWTIssuer),
 			TokenTTL:  constant.AccessTokenTTL,
 		},
 	}
@@ -86,9 +114,9 @@ func Load() (Config, error) {
 		fallback int
 		target   *int
 	}{
-		{name: "DB_PORT", fallback: 5434, target: &config.Database.Port},
-		{name: "DB_MAX_OPEN_CONNS", fallback: 25, target: &config.Database.MaxOpenConns},
-		{name: "DB_MAX_IDLE_CONNS", fallback: 5, target: &config.Database.MaxIdleConns},
+		{name: "DB_PORT", fallback: defaultDBPort, target: &config.Database.Port},
+		{name: "DB_MAX_OPEN_CONNS", fallback: defaultDBMaxOpenConns, target: &config.Database.MaxOpenConns},
+		{name: "DB_MAX_IDLE_CONNS", fallback: defaultDBMaxIdleConns, target: &config.Database.MaxIdleConns},
 	}
 
 	for _, value := range integerValues {
@@ -99,20 +127,26 @@ func Load() (Config, error) {
 		*value.target = parsed
 	}
 
+	location, err := time.LoadLocation(env("APP_TIMEZONE", constant.DefaultTimezone))
+	if err != nil {
+		return Config{}, fmt.Errorf("APP_TIMEZONE is invalid: %w", err)
+	}
+	config.App.Location = location
+
 	if config.App.Name == "" || config.HTTP.Address == "" {
 		return Config{}, fmt.Errorf("APP_NAME and HTTP_ADDRESS are required")
 	}
 	if config.Database.Host == "" || config.Database.User == "" || config.Database.Name == "" {
 		return Config{}, fmt.Errorf("DB_HOST, DB_USER, and DB_NAME are required")
 	}
-	if config.Database.Port < 1 || config.Database.Port > 65535 {
-		return Config{}, fmt.Errorf("DB_PORT must be between 1 and 65535")
+	if config.Database.Port < 1 || config.Database.Port > maxTCPPort {
+		return Config{}, fmt.Errorf("DB_PORT must be between 1 and %d", maxTCPPort)
 	}
 	if config.Database.MaxOpenConns < 1 || config.Database.MaxIdleConns < 0 || config.Database.MaxIdleConns > config.Database.MaxOpenConns {
 		return Config{}, fmt.Errorf("database pool limits are invalid")
 	}
-	if len(config.Auth.JWTSecret) < 32 || config.Auth.JWTIssuer == "" || config.Auth.TokenTTL <= 0 {
-		return Config{}, fmt.Errorf("JWT_SECRET must contain at least 32 characters and JWT settings must be valid")
+	if len(config.Auth.JWTSecret) < constant.MinJWTSecretLength || config.Auth.JWTIssuer == "" || config.Auth.TokenTTL <= 0 {
+		return Config{}, fmt.Errorf("JWT_SECRET must contain at least %d characters and JWT settings must be valid", constant.MinJWTSecretLength)
 	}
 	if _, explicitlySet := os.LookupEnv("JWT_SECRET"); !explicitlySet {
 		if isProductionEnvironment() {
@@ -144,7 +178,7 @@ func envInt(name string, fallback int) (int, error) {
 }
 
 func isProductionEnvironment() bool {
-	switch env("APP_ENV", env("GIN_MODE", "development")) {
+	switch env("APP_ENV", env("GIN_MODE", defaultEnvironment)) {
 	case "production", "prod", "release":
 		return true
 	default:

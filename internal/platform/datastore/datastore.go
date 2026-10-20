@@ -51,9 +51,7 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 		}.Encode(),
 	}).String()
 
-	database, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		TranslateError: true,
-	})
+	database, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL: %w", err)
 	}

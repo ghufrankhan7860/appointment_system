@@ -57,8 +57,11 @@ func (repo *UserRepository) Create(ctx context.Context, user *models.User) (*mod
 	}
 
 	if err := dbFromContext(ctx, repo.db).Create(&record).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return nil, apperrors.ErrUserAlreadyExists
+		if emailUnique.ViolatedBy(err) {
+			return nil, apperrors.ErrEmailAlreadyExists
+		}
+		if mobileUnique.ViolatedBy(err) {
+			return nil, apperrors.ErrMobileAlreadyExists
 		}
 
 		return nil, fmt.Errorf("create user record: %w", err)
@@ -126,4 +129,18 @@ func (repo *UserRepository) GetByID(ctx context.Context, id uint64) (*models.Use
 		CreatedAt:    record.CreatedAt,
 		UpdatedAt:    record.UpdatedAt,
 	}, nil
+}
+
+func (repo *UserRepository) ExistsByRole(ctx context.Context, role models.Role) (bool, error) {
+	var count int64
+
+	if err := dbFromContext(ctx, repo.db).
+		Model(&userRecord{}).
+		Where("role = ?", string(role)).
+		Limit(1).
+		Count(&count).Error; err != nil {
+		return false, fmt.Errorf("count users by role: %w", err)
+	}
+
+	return count > 0, nil
 }

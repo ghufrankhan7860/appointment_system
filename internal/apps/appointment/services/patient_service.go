@@ -4,16 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/models"
-)
-
-const (
-	defaultPatientListLimit = 20
-	maxPatientListLimit     = 100
 )
 
 // PatientService owns user-scoped patient use cases, authorization, and
@@ -61,7 +54,7 @@ func (s *PatientService) Create(
 		return nil, err
 	}
 	if !validRelationship(relationship) {
-		return nil, fmt.Errorf("create patient with relationship %q: %w", relationship, apperrors.ErrInvalidPatientInput)
+		return nil, apperrors.Invalid(apperrors.ErrInvalidPatientInput, "relationship", "must be one of self, father, mother, spouse, child, sibling, guardian, caregiver, other")
 	}
 
 	var created *models.Patient
@@ -143,7 +136,7 @@ func (s *PatientService) List(
 		return nil, fmt.Errorf("list patients without acting user: %w", apperrors.ErrInvalidPatientInput)
 	}
 
-	limit, offset = clampPatientPagination(limit, offset)
+	limit, offset = clampPagination(limit, offset)
 
 	userPatients, err := s.userPatients.ListActiveByUser(ctx, actingUserID, limit, offset)
 	if err != nil {
@@ -229,71 +222,4 @@ func (s *PatientService) Update(
 	}
 
 	return updated, nil
-}
-
-// ------------------------------- Helpers ------------------------------------
-func validatePatientDemographics(patient *models.Patient) error {
-	if strings.TrimSpace(patient.Name) == "" {
-		return fmt.Errorf("patient name is required: %w", apperrors.ErrInvalidPatientInput)
-	}
-	if patient.DateOfBirth.IsZero() {
-		return fmt.Errorf("patient date of birth is required: %w", apperrors.ErrInvalidPatientInput)
-	}
-	if patient.DateOfBirth.After(time.Now().UTC()) {
-		return fmt.Errorf("patient date of birth is in the future: %w", apperrors.ErrInvalidPatientInput)
-	}
-	if !validGender(patient.Gender) {
-		return fmt.Errorf("patient gender %q is invalid: %w", patient.Gender, apperrors.ErrInvalidPatientInput)
-	}
-	if !validBloodType(patient.BloodType) {
-		return fmt.Errorf("patient blood type %q is invalid: %w", patient.BloodType, apperrors.ErrInvalidPatientInput)
-	}
-	return nil
-}
-
-func validGender(gender models.Gender) bool {
-	switch gender {
-	case models.GenderMale, models.GenderFemale, models.GenderOther, models.GenderUnknown:
-		return true
-	default:
-		return false
-	}
-}
-
-func validBloodType(bloodType models.BloodType) bool {
-	switch bloodType {
-	case models.BloodTypeAPlus, models.BloodTypeAMinus,
-		models.BloodTypeBPlus, models.BloodTypeBMinus,
-		models.BloodTypeABPlus, models.BloodTypeABMinus,
-		models.BloodTypeOPlus, models.BloodTypeOMinus:
-		return true
-	default:
-		return false
-	}
-}
-
-func validRelationship(relationship models.Relationship) bool {
-	switch relationship {
-	case models.RelationshipSelf, models.RelationshipFather,
-		models.RelationshipMother, models.RelationshipSpouse,
-		models.RelationshipChild, models.RelationshipSibling,
-		models.RelationshipGuardian, models.RelationshipCaregiver,
-		models.RelationshipOther:
-		return true
-	default:
-		return false
-	}
-}
-
-func clampPatientPagination(limit int, offset int) (int, int) {
-	if limit <= 0 {
-		limit = defaultPatientListLimit
-	}
-	if limit > maxPatientListLimit {
-		limit = maxPatientListLimit
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	return limit, offset
 }

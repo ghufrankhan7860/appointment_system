@@ -5,6 +5,9 @@ package main
 import (
 	"log"
 	"os"
+	// Embeds the timezone database: the distroless image has no zoneinfo, and
+	// APP_TIMEZONE must load there too.
+	_ "time/tzdata"
 
 	"appointment_system/cmd"
 )

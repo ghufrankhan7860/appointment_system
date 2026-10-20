@@ -65,7 +65,7 @@ func (as *AuthService) Register(
 
 	createdUser, err := as.users.Create(ctx, user)
 	if err != nil {
-		return nil, fmt.Errorf("create user: %w", err)
+		return nil, fmt.Errorf("create user: %w", duplicateUserReason(err))
 	}
 
 	return createdUser, nil
@@ -217,5 +217,16 @@ func newRefreshSession(userID uint64, tokenHash string) *models.Session {
 		UserID:    userID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().UTC().Add(constant.RefreshTokenTTL),
+	}
+}
+
+func duplicateUserReason(err error) error {
+	switch {
+	case errors.Is(err, apperrors.ErrEmailAlreadyExists):
+		return apperrors.Invalid(apperrors.ErrEmailAlreadyExists, "email", "is already registered")
+	case errors.Is(err, apperrors.ErrMobileAlreadyExists):
+		return apperrors.Invalid(apperrors.ErrMobileAlreadyExists, "mobileNo", "is already registered")
+	default:
+		return err
 	}
 }

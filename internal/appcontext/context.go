@@ -12,6 +12,7 @@ type AppContext struct {
 	Context       context.Context
 	CorrelationID string
 	PrincipalID   string
+	PrincipalRole string
 	TenantID      string
 }
 

@@ -10,4 +10,5 @@ type UserRepository interface {
 	Create(ctx context.Context, user *models.User) (*models.User, error)
 	FindByLogin(ctx context.Context, identifier string) (*models.User, error)
 	GetByID(ctx context.Context, id uint64) (*models.User, error)
+	ExistsByRole(ctx context.Context, role models.Role) (bool, error)
 }

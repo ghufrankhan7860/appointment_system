@@ -57,7 +57,11 @@ func (ph *PatientHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (ph *PatientHandler) Create(ctx *gin.Context) {
 	var createPatientRequest patient.CreatePatientRequest
 	if err := ctx.ShouldBindJSON(&createPatientRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
 		return
 	}
 
@@ -68,10 +72,15 @@ func (ph *PatientHandler) Create(ctx *gin.Context) {
 			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
 		case errors.Is(err, apperrors.ErrInvalidPatientInput),
 			errors.Is(err, apperrors.ErrNilPatientRequest):
-			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient details"})
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid patient details",
+				"details": apperrors.Reason(err),
+			})
 		case errors.Is(err, apperrors.ErrUserPatientAlreadyExists):
 			ctx.JSON(http.StatusConflict, gin.H{"success": false, "error": "Patient already linked to user"})
 		default:
+			_ = ctx.Error(err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to create patient"})
 		}
 		return
@@ -114,6 +123,7 @@ func (ph *PatientHandler) GetByID(ctx *gin.Context) {
 		case errors.Is(err, apperrors.ErrPatientNotFound):
 			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Patient not found"})
 		default:
+			_ = ctx.Error(err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to get patient"})
 		}
 		return
@@ -142,7 +152,11 @@ func (ph *PatientHandler) GetByID(ctx *gin.Context) {
 func (ph *PatientHandler) List(ctx *gin.Context) {
 	var listPatientsRequest patient.ListPatientsRequest
 	if err := ctx.ShouldBindQuery(&listPatientsRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid query parameters"})
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
 		return
 	}
 
@@ -154,6 +168,7 @@ func (ph *PatientHandler) List(ctx *gin.Context) {
 		case errors.Is(err, apperrors.ErrInvalidPatientInput):
 			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid query parameters"})
 		default:
+			_ = ctx.Error(err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list patients"})
 		}
 		return
@@ -185,7 +200,11 @@ func (ph *PatientHandler) List(ctx *gin.Context) {
 func (ph *PatientHandler) Update(ctx *gin.Context) {
 	var updatePatientRequest patient.UpdatePatientRequest
 	if err := ctx.ShouldBindJSON(&updatePatientRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
 		return
 	}
 	if err := ctx.ShouldBindUri(&updatePatientRequest); err != nil {
@@ -200,12 +219,17 @@ func (ph *PatientHandler) Update(ctx *gin.Context) {
 			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
 		case errors.Is(err, apperrors.ErrInvalidPatientInput),
 			errors.Is(err, apperrors.ErrNilPatientRequest):
-			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient details"})
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid patient details",
+				"details": apperrors.Reason(err),
+			})
 		case errors.Is(err, apperrors.ErrPatientForbidden):
 			ctx.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Patient access forbidden"})
 		case errors.Is(err, apperrors.ErrPatientNotFound):
 			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Patient not found"})
 		default:
+			_ = ctx.Error(err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to update patient"})
 		}
 		return

@@ -60,7 +60,7 @@ func (sr *SessionRepository) Create(
 	}
 
 	if err := dbFromContext(ctx, sr.db).Create(&record).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
+		if tokenHashUnique.ViolatedBy(err) {
 			return apperrors.ErrTokenAlreadyExists
 		}
 

@@ -2,11 +2,13 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/models"
 )
 
@@ -22,8 +24,8 @@ type authClaims struct {
 }
 
 func NewJWTManager(secret, issuer string, ttl time.Duration) (*JWTManager, error) {
-	if len(secret) < 32 {
-		return nil, errors.New("JWT secret must contain at least 32 characters")
+	if len(secret) < constant.MinJWTSecretLength {
+		return nil, fmt.Errorf("JWT secret must contain at least %d characters", constant.MinJWTSecretLength)
 	}
 	if issuer == "" {
 		return nil, errors.New("JWT issuer is required")
@@ -56,7 +58,8 @@ func (manager *JWTManager) Generate(user models.User) (string, error) {
 	return token.SignedString(manager.secret)
 }
 
-func (manager *JWTManager) Verify(tokenString string) (uint64, error) {
+// Verify validates an access token and returns the user ID and role it carries.
+func (manager *JWTManager) Verify(tokenString string) (uint64, string, error) {
 	var claims authClaims
 
 	if _, err := jwt.ParseWithClaims(
@@ -69,13 +72,17 @@ func (manager *JWTManager) Verify(tokenString string) (uint64, error) {
 		jwt.WithIssuer(manager.issuer),
 		jwt.WithExpirationRequired(),
 	); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	userID, err := strconv.ParseUint(claims.Subject, 10, 64)
 	if err != nil || userID == 0 {
-		return 0, errors.New("invalid token subject")
+		return 0, "", errors.New("invalid token subject")
 	}
 
-	return userID, nil
+	if claims.Role == "" {
+		return 0, "", errors.New("invalid token role")
+	}
+
+	return userID, claims.Role, nil
 }

@@ -46,7 +46,11 @@ func (handler *AuthHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (handler *AuthHandler) Login(ctx *gin.Context) {
 	var loginRequest auth.LoginRequest
 	if err := ctx.ShouldBindJSON(&loginRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
 		return
 	}
 
@@ -60,6 +64,7 @@ func (handler *AuthHandler) Login(ctx *gin.Context) {
 			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid credentials"})
 			return
 		}
+		_ = ctx.Error(err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to login"})
 		return
 	}
@@ -85,7 +90,11 @@ func (handler *AuthHandler) Login(ctx *gin.Context) {
 func (ah *AuthHandler) Register(ctx *gin.Context) {
 	var registerRequest auth.RegisterRequest
 	if err := ctx.ShouldBindJSON(&registerRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
 		return
 	}
 
@@ -96,9 +105,14 @@ func (ah *AuthHandler) Register(ctx *gin.Context) {
 			return
 		}
 		if errors.Is(err, apperrors.ErrUserAlreadyExists) {
-			ctx.JSON(http.StatusConflict, gin.H{"success": false, "error": "User already exists"})
+			ctx.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "User already exists",
+				"details": apperrors.Reason(err),
+			})
 			return
 		}
+		_ = ctx.Error(err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to register user"})
 		return
 	}
@@ -126,7 +140,10 @@ func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 	var refreshRequest auth.RefreshRequest
 	if err := ctx.ShouldBindJSON(&refreshRequest); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
-			"success": false, "error": "Invalid Request payload"})
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
 		return
 	}
 
@@ -138,6 +155,7 @@ func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 			errors.Is(err, apperrors.ErrSessionExpired):
 			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid or expired refresh token"})
 		default:
+			_ = ctx.Error(err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to refresh token"})
 		}
 		return
@@ -164,7 +182,11 @@ func (handler *AuthHandler) RefreshToken(ctx *gin.Context) {
 func (handler *AuthHandler) Logout(ctx *gin.Context) {
 	var refreshRequest auth.RefreshRequest
 	if err := ctx.ShouldBindJSON(&refreshRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid Request payload"})
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
 		return
 	}
 
@@ -176,6 +198,7 @@ func (handler *AuthHandler) Logout(ctx *gin.Context) {
 			})
 			return
 		}
+		_ = ctx.Error(err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to logout"})
 		return
 	}

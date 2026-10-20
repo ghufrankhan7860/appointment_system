@@ -10,5 +10,6 @@ type SuccessResponse struct {
 
 type ErrorResponse struct {
 	Success bool   `json:"success"`
-	Error   string `json:"error"`
+	Error   string `json:"error" example:"Invalid patient details"`
+	Details string `json:"details,omitempty" example:"dateOfBirth cannot be in the future"`
 }

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"appointment_system/internal/apps/appointment/constant"
 )
 
 func HashPassword(password string) ([]byte, error) {
@@ -22,7 +24,7 @@ func HashToken(token string) string {
 }
 
 func NewOpaqueToken() (string, error) {
-	var buf [32]byte
+	var buf [constant.RefreshTokenBytes]byte
 	if _, err := rand.Read(buf[:]); err != nil {
 		return "", err
 	}

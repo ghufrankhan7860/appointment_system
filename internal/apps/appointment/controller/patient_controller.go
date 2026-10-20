@@ -1,18 +1,14 @@
 package controller
 
 import (
-	"appointment_system/internal/appcontext"
 	"appointment_system/internal/apps/appointment/apperrors"
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/dtos/patient"
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/services"
 	"context"
-	"fmt"
-	"strconv"
 	"time"
 )
-
-const dateOfBirthLayout = "2006-01-02"
 
 type PatientController struct {
 	patientService *services.PatientService
@@ -33,9 +29,9 @@ func (pc *PatientController) Create(ctx context.Context, request *patient.Create
 		return nil, err
 	}
 
-	dateOfBirth, err := time.Parse(dateOfBirthLayout, request.DateOfBirth)
+	dateOfBirth, err := time.Parse(constant.DateLayout, request.DateOfBirth)
 	if err != nil {
-		return nil, fmt.Errorf("parse date of birth: %w", apperrors.ErrInvalidPatientInput)
+		return nil, apperrors.Invalid(apperrors.ErrInvalidPatientInput, "dateOfBirth", "must be YYYY-MM-DD")
 	}
 
 	newPatient := models.Patient{
@@ -54,7 +50,7 @@ func (pc *PatientController) Create(ctx context.Context, request *patient.Create
 		ID:               createdPatient.ID,
 		Name:             createdPatient.Name,
 		Gender:           string(createdPatient.Gender),
-		DateOfBirth:      createdPatient.DateOfBirth.Format(dateOfBirthLayout),
+		DateOfBirth:      createdPatient.DateOfBirth.Format(constant.DateLayout),
 		BloodType:        string(createdPatient.BloodType),
 		EmergencyContact: createdPatient.EmergencyContact,
 	}, nil
@@ -75,7 +71,7 @@ func (pc *PatientController) GetByID(ctx context.Context, request *patient.GetPa
 		ID:               foundPatient.ID,
 		Name:             foundPatient.Name,
 		Gender:           string(foundPatient.Gender),
-		DateOfBirth:      foundPatient.DateOfBirth.Format(dateOfBirthLayout),
+		DateOfBirth:      foundPatient.DateOfBirth.Format(constant.DateLayout),
 		BloodType:        string(foundPatient.BloodType),
 		EmergencyContact: foundPatient.EmergencyContact,
 	}, nil
@@ -100,7 +96,7 @@ func (pc *PatientController) List(ctx context.Context, request *patient.ListPati
 			ID:               listedPatient.ID,
 			Name:             listedPatient.Name,
 			Gender:           string(listedPatient.Gender),
-			DateOfBirth:      listedPatient.DateOfBirth.Format(dateOfBirthLayout),
+			DateOfBirth:      listedPatient.DateOfBirth.Format(constant.DateLayout),
 			BloodType:        string(listedPatient.BloodType),
 			EmergencyContact: listedPatient.EmergencyContact,
 		})
@@ -115,9 +111,9 @@ func (pc *PatientController) Update(ctx context.Context, request *patient.Update
 		return nil, err
 	}
 
-	dateOfBirth, err := time.Parse(dateOfBirthLayout, request.DateOfBirth)
+	dateOfBirth, err := time.Parse(constant.DateLayout, request.DateOfBirth)
 	if err != nil {
-		return nil, fmt.Errorf("parse date of birth: %w", apperrors.ErrInvalidPatientInput)
+		return nil, apperrors.Invalid(apperrors.ErrInvalidPatientInput, "dateOfBirth", "must be YYYY-MM-DD")
 	}
 
 	changedPatient := models.Patient{
@@ -137,22 +133,8 @@ func (pc *PatientController) Update(ctx context.Context, request *patient.Update
 		ID:               updatedPatient.ID,
 		Name:             updatedPatient.Name,
 		Gender:           string(updatedPatient.Gender),
-		DateOfBirth:      updatedPatient.DateOfBirth.Format(dateOfBirthLayout),
+		DateOfBirth:      updatedPatient.DateOfBirth.Format(constant.DateLayout),
 		BloodType:        string(updatedPatient.BloodType),
 		EmergencyContact: updatedPatient.EmergencyContact,
 	}, nil
-}
-
-func actingUserID(ctx context.Context) (uint64, error) {
-	applicationContext, ok := appcontext.From(ctx)
-	if !ok {
-		return 0, apperrors.ErrPrincipalNotFound
-	}
-
-	userID, err := strconv.ParseUint(applicationContext.PrincipalID, 10, 64)
-	if err != nil || userID == 0 {
-		return 0, apperrors.ErrPrincipalNotFound
-	}
-
-	return userID, nil
 }

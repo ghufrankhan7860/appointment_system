@@ -1,6 +1,9 @@
 package apperrors
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrNilDB                    = errors.New("db is nil")
@@ -45,4 +48,50 @@ var (
 	ErrUserPatientNotFound      = errors.New("user-patient not found")
 	ErrUserPatientAlreadyExists = errors.New("user-patient already exists")
 	ErrPrincipalNotFound        = errors.New("principal not found")
+)
+
+var (
+	ErrNilDoctorRepository             = errors.New("doctor repository is nil")
+	ErrNilSpecialityRepository         = errors.New("speciality repository is nil")
+	ErrNilDoctorVerificationRepository = errors.New("doctor verification repository is nil")
+	ErrNilDoctorService                = errors.New("doctor service is nil")
+	ErrNilDoctorVerificationService    = errors.New("doctor verification service is nil")
+	ErrNilAdminUserService             = errors.New("admin user service is nil")
+	ErrNilDoctorController             = errors.New("doctor controller is nil")
+	ErrNilAdminController              = errors.New("admin controller is nil")
+)
+
+var (
+	ErrNilDoctorRequest              = errors.New("doctor request is nil")
+	ErrInvalidDoctorInput            = errors.New("invalid doctor input")
+	ErrDoctorNotFound                = errors.New("doctor not found")
+	ErrDoctorAlreadyExists           = errors.New("doctor profile already exists for this user")
+	ErrDoctorRegistrationExists      = errors.New("doctor registration number already exists for this council")
+	ErrDoctorRoleRequired            = errors.New("only doctor accounts can manage a doctor profile")
+	ErrSpecialityNotFound            = errors.New("speciality not found")
+	ErrSpecialityAlreadyExists       = errors.New("speciality already exists")
+	ErrInvalidVerificationTransition = errors.New("verification status transition is not allowed")
+	ErrVerificationReasonRequired    = errors.New("a reason is required for this verification decision")
+	ErrAdminAlreadyExists            = errors.New("an admin user already exists")
+	ErrNilAdminRequest               = errors.New("admin request is nil")
+	ErrNilSpecialityRequest          = errors.New("speciality request is nil")
+	ErrNilDoctorVerificationRequest  = errors.New("doctor verification request is nil")
+	ErrNilOverrideRequest            = errors.New("availability override request is nil")
+	ErrInvalidAdminInput             = errors.New("invalid admin input")
+)
+
+var (
+	ErrNilAvailabilityRepository = errors.New("availability repository is nil")
+	ErrNilAvailabilityService    = errors.New("availability service is nil")
+	ErrNilClinicLocation         = errors.New("clinic location is nil")
+	ErrNilClock                  = errors.New("clock is nil")
+	ErrInvalidAvailabilityInput  = errors.New("invalid availability input")
+	ErrAvailabilityOverlap       = errors.New("availability blocks overlap on the same day")
+)
+
+// Which unique field clashed when creating a user. Both wrap ErrUserAlreadyExists,
+// so code that only cares that the user exists can keep matching that.
+var (
+	ErrEmailAlreadyExists  = fmt.Errorf("email already registered: %w", ErrUserAlreadyExists)
+	ErrMobileAlreadyExists = fmt.Errorf("mobile number already registered: %w", ErrUserAlreadyExists)
 )

@@ -50,7 +50,9 @@ func (m *GORMTransactionManager) WithinTransaction(ctx context.Context, fn func(
 	if fn == nil {
 		return fmt.Errorf("transaction function is nil")
 	}
-	return m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// Starting from the context's database joins an outer transaction (GORM uses a
+	// savepoint), so a nested call commits or rolls back with its caller.
+	return dbFromContext(ctx, m.db).Transaction(func(tx *gorm.DB) error {
 		return fn(withTx(ctx, tx))
 	})
 }
