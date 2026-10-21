@@ -16,81 +16,93 @@ Before adding code, read these documents:
 
 .
 
-|-- main.go                         # Delegates process startup to cmd
+|-- main.go                         # Delegates process startup to cmd
 
-|-- cmd/                            # Runtime commands and composition roots
+|-- cmd/                            # Runtime commands and composition roots
 
-|-- server/                         # HTTP engine, routes, and lifecycle
+|-- server/                         # HTTP engine, routes, health and Swagger route
 
-|-- middleware/                     # Global HTTP middleware
+|-- middleware/                     # Global HTTP middleware (app context, auth, admin log)
 
-|-- config/                         # Typed configuration and validation
+|-- config/                         # Typed configuration and validation
 
-|-- envs/                           # Safe local configuration examples only
+|-- envs/                           # Safe local configuration examples only
 
 |-- internal/
 
-|   |-- apps/appointment/
+|   |-- appcontext/                 # Request-scoped metadata (correlation ID, principal)
 
-|   |   |-- handler/                # HTTP binding and response mapping
+|   |-- apps/appointment/
 
-|   |   |-- controller/             # One application action per use case
+|   |   |-- handler/                # HTTP binding and response mapping
 
-|   |   |-- services/               # Business rules and transactions
+|   |   |-- controller/             # One application action per use case
 
-|   |   |-- repositories/           # Persistence adapters
+|   |   |-- services/               # Business rules and transactions
 
-|   |   |-- models/                 # Domain and persistence representations
+|   |   |-- repositories/           # Persistence adapters
 
-|   |   |-- dtos/                   # Transport/application input and output
+|   |   |-- models/                 # Domain models
 
-|   |   |-- interfaces/             # Shared application-owned capabilities
+|   |   |-- dtos/                   # Transport input and output
 
-|   |   |-- provider/               # Provider selection and registration
+|   |   |-- apperrors/              # Sentinel errors and client-facing validation reasons
 
-|   |   |-- adapters/               # External provider implementations
+|   |   |-- authz/                  # Role to permission map and RequirePermission
 
-|   |   |-- cache/                  # Appointment cache policy
+|   |   |-- constant/               # Central home for fixed values: formats, limits, lifetimes
 
-|   |   |-- constant/               # Stable appointment values, sparingly
+|   |   |-- utils/                  # Generic helpers: hashing, tokens, JWT, dates, clock times
 
-|   |   `-- container.go            # App dependency declarations
+|   |   |-- interfaces/             # Placeholder: shared application-owned capabilities
 
-|   `-- platform/
+|   |   |-- provider/               # Placeholder: provider selection and registration
 
-|       |-- datastore/              # Database and migration infrastructure
+|   |   |-- adapters/               # Placeholder: external provider implementations
 
-|       |-- redis/                  # Distributed-cache adapter
+|   |   |-- cache/                  # Placeholder: appointment cache policy
 
-|       |-- kafka/                  # Broker adapter
+|   |   `-- container.go            # App dependency declarations
 
-|       |-- network/                # Outbound HTTP policy
+|   `-- platform/
 
-|       |-- logger/                 # Structured logging setup
+|       |-- datastore/              # Database connection and pool
 
-|       `-- telemetry/              # Traces, metrics, and profiling
+|       |-- redis/                  # Placeholder: distributed-cache adapter
+
+|       |-- kafka/                  # Placeholder: broker adapter
+
+|       |-- network/                # Placeholder: outbound HTTP policy
+
+|       |-- logger/                 # Placeholder: structured logging setup
+
+|       `-- telemetry/              # Placeholder: traces, metrics, and profiling
 
 |-- scripts/
 
-|   |-- consumer/                   # Message consumer loops
+|   |-- bootstrap/                  # Creates the first admin (make create-admin)
 
-|   |-- cron/                       # Scheduled jobs
+|   |-- consumer/                   # Placeholder: message consumer loops
 
-|   `-- backfill/                   # Restartable data repair/import jobs
+|   |-- cron/                       # Placeholder: scheduled jobs
 
-|-- migrations/                     # Ordered schema migrations
+|   `-- backfill/                   # Placeholder: restartable data repair/import jobs
 
-|-- templates/                      # Email/document templates
+|-- migrations/                     # Ordered schema migrations
 
-|-- tests/                          # Cross-package and end-to-end tests
+|-- tests/                          # Every test, one folder per package under test
 
-|-- mocks/                          # Generated mocks only
+|-- templates/                      # Placeholder: email/document templates
 
-|-- deploy/                         # Container/orchestration definitions
+|-- mocks/                          # Placeholder: generated mocks only
 
-`-- docs/                           # Architecture and operational decisions
+|-- deploy/                         # Container/orchestration definitions
+
+`-- docs/                           # Architecture decisions and generated Swagger spec
 
 ```
+
+Folders marked "Placeholder" hold only a package description; they are reserved for later features and contain no code yet.
 
 ## Domain Model
 
@@ -556,6 +568,30 @@ user_patient
 
     updated_at
 
+doctors
+
+    id
+
+    user_id
+
+    registration_council, registration_number
+
+    verification_status
+
+    ...
+
+specialities, doctor_specialities, doctor_tags, doctor_consultation_modes
+
+    lookup and link tables for a doctor profile
+
+doctor_verifications
+
+    one audit row per verification status change
+
+doctor_availability, doctor_availability_overrides
+
+    weekly working rules and one-off date changes
+
 appointments
 
     id
@@ -579,6 +615,8 @@ The `appointments.patient_id` field identifies the canonical patient receiving c
 The `appointments.booked_by_user_id` field identifies the user who created the booking and should not be used as the authorization mechanism for accessing the patient.
 
 Authorization should be evaluated using the authenticated user, the relevant user-patient relationship, the user's system role, and the application's authorization rules.
+
+A doctor is a `users` row with role `doctor` plus exactly one `doctors` row (`doctors.user_id` is unique). `(registration_council, registration_number)` is unique, so the same registration cannot belong to two profiles. `doctors.verification_status` is the current state and `doctor_verifications` is its history.
 
 ## Timestamps
 
@@ -762,6 +800,8 @@ POST /admin/specialities                   add a speciality               specia
 
 ```
 
+`GET /health` (outside `/api/v1`) reports database readiness. Appointment endpoints are not implemented yet.
+
 ### Doctor onboarding
 
 1. Register with `role = doctor` and log in. The account exists but is not searchable.
@@ -808,10 +848,6 @@ make create-admin NAME="Ops Admin" EMAIL=ops@example.com MOBILE=9876543210
 
 It uses the same database settings as the API and refuses to run once any admin exists.
 
-`GET /health` (outside `/api/v1`) reports database readiness.
-
-Appointment endpoints are not implemented yet.
-
 ### Swagger UI
 
 With the API running, open:
@@ -844,17 +880,49 @@ go generate ./...
 
 ## First Commands
 
+The Makefile wraps the common commands. On Windows, where `make` is not installed, use `mingw32-make` with the same targets.
+
 ```powershell
 
-go test ./...
+make test                  # go test for the normal build and the swagger build
 
-go vet ./...
+make vet                   # go vet for both builds
+
+make cover                 # coverage of the application code, run from tests/
 
 ```
+
+| Target | What it does |
+|---|---|
+| `make db` | Start Postgres and apply migrations |
+| `make run` | Run the API locally with Swagger (`go run -tags swagger .`) |
+| `make up` / `make down` | Build and start / stop the whole Docker stack |
+| `make down-v` | Stop the stack and delete the database volume |
+| `make db-reset` | Delete the database volume, then start Postgres and migrate again |
+| `make migrate` | Apply pending migrations |
+| `make swagger` | Regenerate `docs/swagger` from the handler annotations |
+| `make create-admin` | Create the first admin (see **First admin**) |
+| `make logs` / `make ps` | Follow API logs / list containers |
+
+## Tests
+
+Every test lives in `tests/`, one folder per package under test (`tests/services`, `tests/handler`, `tests/repositories`, ...). Each folder is an external `<package>_test` package, so tests exercise exported behaviour only, and shared fakes live in that folder's `fakes_test.go`.
+
+The tests in `tests/repositories` run against the local Postgres. Start it with `make db` first; without a database they are skipped, not failed.
 
 ## Run and Debug
 
 Start PostgreSQL and run the API normally:
+
+```powershell
+
+make db
+
+make run
+
+```
+
+Or without the Makefile:
 
 ```powershell
 
