@@ -72,6 +72,30 @@ func buildSlots(
 	return slots
 }
 
+// withoutBooked drops every slot that overlaps a scheduled appointment or a
+// time held by a reschedule proposal. It compares instants, so it still works
+// after the doctor changes the slot length.
+func withoutBooked(slots []models.Slot, booked []*models.AppointmentDetails) []models.Slot {
+	free := make([]models.Slot, 0, len(slots))
+	for _, slot := range slots {
+		taken := false
+		for _, appointment := range booked {
+			holdsSlot := appointment.Status == models.AppointmentStatusScheduled ||
+				appointment.Status == models.AppointmentStatusRescheduleProposed
+			if holdsSlot &&
+				slot.StartsAt.Before(appointment.EndsAt) && appointment.StartsAt.Before(slot.EndsAt) {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			free = append(free, slot)
+		}
+	}
+
+	return free
+}
+
 func mergeMinuteRanges(ranges []minuteRange) []minuteRange {
 	if len(ranges) == 0 {
 		return nil

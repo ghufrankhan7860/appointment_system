@@ -20,6 +20,7 @@ import (
 type AvailabilityService struct {
 	doctors      DoctorRepository
 	availability AvailabilityRepository
+	appointments AppointmentRepository
 	tx           TransactionManager
 	location     *time.Location
 	now          func() time.Time
@@ -28,6 +29,7 @@ type AvailabilityService struct {
 func NewAvailabilityService(
 	doctors DoctorRepository,
 	availability AvailabilityRepository,
+	appointments AppointmentRepository,
 	tx TransactionManager,
 	location *time.Location,
 	now func() time.Time,
@@ -37,6 +39,9 @@ func NewAvailabilityService(
 	}
 	if availability == nil {
 		return nil, apperrors.ErrNilAvailabilityRepository
+	}
+	if appointments == nil {
+		return nil, apperrors.ErrNilAppointmentRepository
 	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
@@ -51,6 +56,7 @@ func NewAvailabilityService(
 	return &AvailabilityService{
 		doctors:      doctors,
 		availability: availability,
+		appointments: appointments,
 		tx:           tx,
 		location:     location,
 		now:          now,
@@ -211,7 +217,8 @@ func (avs *AvailabilityService) AddOverride(
 }
 
 // ListSlots returns the free slots of a verified doctor on one date, from today
-// up to 90 days ahead. Slots that already started today are left out.
+// up to 90 days ahead. Slots that already started today or overlap a scheduled
+// appointment are left out.
 func (avs *AvailabilityService) ListSlots(
 	ctx context.Context,
 	doctorID uint64,
@@ -230,30 +237,12 @@ func (avs *AvailabilityService) ListSlots(
 		return nil, apperrors.Invalid(apperrors.ErrInvalidAvailabilityInput, "date", fmt.Sprintf("must be between today and %d days ahead", constant.SlotHorizonDays))
 	}
 
-	doctor, err := avs.doctors.GetByID(ctx, doctorID)
+	doctor, err := avs.verifiedDoctor(ctx, doctorID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrDoctorNotFound) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("get doctor for slots: %w", err)
-	}
-	if doctor.VerificationStatus != models.VerificationStatusVerified {
-		return nil, apperrors.ErrDoctorNotFound
-	}
-	if !doctor.IsAcceptingPatients {
-		return []models.Slot{}, nil
+		return nil, err
 	}
 
-	rules, err := avs.availability.ListRulesByDay(ctx, doctor.ID, date.Weekday())
-	if err != nil {
-		return nil, fmt.Errorf("list availability rules for slots: %w", err)
-	}
-	overrides, err := avs.availability.ListOverrides(ctx, doctor.ID, date, date)
-	if err != nil {
-		return nil, fmt.Errorf("list availability overrides for slots: %w", err)
-	}
-
-	return buildSlots(date, rules, overrides, doctor.SlotDurationMin, avs.location, avs.now()), nil
+	return avs.freeSlots(ctx, doctor, date)
 }
 
 // Timezone is the clinic timezone name that availability times are local to.
@@ -279,6 +268,52 @@ func (avs *AvailabilityService) ownDoctor(
 	}
 
 	return doctor, nil
+}
+
+func (avs *AvailabilityService) verifiedDoctor(ctx context.Context, doctorID uint64) (*models.Doctor, error) {
+	doctor, err := avs.doctors.GetByID(ctx, doctorID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrDoctorNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("get doctor for slots: %w", err)
+	}
+	if doctor.VerificationStatus != models.VerificationStatusVerified {
+		return nil, apperrors.ErrDoctorNotFound
+	}
+
+	return doctor, nil
+}
+
+// freeSlots computes the doctor's slots on date and removes the ones taken by
+// a scheduled appointment. A doctor who does not accept patients has none.
+func (avs *AvailabilityService) freeSlots(
+	ctx context.Context,
+	doctor *models.Doctor,
+	date time.Time,
+) ([]models.Slot, error) {
+	if !doctor.IsAcceptingPatients {
+		return []models.Slot{}, nil
+	}
+
+	rules, err := avs.availability.ListRulesByDay(ctx, doctor.ID, date.Weekday())
+	if err != nil {
+		return nil, fmt.Errorf("list availability rules for slots: %w", err)
+	}
+	overrides, err := avs.availability.ListOverrides(ctx, doctor.ID, date, date)
+	if err != nil {
+		return nil, fmt.Errorf("list availability overrides for slots: %w", err)
+	}
+
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, avs.location)
+	booked, err := avs.appointments.ListByDoctorBetween(ctx, doctor.ID, dayStart, dayStart.AddDate(0, 0, 1))
+	if err != nil {
+		return nil, fmt.Errorf("list booked appointments for slots: %w", err)
+	}
+
+	slots := buildSlots(date, rules, overrides, doctor.SlotDurationMin, avs.location, avs.now())
+
+	return withoutBooked(slots, booked), nil
 }
 
 func (avs *AvailabilityService) today() time.Time {

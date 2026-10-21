@@ -28,6 +28,8 @@ const (
 	defaultJWTSecret      = "appointment-local-jwt-secret-change-me"
 	defaultJWTIssuer      = "appointment-system"
 	defaultEnvironment    = "development"
+	// paymentProviderNone moves no money and is refused in production.
+	paymentProviderNone = "none"
 )
 
 const (
@@ -47,6 +49,7 @@ type Config struct {
 	HTTP     HTTPConfig
 	Database DatabaseConfig
 	Auth     AuthConfig
+	Payment  PaymentConfig
 }
 
 type AppConfig struct {
@@ -74,6 +77,11 @@ type DatabaseConfig struct {
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
 	ConnectTimeout  time.Duration
+}
+
+type PaymentConfig struct {
+	// Provider selects the payment gateway adapter.
+	Provider string
 }
 
 type AuthConfig struct {
@@ -107,6 +115,7 @@ func Load() (Config, error) {
 			JWTIssuer: env("JWT_ISSUER", defaultJWTIssuer),
 			TokenTTL:  constant.AccessTokenTTL,
 		},
+		Payment: PaymentConfig{Provider: env("PAYMENT_PROVIDER", paymentProviderNone)},
 	}
 
 	integerValues := []struct {
@@ -152,6 +161,13 @@ func Load() (Config, error) {
 		if isProductionEnvironment() {
 			return Config{}, fmt.Errorf("JWT_SECRET must be set explicitly in production; default local secret is not allowed")
 		}
+	}
+
+	if config.Payment.Provider != paymentProviderNone {
+		return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q is not supported; use %q", config.Payment.Provider, paymentProviderNone)
+	}
+	if config.Payment.Provider == paymentProviderNone && isProductionEnvironment() {
+		return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q takes no money and is not allowed in production", paymentProviderNone)
 	}
 
 	return config, nil

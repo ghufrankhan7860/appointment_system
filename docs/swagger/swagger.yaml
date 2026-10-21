@@ -113,6 +113,12 @@ definitions:
           $ref: '#/definitions/admin.GetDoctorResponse'
         type: array
     type: object
+  admin.RefundPaymentRequest:
+    properties:
+      note:
+        example: Doctor unavailable, refunded as goodwill
+        type: string
+    type: object
   admin.ReviewDoctorRequest:
     properties:
       reason:
@@ -130,6 +136,245 @@ definitions:
       reviewedByUserId:
         type: integer
       toStatus:
+        type: string
+    type: object
+  appointment.AppointmentResponse:
+    properties:
+      bookedBy:
+        $ref: '#/definitions/appointment.BookedBySummary'
+      cancelReason:
+        enum:
+        - patient_request
+        - doctor_request
+        - admin
+        - rescheduled
+        - doctor_suspended
+        - payment_expired
+        - proposal_declined
+        - proposal_expired
+        type: string
+      cancelledAt:
+        type: string
+      consultationFee:
+        example: 50000
+        type: integer
+      date:
+        example: "2026-10-26"
+        type: string
+      doctor:
+        $ref: '#/definitions/appointment.DoctorSummary'
+      endsAt:
+        example: "2026-10-26T09:30:00+05:30"
+        type: string
+      id:
+        type: integer
+      mode:
+        example: in_person
+        type: string
+      notes:
+        example: Fever since Monday
+        type: string
+      patient:
+        $ref: '#/definitions/appointment.PatientSummary'
+      paymentDueAt:
+        type: string
+      paymentStatus:
+        enum:
+        - unpaid
+        - paid
+        - refunded
+        - waived
+        example: unpaid
+        type: string
+      rescheduledFromId:
+        example: 49
+        type: integer
+      slotDurationMin:
+        example: 30
+        type: integer
+      startTime:
+        example: "09:00"
+        type: string
+      startsAt:
+        example: "2026-10-26T09:00:00+05:30"
+        type: string
+      status:
+        enum:
+        - scheduled
+        - completed
+        - cancelled
+        - no_show
+        - reschedule_proposed
+        example: scheduled
+        type: string
+    type: object
+  appointment.BookAppointmentRequest:
+    properties:
+      doctorId:
+        example: 5
+        type: integer
+      mode:
+        enum:
+        - in_person
+        - video
+        - phone
+        example: in_person
+        type: string
+      notes:
+        example: Fever since Monday
+        type: string
+      patientId:
+        example: 3
+        type: integer
+      startsAt:
+        example: "2026-10-26T09:00:00+05:30"
+        type: string
+    required:
+    - doctorId
+    - mode
+    - patientId
+    - startsAt
+    type: object
+  appointment.BookedBySummary:
+    properties:
+      patientRelationship:
+        example: child
+        type: string
+      userId:
+        type: integer
+    type: object
+  appointment.CancelAppointmentRequest:
+    properties:
+      reason:
+        example: Feeling better
+        type: string
+    type: object
+  appointment.DoctorSummary:
+    properties:
+      id:
+        type: integer
+      name:
+        example: Dr. Meera Iyer
+        type: string
+      speciality:
+        example: Cardiology
+        type: string
+    type: object
+  appointment.ListAppointmentsResponse:
+    properties:
+      appointments:
+        items:
+          $ref: '#/definitions/appointment.AppointmentResponse'
+        type: array
+    type: object
+  appointment.ListDoctorAppointmentsResponse:
+    properties:
+      appointments:
+        items:
+          $ref: '#/definitions/appointment.AppointmentResponse'
+        type: array
+      date:
+        example: "2026-10-26"
+        type: string
+      timezone:
+        example: Asia/Kolkata
+        type: string
+    type: object
+  appointment.PatientSummary:
+    properties:
+      id:
+        type: integer
+      name:
+        example: Asha Verma
+        type: string
+    type: object
+  appointment.ProposeRescheduleRequest:
+    properties:
+      mode:
+        enum:
+        - in_person
+        - video
+        - phone
+        example: in_person
+        type: string
+      note:
+        example: Called in for an emergency surgery
+        type: string
+      reason:
+        enum:
+        - emergency
+        - personal
+        - clinic_closed
+        - other
+        example: emergency
+        type: string
+      startsAt:
+        example: "2026-10-27T11:00:00+05:30"
+        type: string
+    required:
+    - reason
+    - startsAt
+    type: object
+  appointment.RescheduleAppointmentRequest:
+    properties:
+      mode:
+        enum:
+        - in_person
+        - video
+        - phone
+        example: in_person
+        type: string
+      startsAt:
+        example: "2026-10-27T10:00:00+05:30"
+        type: string
+    required:
+    - startsAt
+    type: object
+  appointment.RescheduleProposalResponse:
+    properties:
+      appointmentId:
+        type: integer
+      createdAt:
+        type: string
+      expiresAt:
+        example: "2026-10-27T09:00:00+05:30"
+        type: string
+      id:
+        type: integer
+      newDate:
+        example: "2026-10-27"
+        type: string
+      newEndsAt:
+        example: "2026-10-27T11:30:00+05:30"
+        type: string
+      newMode:
+        example: in_person
+        type: string
+      newStartTime:
+        example: "11:00"
+        type: string
+      newStartsAt:
+        example: "2026-10-27T11:00:00+05:30"
+        type: string
+      note:
+        type: string
+      placeholderAppointmentId:
+        type: integer
+      reason:
+        enum:
+        - emergency
+        - personal
+        - clinic_closed
+        - other
+        example: emergency
+        type: string
+      status:
+        enum:
+        - pending
+        - accepted
+        - declined
+        - expired
+        example: pending
         type: string
     type: object
   auth.LoginRequest:
@@ -748,6 +993,93 @@ definitions:
       name:
         type: string
     type: object
+  payment.CreatePaymentResponse:
+    properties:
+      amount:
+        example: 50000
+        type: integer
+      appointmentId:
+        type: integer
+      capturedAt:
+        type: string
+      clientPayload:
+        additionalProperties: {}
+        type: object
+      createdAt:
+        type: string
+      currency:
+        example: INR
+        type: string
+      id:
+        type: integer
+      payerUserId:
+        type: integer
+      provider:
+        example: none
+        type: string
+      providerOrderId:
+        example: none_order_12_1761040000000000000
+        type: string
+      providerPaymentId:
+        type: string
+      status:
+        enum:
+        - created
+        - captured
+        - failed
+        - expired
+        - refunded
+        example: created
+        type: string
+    type: object
+  payment.PaymentResponse:
+    properties:
+      amount:
+        example: 50000
+        type: integer
+      appointmentId:
+        type: integer
+      capturedAt:
+        type: string
+      createdAt:
+        type: string
+      currency:
+        example: INR
+        type: string
+      id:
+        type: integer
+      payerUserId:
+        type: integer
+      provider:
+        example: none
+        type: string
+      providerOrderId:
+        example: none_order_12_1761040000000000000
+        type: string
+      providerPaymentId:
+        type: string
+      status:
+        enum:
+        - created
+        - captured
+        - failed
+        - expired
+        - refunded
+        example: created
+        type: string
+    type: object
+  payment.VerifyPaymentRequest:
+    properties:
+      providerPaymentId:
+        example: pay_29QQoUBi66xm2f
+        type: string
+      signature:
+        example: none_signature_none_order_12_1761040000000000000
+        type: string
+    required:
+    - providerPaymentId
+    - signature
+    type: object
 info:
   contact: {}
   description: 'Appointment management backend: accounts, patients and the user-patient
@@ -1086,6 +1418,65 @@ paths:
       summary: Verify a pending doctor
       tags:
       - admin
+  /admin/payments/{id}/refund:
+    post:
+      consumes:
+      - application/json
+      description: Refunds a captured payment in full through its gateway. The appointment's
+        payment status becomes refunded. Cancelled paid appointments are refunded
+        automatically; this is for everything else.
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional note
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/admin.RefundPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Refund a payment
+      tags:
+      - admin
   /admin/specialities:
     post:
       consumes:
@@ -1182,6 +1573,558 @@ paths:
       summary: Create another admin
       tags:
       - admin
+  /appointments:
+    get:
+      description: Lists the appointments of every patient the caller has active access
+        to, earliest first. from is inclusive and to exclusive. Limit defaults to
+        20 and is capped at 100.
+      parameters:
+      - description: Only this patient
+        in: query
+        name: patientId
+        type: integer
+      - description: Only this status
+        enum:
+        - scheduled
+        - completed
+        - cancelled
+        - no_show
+        - reschedule_proposed
+        in: query
+        name: status
+        type: string
+      - description: Starts at or after, like 2026-10-26T00:00:00+05:30
+        in: query
+        name: from
+        type: string
+      - description: Starts before, like 2026-10-27T00:00:00+05:30
+        in: query
+        name: to
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Number of appointments to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.ListAppointmentsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List appointments
+      tags:
+      - appointments
+    post:
+      consumes:
+      - application/json
+      description: Books a free slot of a verified doctor for a patient the caller
+        has full or appointments_only access to. startsAt and mode must match a slot
+        from GET /doctors/{id}/slots; the end time, fee and slot length come from
+        the server.
+      parameters:
+      - description: Booking
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/appointment.BookAppointmentRequest'
+      - description: Client key; a retry with the same key and body returns the first
+          booking
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Book an appointment
+      tags:
+      - appointments
+  /appointments/{id}:
+    get:
+      description: Returns an appointment of a patient the caller has active access
+        to, or one where the caller is the doctor. Other appointments are reported
+        as not found.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get an appointment
+      tags:
+      - appointments
+  /appointments/{id}/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Cancels a scheduled appointment that has not started. The patient
+        side needs full or appointments_only access and must cancel at least 2 hours
+        before the start; the doctor can cancel until the start.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional reason
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/appointment.CancelAppointmentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel an appointment
+      tags:
+      - appointments
+  /appointments/{id}/payment:
+    get:
+      description: Returns the appointment's most recent payment. The patient side
+        with any active link, the appointment's doctor and admins can see it.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get an appointment's payment
+      tags:
+      - payments
+  /appointments/{id}/payments:
+    post:
+      description: Opens a gateway order for an unpaid appointment and returns what
+        the client needs to pay it. Anyone with full or appointments_only access to
+        the patient can pay. The amount is the fee stored on the appointment. Asking
+        again while a payment is open returns the same one. The booking must be paid
+        before paymentDueAt, 10 minutes after booking, or it is cancelled.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.CreatePaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Pay for an appointment
+      tags:
+      - payments
+  /appointments/{id}/reschedule:
+    post:
+      consumes:
+      - application/json
+      description: Moves a scheduled appointment to another free slot of the same
+        doctor. Only the patient side with full or appointments_only access can do
+        it, at least 2 hours before the start. The old appointment is cancelled with
+        reason rescheduled and the new one, returned here, has rescheduledFromId set
+        and keeps the original fee. mode defaults to the current one.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New time
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/appointment.RescheduleAppointmentRequest'
+      - description: Client key; a retry with the same key and body returns the first
+          result
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reschedule an appointment
+      tags:
+      - appointments
+  /appointments/{id}/reschedule-proposal:
+    get:
+      description: 'Returns the proposal waiting on an appointment the caller can
+        see: the patient side with any active link, or the appointment''s doctor.'
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.RescheduleProposalResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get the doctor's pending reschedule proposal
+      tags:
+      - appointments
+  /appointments/{id}/reschedule-proposal/accept:
+    post:
+      description: Moves the appointment to the offered time. The current appointment
+        is cancelled with reason rescheduled and the new one, returned here, has rescheduledFromId
+        set and keeps the payment. Only the patient side with full or appointments_only
+        access can answer, before the proposal expires.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Accept the doctor's new time
+      tags:
+      - appointments
+  /appointments/{id}/reschedule-proposal/decline:
+    post:
+      description: 'Keeps the current time: the offered time is released and the appointment
+        is scheduled again. Only the patient side with full or appointments_only access
+        can answer, before the proposal expires.'
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Decline the doctor's new time
+      tags:
+      - appointments
   /auth/login:
     post:
       consumes:
@@ -1641,6 +2584,225 @@ paths:
       summary: Update the caller's doctor profile
       tags:
       - doctors
+  /doctors/me/appointments:
+    get:
+      description: The caller's appointments in any status on one clinic date, earliest
+        first. date defaults to today in the clinic timezone.
+      parameters:
+      - description: Date as YYYY-MM-DD
+        in: query
+        name: date
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.ListDoctorAppointmentsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List the caller's appointments as a doctor for a day
+      tags:
+      - doctors
+  /doctors/me/appointments/{id}/complete:
+    post:
+      description: Marks one of the caller's scheduled appointments as completed.
+        Only the appointment's doctor can do it, only after it has started, and only
+        once it is paid or free.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Complete an appointment
+      tags:
+      - doctors
+  /doctors/me/appointments/{id}/no-show:
+    post:
+      description: Marks one of the caller's scheduled appointments as a no-show.
+        Only the appointment's doctor can do it, and only after it has started.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark an appointment as a no-show
+      tags:
+      - doctors
+  /doctors/me/appointments/{id}/reschedule-proposals:
+    post:
+      consumes:
+      - application/json
+      description: The appointment's doctor offers another free slot. Both the current
+        and the offered time are held, as reschedule_proposed, until the patient side
+        accepts or declines, or the offer expires after 24 hours or at the current
+        start, whichever is first. Only a scheduled appointment that is paid or free
+        and has not started can be moved. mode defaults to the current one.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Offered time and reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/appointment.ProposeRescheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.RescheduleProposalResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Propose a new time for an appointment
+      tags:
+      - doctors
   /doctors/me/availability:
     get:
       description: Weekly rules and the overrides from today on. Times are in the
@@ -1966,6 +3128,71 @@ paths:
       summary: Update a patient
       tags:
       - patients
+  /payments/{id}/verify:
+    post:
+      consumes:
+      - application/json
+      description: Confirms with the gateway that the order was paid, captures the
+        payment and marks the appointment paid. Verifying a captured payment again
+        with the same providerPaymentId returns it. If the booking expired first,
+        the money is refunded and 409 is returned.
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Gateway proof of payment
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/payment.VerifyPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Confirm a payment
+      tags:
+      - payments
   /specialities:
     get:
       description: The controlled list of speciality slugs a doctor profile and search

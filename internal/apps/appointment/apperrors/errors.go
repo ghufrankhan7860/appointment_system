@@ -89,6 +89,42 @@ var (
 	ErrAvailabilityOverlap       = errors.New("availability blocks overlap on the same day")
 )
 
+var (
+	ErrNilAppointmentRepository = errors.New("appointment repository is nil")
+	ErrNilAppointmentService    = errors.New("appointment service is nil")
+	ErrNilAppointmentController = errors.New("appointment controller is nil")
+	ErrNilAppointmentRequest    = errors.New("appointment request is nil")
+	ErrInvalidAppointmentInput  = errors.New("invalid appointment input")
+	ErrAppointmentNotFound      = errors.New("appointment not found")
+	ErrSlotNotAvailable         = errors.New("requested time is not an available slot")
+	ErrSlotTaken                = errors.New("slot was just taken")
+	ErrCancellationWindowPassed = errors.New("cancellation window has passed")
+	ErrAppointmentNotModifiable = errors.New("appointment can no longer be changed")
+	ErrNilOutboxRepository      = errors.New("outbox repository is nil")
+	ErrIdempotencyKeyReused     = errors.New("idempotency key was already used for a different request")
+	ErrIdempotencyKeyExists     = errors.New("idempotency key already exists for this user")
+	ErrRescheduleForbidden      = errors.New("only the patient side with booking access can reschedule")
+	ErrProposalNotFound         = errors.New("no reschedule proposal is waiting for this appointment")
+)
+
+var (
+	ErrNilPaymentRepository      = errors.New("payment repository is nil")
+	ErrNilPaymentGateway         = errors.New("payment gateway is nil")
+	ErrNilPaymentController      = errors.New("payment controller is nil")
+	ErrNilPaymentService         = errors.New("payment service is nil")
+	ErrNilPaymentRequest         = errors.New("payment request is nil")
+	ErrPaymentNotFound           = errors.New("payment not found")
+	ErrPaymentAlreadyExists      = errors.New("appointment already has a live payment")
+	ErrPaymentNotModifiable      = errors.New("payment can no longer be changed")
+	ErrPaymentNotRequired        = errors.New("appointment has nothing to pay")
+	ErrPaymentWindowClosed       = errors.New("payment window has closed")
+	ErrPaymentVerificationFailed = errors.New("payment could not be verified")
+	ErrPaymentPending            = errors.New("payment is pending for this appointment")
+	ErrRefundAlreadyExists       = errors.New("payment already has a refund")
+	ErrProviderPaymentUsed       = errors.New("gateway payment id already confirmed another payment")
+	ErrInvalidPaymentInput       = errors.New("invalid payment input")
+)
+
 // Which unique field clashed when creating a user. Both wrap ErrUserAlreadyExists,
 // so code that only cares that the user exists can keep matching that.
 var (

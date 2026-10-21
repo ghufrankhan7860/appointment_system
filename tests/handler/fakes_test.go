@@ -250,3 +250,190 @@ func (f *fakeUserRepo) GetByID(ctx context.Context, id uint64) (*models.User, er
 func (f *fakeUserRepo) ExistsByRole(ctx context.Context, role models.Role) (bool, error) {
 	return true, nil
 }
+
+type fakeAppointmentRepo struct {
+	booked    []*models.AppointmentDetails
+	byID      *models.AppointmentDetails
+	createErr error
+	proposal  *models.RescheduleProposal
+}
+
+func (f *fakeAppointmentRepo) Create(ctx context.Context, appointment *models.Appointment) (*models.Appointment, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	created := *appointment
+	created.ID = 50
+	f.byID = &models.AppointmentDetails{Appointment: created, PatientName: "Asha Verma", BookedByRelationship: models.RelationshipChild}
+	return &created, nil
+}
+
+func (f *fakeAppointmentRepo) GetByID(ctx context.Context, id uint64) (*models.AppointmentDetails, error) {
+	if f.byID == nil || f.byID.ID != id {
+		return nil, apperrors.ErrAppointmentNotFound
+	}
+	found := *f.byID
+	return &found, nil
+}
+
+func (f *fakeAppointmentRepo) GetByIdempotencyKey(ctx context.Context, userID uint64, key string) (*models.AppointmentDetails, error) {
+	return nil, apperrors.ErrAppointmentNotFound
+}
+
+func (f *fakeAppointmentRepo) UpdateStatus(ctx context.Context, id uint64, fromStatus models.AppointmentStatus, toStatus models.AppointmentStatus) error {
+	f.byID.Status = toStatus
+	return nil
+}
+
+func (f *fakeAppointmentRepo) Cancel(ctx context.Context, id uint64, cancelledByUserID uint64, reason models.CancelReason) error {
+	f.byID.Status = models.AppointmentStatusCancelled
+	f.byID.CancelReason = reason
+	return nil
+}
+
+func (f *fakeAppointmentRepo) ListByUser(ctx context.Context, userID uint64, filter models.AppointmentFilter) ([]*models.AppointmentDetails, error) {
+	return f.booked, nil
+}
+
+func (f *fakeAppointmentRepo) ListByDoctorBetween(ctx context.Context, doctorID uint64, from time.Time, to time.Time) ([]*models.AppointmentDetails, error) {
+	return f.booked, nil
+}
+
+func (f *fakeAppointmentRepo) ListDueForReminder(ctx context.Context, window models.ReminderWindow, from time.Time, to time.Time, limit int) ([]*models.AppointmentDetails, error) {
+	return nil, nil
+}
+
+func (f *fakeAppointmentRepo) CreateReminder(ctx context.Context, appointmentID uint64, window models.ReminderWindow) (bool, error) {
+	return true, nil
+}
+
+func (f *fakeAppointmentRepo) CreateStatusChange(ctx context.Context, change *models.AppointmentStatusChange) error {
+	return nil
+}
+
+type fakeOutboxRepo struct{}
+
+func (f *fakeOutboxRepo) ListUnpublished(ctx context.Context, limit int) ([]*models.OutboxEvent, error) {
+	return nil, nil
+}
+
+func (f *fakeOutboxRepo) MarkPublished(ctx context.Context, ids []uint64) error {
+	return nil
+}
+
+func (f *fakeOutboxRepo) Create(ctx context.Context, event *models.OutboxEvent) error {
+	return nil
+}
+
+func (f *fakeAppointmentRepo) MarkPaid(ctx context.Context, id uint64) error {
+	f.byID.PaymentStatus = models.AppointmentPaymentPaid
+	return nil
+}
+
+func (f *fakeAppointmentRepo) SetPaymentStatus(ctx context.Context, id uint64, fromStatus models.AppointmentPaymentStatus, toStatus models.AppointmentPaymentStatus) error {
+	return nil
+}
+
+func (f *fakeAppointmentRepo) ListUnpaidDue(ctx context.Context, dueBefore time.Time, limit int) ([]*models.AppointmentDetails, error) {
+	return nil, nil
+}
+
+func (f *fakeAppointmentRepo) CancelUnpaid(ctx context.Context, id uint64, dueBefore time.Time) error {
+	return nil
+}
+
+type fakePaymentRepo struct {
+	payment *models.Payment
+}
+
+func (f *fakePaymentRepo) Create(ctx context.Context, payment *models.Payment) (*models.Payment, error) {
+	created := *payment
+	created.ID = 70
+	f.payment = &created
+	return &created, nil
+}
+
+func (f *fakePaymentRepo) GetByID(ctx context.Context, id uint64) (*models.Payment, error) {
+	if f.payment == nil || f.payment.ID != id {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetLatestByAppointment(ctx context.Context, appointmentID uint64) (*models.Payment, error) {
+	if f.payment == nil {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetActiveByAppointment(ctx context.Context, appointmentID uint64) (*models.Payment, error) {
+	if f.payment == nil || (f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured) {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) UpdateStatus(ctx context.Context, id uint64, fromStatus models.PaymentStatus, toStatus models.PaymentStatus, providerPaymentID string, capturedAt *time.Time) error {
+	if f.payment == nil || f.payment.Status != fromStatus {
+		return apperrors.ErrPaymentNotModifiable
+	}
+	f.payment.Status = toStatus
+	if providerPaymentID != "" {
+		f.payment.ProviderPaymentID = providerPaymentID
+	}
+	return nil
+}
+
+func (f *fakePaymentRepo) MoveToAppointment(ctx context.Context, fromAppointmentID uint64, toAppointmentID uint64) error {
+	return nil
+}
+
+func (f *fakePaymentRepo) CreateStatusChange(ctx context.Context, change *models.PaymentStatusChange) error {
+	return nil
+}
+
+func (f *fakePaymentRepo) CreateRefund(ctx context.Context, refund *models.Refund) (*models.Refund, error) {
+	created := *refund
+	created.ID = 90
+	return &created, nil
+}
+
+func (f *fakePaymentRepo) FinishRefund(ctx context.Context, id uint64, status models.RefundStatus, providerRefundID string) error {
+	return nil
+}
+
+func (f *fakeAppointmentRepo) CreateProposal(ctx context.Context, proposal *models.RescheduleProposal) (*models.RescheduleProposal, error) {
+	created := *proposal
+	created.ID = 80
+	if f.byID != nil {
+		created.NewStartsAt = f.byID.StartsAt
+		created.NewEndsAt = f.byID.EndsAt
+		created.NewMode = f.byID.Mode
+	}
+	f.proposal = &created
+	return &created, nil
+}
+
+func (f *fakeAppointmentRepo) GetPendingProposal(ctx context.Context, appointmentID uint64) (*models.RescheduleProposal, error) {
+	if f.proposal == nil {
+		return nil, apperrors.ErrProposalNotFound
+	}
+	found := *f.proposal
+	return &found, nil
+}
+
+func (f *fakeAppointmentRepo) ListExpiredProposals(ctx context.Context, now time.Time, limit int) ([]*models.RescheduleProposal, error) {
+	return nil, nil
+}
+
+func (f *fakeAppointmentRepo) CloseProposal(ctx context.Context, id uint64, toStatus models.ProposalStatus, respondedByUserID uint64) error {
+	if f.proposal == nil || f.proposal.Status != models.ProposalStatusPending {
+		return apperrors.ErrAppointmentNotModifiable
+	}
+	f.proposal.Status = toStatus
+	return nil
+}

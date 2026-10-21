@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"appointment_system/internal/apps/appointment/adapters/payment/none"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
 	"appointment_system/internal/apps/appointment/repositories"
@@ -25,10 +26,12 @@ import (
 // It takes only narrow infrastructure values (a query handle plus token
 // policy), never a broad store, config object, or request-scoped state.
 type Container struct {
-	AuthHandler    *handler.AuthHandler
-	PatientHandler *handler.PatientHandler
-	DoctorHandler  *handler.DoctorHandler
-	AdminHandler   *handler.AdminHandler
+	AuthHandler        *handler.AuthHandler
+	PatientHandler     *handler.PatientHandler
+	DoctorHandler      *handler.DoctorHandler
+	AdminHandler       *handler.AdminHandler
+	AppointmentHandler *handler.AppointmentHandler
+	PaymentHandler     *handler.PaymentHandler
 }
 
 func NewContainer(
@@ -37,6 +40,7 @@ func NewContainer(
 	jwtIssuer string,
 	tokenTTL time.Duration,
 	clinicLocation *time.Location,
+	paymentProvider string,
 ) (*Container, error) {
 	userRepository, err := repositories.NewUserRepository(db)
 	if err != nil {
@@ -147,9 +151,15 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize availability repository: %w", err)
 	}
 
+	appointmentRepository, err := repositories.NewAppointmentRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize appointment repository: %w", err)
+	}
+
 	availabilityService, err := services.NewAvailabilityService(
 		doctorRepository,
 		availabilityRepository,
+		appointmentRepository,
 		txManager,
 		clinicLocation,
 		time.Now,
@@ -158,12 +168,74 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize availability service: %w", err)
 	}
 
+	outboxRepository, err := repositories.NewOutboxRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize outbox repository: %w", err)
+	}
+
+	paymentRepository, err := repositories.NewPaymentRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize payment repository: %w", err)
+	}
+
+	paymentGateway, err := NewPaymentGateway(paymentProvider)
+	if err != nil {
+		return nil, fmt.Errorf("initialize payment gateway: %w", err)
+	}
+
+	paymentService, err := services.NewPaymentService(
+		paymentRepository,
+		appointmentRepository,
+		outboxRepository,
+		userPatientRepository,
+		doctorRepository,
+		paymentGateway,
+		txManager,
+		time.Now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize payment service: %w", err)
+	}
+
+	appointmentService, err := services.NewAppointmentService(
+		appointmentRepository,
+		outboxRepository,
+		userPatientRepository,
+		doctorRepository,
+		availabilityService,
+		paymentService,
+		txManager,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize appointment service: %w", err)
+	}
+
+	appointmentController, err := controller.NewAppointmentController(appointmentService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize appointment controller: %w", err)
+	}
+
+	appointmentHandler, err := handler.NewAppointmentHandler(appointmentController, tokenGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("initialize appointment handler: %w", err)
+	}
+
 	doctorController, err := controller.NewDoctorController(doctorService, availabilityService)
 	if err != nil {
 		return nil, fmt.Errorf("initialize doctor controller: %w", err)
 	}
 
-	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService)
+	paymentController, err := controller.NewPaymentController(paymentService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize payment controller: %w", err)
+	}
+
+	paymentHandler, err := handler.NewPaymentHandler(paymentController, tokenGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("initialize payment handler: %w", err)
+	}
+
+	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService)
 	if err != nil {
 		return nil, fmt.Errorf("initialize admin controller: %w", err)
 	}
@@ -179,10 +251,12 @@ func NewContainer(
 	}
 
 	return &Container{
-		AuthHandler:    authHandler,
-		PatientHandler: patientHandler,
-		DoctorHandler:  doctorHandler,
-		AdminHandler:   adminHandler,
+		AuthHandler:        authHandler,
+		PatientHandler:     patientHandler,
+		DoctorHandler:      doctorHandler,
+		AdminHandler:       adminHandler,
+		AppointmentHandler: appointmentHandler,
+		PaymentHandler:     paymentHandler,
 	}, nil
 }
 
@@ -191,4 +265,18 @@ func (c *Container) RegisterRoutes(router *gin.RouterGroup) {
 	c.PatientHandler.RegisterRoutes(router)
 	c.DoctorHandler.RegisterRoutes(router)
 	c.AdminHandler.RegisterRoutes(router)
+	c.AppointmentHandler.RegisterRoutes(router)
+	c.PaymentHandler.RegisterRoutes(router)
+}
+
+// NewPaymentGateway returns the adapter for the configured provider. Config
+// validation has already rejected unknown providers. Jobs that move money use
+// it too, so they pick the same gateway as the API.
+func NewPaymentGateway(provider string) (services.PaymentGateway, error) {
+	switch provider {
+	case none.ProviderName:
+		return none.New(), nil
+	default:
+		return nil, fmt.Errorf("payment provider %q is not supported", provider)
+	}
 }

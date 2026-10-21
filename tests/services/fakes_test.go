@@ -2,6 +2,7 @@ package services_test
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
@@ -403,4 +404,328 @@ func (f *fakeTxManager) WithinTransaction(ctx context.Context, fn func(context.C
 		return f.txErr
 	}
 	return fn(ctx)
+}
+
+type fakeAppointmentRepo struct {
+	byID   *models.AppointmentDetails
+	getErr error
+	byKey  *models.AppointmentDetails
+	booked []*models.AppointmentDetails
+
+	updateStatusErr error
+	updateStatusTo  models.AppointmentStatus
+
+	createErr   error
+	createInput *models.Appointment
+	created     []*models.Appointment
+	clashWinner *models.AppointmentDetails
+
+	cancelErr    error
+	cancelCalled bool
+	cancelReason models.CancelReason
+	cancelledIDs []uint64
+
+	statusUpdates []string
+
+	proposal         *models.RescheduleProposal
+	createdProposal  *models.RescheduleProposal
+	closedTo         models.ProposalStatus
+	closedBy         uint64
+	closeErr         error
+	expiredProposals []*models.RescheduleProposal
+
+	statusChanges []*models.AppointmentStatusChange
+
+	listFilter models.AppointmentFilter
+	listFrom   time.Time
+	listTo     time.Time
+
+	markPaidErr     error
+	markPaidCalled  bool
+	paymentStatusTo models.AppointmentPaymentStatus
+	unpaidDue       []*models.AppointmentDetails
+	cancelUnpaidErr error
+	cancelUnpaidIDs []uint64
+
+	due      map[models.ReminderWindow][]*models.AppointmentDetails
+	dueFrom  map[models.ReminderWindow]time.Time
+	reminded map[string]bool
+}
+
+func (f *fakeAppointmentRepo) ListDueForReminder(ctx context.Context, window models.ReminderWindow, from time.Time, to time.Time, limit int) ([]*models.AppointmentDetails, error) {
+	if f.dueFrom == nil {
+		f.dueFrom = map[models.ReminderWindow]time.Time{}
+	}
+	f.dueFrom[window] = from
+	return f.due[window], nil
+}
+
+func (f *fakeAppointmentRepo) CreateReminder(ctx context.Context, appointmentID uint64, window models.ReminderWindow) (bool, error) {
+	if f.reminded == nil {
+		f.reminded = map[string]bool{}
+	}
+	key := fmt.Sprintf("%d/%s", appointmentID, window)
+	if f.reminded[key] {
+		return false, nil
+	}
+	f.reminded[key] = true
+	return true, nil
+}
+
+func (f *fakeAppointmentRepo) Create(ctx context.Context, appointment *models.Appointment) (*models.Appointment, error) {
+	f.createInput = appointment
+	if f.createErr != nil {
+		f.byKey = f.clashWinner
+		return nil, f.createErr
+	}
+	created := *appointment
+	created.ID = uint64(50 + len(f.created))
+	f.created = append(f.created, &created)
+	f.byID = &models.AppointmentDetails{Appointment: created}
+	return &created, nil
+}
+
+func (f *fakeAppointmentRepo) GetByID(ctx context.Context, id uint64) (*models.AppointmentDetails, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	if f.byID == nil {
+		return nil, apperrors.ErrAppointmentNotFound
+	}
+	found := *f.byID
+	return &found, nil
+}
+
+func (f *fakeAppointmentRepo) GetByIdempotencyKey(ctx context.Context, userID uint64, key string) (*models.AppointmentDetails, error) {
+	if f.byKey == nil || f.byKey.IdempotencyKey != key {
+		return nil, apperrors.ErrAppointmentNotFound
+	}
+	found := *f.byKey
+	return &found, nil
+}
+
+func (f *fakeAppointmentRepo) UpdateStatus(ctx context.Context, id uint64, fromStatus models.AppointmentStatus, toStatus models.AppointmentStatus) error {
+	f.updateStatusTo = toStatus
+	f.statusUpdates = append(f.statusUpdates, fmt.Sprintf("%d:%s->%s", id, fromStatus, toStatus))
+	return f.updateStatusErr
+}
+
+func (f *fakeAppointmentRepo) Cancel(ctx context.Context, id uint64, cancelledByUserID uint64, reason models.CancelReason) error {
+	f.cancelCalled = true
+	f.cancelReason = reason
+	f.cancelledIDs = append(f.cancelledIDs, id)
+	return f.cancelErr
+}
+
+func (f *fakeAppointmentRepo) ListByUser(ctx context.Context, userID uint64, filter models.AppointmentFilter) ([]*models.AppointmentDetails, error) {
+	f.listFilter = filter
+	return f.booked, nil
+}
+
+func (f *fakeAppointmentRepo) ListByDoctorBetween(ctx context.Context, doctorID uint64, from time.Time, to time.Time) ([]*models.AppointmentDetails, error) {
+	f.listFrom = from
+	f.listTo = to
+	return f.booked, nil
+}
+
+func (f *fakeAppointmentRepo) CreateStatusChange(ctx context.Context, change *models.AppointmentStatusChange) error {
+	f.statusChanges = append(f.statusChanges, change)
+	return nil
+}
+
+type fakeOutboxRepo struct {
+	events      []*models.OutboxEvent
+	err         error
+	unpublished []*models.OutboxEvent
+	published   []uint64
+}
+
+func (f *fakeOutboxRepo) ListUnpublished(ctx context.Context, limit int) ([]*models.OutboxEvent, error) {
+	return f.unpublished, nil
+}
+
+func (f *fakeOutboxRepo) MarkPublished(ctx context.Context, ids []uint64) error {
+	f.published = append(f.published, ids...)
+	return nil
+}
+
+func (f *fakeOutboxRepo) Create(ctx context.Context, event *models.OutboxEvent) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.events = append(f.events, event)
+	return nil
+}
+
+func (f *fakeAppointmentRepo) MarkPaid(ctx context.Context, id uint64) error {
+	f.markPaidCalled = true
+	if f.markPaidErr != nil {
+		return f.markPaidErr
+	}
+	if f.byID != nil {
+		f.byID.PaymentStatus = models.AppointmentPaymentPaid
+	}
+	return nil
+}
+
+func (f *fakeAppointmentRepo) SetPaymentStatus(ctx context.Context, id uint64, fromStatus models.AppointmentPaymentStatus, toStatus models.AppointmentPaymentStatus) error {
+	f.paymentStatusTo = toStatus
+	return nil
+}
+
+func (f *fakeAppointmentRepo) ListUnpaidDue(ctx context.Context, dueBefore time.Time, limit int) ([]*models.AppointmentDetails, error) {
+	return f.unpaidDue, nil
+}
+
+func (f *fakeAppointmentRepo) CancelUnpaid(ctx context.Context, id uint64, dueBefore time.Time) error {
+	f.cancelUnpaidIDs = append(f.cancelUnpaidIDs, id)
+	return f.cancelUnpaidErr
+}
+
+type fakePaymentRepo struct {
+	payment   *models.Payment
+	createErr error
+	updateErr error
+	movedFrom uint64
+	movedTo   uint64
+	changes   []*models.PaymentStatusChange
+	refunds   []*models.Refund
+	refundErr error
+	finished  []models.RefundStatus
+}
+
+func (f *fakePaymentRepo) Create(ctx context.Context, payment *models.Payment) (*models.Payment, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	created := *payment
+	created.ID = 70
+	f.payment = &created
+	found := created
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetByID(ctx context.Context, id uint64) (*models.Payment, error) {
+	if f.payment == nil || f.payment.ID != id {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetLatestByAppointment(ctx context.Context, appointmentID uint64) (*models.Payment, error) {
+	if f.payment == nil {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetActiveByAppointment(ctx context.Context, appointmentID uint64) (*models.Payment, error) {
+	if f.payment == nil || (f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured) {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) UpdateStatus(ctx context.Context, id uint64, fromStatus models.PaymentStatus, toStatus models.PaymentStatus, providerPaymentID string, capturedAt *time.Time) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.payment == nil || f.payment.Status != fromStatus {
+		return apperrors.ErrPaymentNotModifiable
+	}
+	f.payment.Status = toStatus
+	if providerPaymentID != "" {
+		f.payment.ProviderPaymentID = providerPaymentID
+	}
+	return nil
+}
+
+func (f *fakePaymentRepo) MoveToAppointment(ctx context.Context, fromAppointmentID uint64, toAppointmentID uint64) error {
+	f.movedFrom = fromAppointmentID
+	f.movedTo = toAppointmentID
+	return nil
+}
+
+func (f *fakePaymentRepo) CreateStatusChange(ctx context.Context, change *models.PaymentStatusChange) error {
+	f.changes = append(f.changes, change)
+	return nil
+}
+
+func (f *fakePaymentRepo) CreateRefund(ctx context.Context, refund *models.Refund) (*models.Refund, error) {
+	if f.refundErr != nil {
+		return nil, f.refundErr
+	}
+	created := *refund
+	created.ID = 90
+	f.refunds = append(f.refunds, &created)
+	return &created, nil
+}
+
+func (f *fakePaymentRepo) FinishRefund(ctx context.Context, id uint64, status models.RefundStatus, providerRefundID string) error {
+	f.finished = append(f.finished, status)
+	return nil
+}
+
+type fakeGateway struct {
+	orders    int
+	verifyErr error
+	refundErr error
+	refunded  int
+}
+
+func (f *fakeGateway) Provider() string {
+	return "fake"
+}
+
+func (f *fakeGateway) CreateOrder(ctx context.Context, appointmentID uint64, amount int, currency string) (string, error) {
+	f.orders++
+	return fmt.Sprintf("order-%d", f.orders), nil
+}
+
+func (f *fakeGateway) ClientPayload(payment *models.Payment) map[string]any {
+	return map[string]any{"orderId": payment.ProviderOrderID}
+}
+
+func (f *fakeGateway) VerifyPayment(ctx context.Context, payment *models.Payment, providerPaymentID string, signature string) error {
+	return f.verifyErr
+}
+
+func (f *fakeGateway) Refund(ctx context.Context, payment *models.Payment, amount int) (string, error) {
+	if f.refundErr != nil {
+		return "", f.refundErr
+	}
+	f.refunded += amount
+	return "refund-1", nil
+}
+
+func (f *fakeAppointmentRepo) CreateProposal(ctx context.Context, proposal *models.RescheduleProposal) (*models.RescheduleProposal, error) {
+	created := *proposal
+	created.ID = 80
+	f.createdProposal = &created
+	f.proposal = &created
+	return &created, nil
+}
+
+func (f *fakeAppointmentRepo) GetPendingProposal(ctx context.Context, appointmentID uint64) (*models.RescheduleProposal, error) {
+	if f.proposal == nil {
+		return nil, apperrors.ErrProposalNotFound
+	}
+	found := *f.proposal
+	return &found, nil
+}
+
+func (f *fakeAppointmentRepo) ListExpiredProposals(ctx context.Context, now time.Time, limit int) ([]*models.RescheduleProposal, error) {
+	return f.expiredProposals, nil
+}
+
+func (f *fakeAppointmentRepo) CloseProposal(ctx context.Context, id uint64, toStatus models.ProposalStatus, respondedByUserID uint64) error {
+	if f.closeErr != nil {
+		return f.closeErr
+	}
+	f.closedTo = toStatus
+	f.closedBy = respondedByUserID
+	return nil
 }

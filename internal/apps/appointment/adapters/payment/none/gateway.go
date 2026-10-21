@@ -1,0 +1,65 @@
+// Package none is a payment gateway for local development that moves no money.
+// An order counts as paid when it is verified with any payment id and the
+// signature from its client payload. Configuration refuses it in production.
+package none
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"appointment_system/internal/apps/appointment/apperrors"
+	"appointment_system/internal/apps/appointment/models"
+)
+
+const (
+	ProviderName    = "none"
+	orderPrefix     = "none_order_"
+	signaturePrefix = "none_signature_"
+	refundPrefix    = "none_refund_"
+)
+
+type Gateway struct{}
+
+func New() *Gateway {
+	return &Gateway{}
+}
+
+func (g *Gateway) Provider() string {
+	return ProviderName
+}
+
+func (g *Gateway) CreateOrder(ctx context.Context, appointmentID uint64, amount int, currency string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("create none order context: %w", err)
+	}
+
+	return fmt.Sprintf("%s%d_%d", orderPrefix, appointmentID, time.Now().UnixNano()), nil
+}
+
+// ClientPayload hands the client the signature to verify with, standing in for
+// the one a real gateway's checkout would return after payment.
+func (g *Gateway) ClientPayload(payment *models.Payment) map[string]any {
+	return map[string]any{
+		"orderId":   payment.ProviderOrderID,
+		"amount":    payment.Amount,
+		"currency":  payment.Currency,
+		"signature": signaturePrefix + payment.ProviderOrderID,
+	}
+}
+
+func (g *Gateway) VerifyPayment(ctx context.Context, payment *models.Payment, providerPaymentID string, signature string) error {
+	if providerPaymentID == "" || signature != signaturePrefix+payment.ProviderOrderID {
+		return apperrors.ErrPaymentVerificationFailed
+	}
+
+	return nil
+}
+
+func (g *Gateway) Refund(ctx context.Context, payment *models.Payment, amount int) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("refund none payment context: %w", err)
+	}
+
+	return fmt.Sprintf("%s%d", refundPrefix, payment.ID), nil
+}

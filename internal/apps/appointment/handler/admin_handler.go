@@ -49,6 +49,76 @@ func (ah *AdminHandler) RegisterRoutes(router *gin.RouterGroup) {
 	adminRoutes.POST("/doctors/:id/suspend", authz.RequirePermission(authz.PermDoctorSuspend), ah.SuspendDoctor)
 	adminRoutes.POST("/doctors/:id/reinstate", authz.RequirePermission(authz.PermDoctorSuspend), ah.ReinstateDoctor)
 	adminRoutes.POST("/specialities", authz.RequirePermission(authz.PermSpecialityManage), ah.CreateSpeciality)
+	adminRoutes.POST("/payments/:id/refund", authz.RequirePermission(authz.PermPaymentRefund), ah.RefundPayment)
+}
+
+// RefundPayment godoc
+// @Summary Refund a payment
+// @Description Refunds a captured payment in full through its gateway. The appointment's payment status becomes refunded. Cancelled paid appointments are refunded automatically; this is for everything else.
+// @Tags admin
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path int true "Payment ID"
+// @Param request body admin.RefundPaymentRequest false "Optional note"
+// @Success 200 {object} dtos.SuccessResponse{data=payment.PaymentResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 409 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/payments/{id}/refund [post]
+func (ah *AdminHandler) RefundPayment(ctx *gin.Context) {
+	var refundPaymentRequest admin.RefundPaymentRequest
+	if ctx.Request.ContentLength != 0 {
+		if err := ctx.ShouldBindJSON(&refundPaymentRequest); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request payload",
+				"details": bindErrorDetail(err),
+			})
+			return
+		}
+	}
+	if err := ctx.ShouldBindUri(&refundPaymentRequest); err != nil || refundPaymentRequest.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payment id"})
+		return
+	}
+
+	response, err := ah.adminController.RefundPayment(ctx.Request.Context(), &refundPaymentRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPaymentInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request payload",
+				"details": apperrors.Reason(err),
+			})
+		case errors.Is(err, apperrors.ErrPaymentNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Payment not found"})
+		case errors.Is(err, apperrors.ErrPaymentNotModifiable):
+			ctx.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "This payment cannot be refunded",
+				"details": apperrors.Reason(err),
+			})
+		case errors.Is(err, apperrors.ErrRefundAlreadyExists):
+			ctx.JSON(http.StatusConflict, gin.H{"success": false, "error": "This payment already has a refund"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to refund payment"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Payment refunded successfully",
+	})
 }
 
 // CreateAdmin godoc

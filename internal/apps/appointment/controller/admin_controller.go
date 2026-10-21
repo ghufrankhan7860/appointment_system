@@ -3,6 +3,7 @@ package controller
 import (
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/dtos/admin"
+	"appointment_system/internal/apps/appointment/dtos/payment"
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/services"
 	"context"
@@ -12,12 +13,14 @@ type AdminController struct {
 	adminUserService          *services.AdminUserService
 	doctorVerificationService *services.DoctorVerificationService
 	doctorService             *services.DoctorService
+	paymentService            *services.PaymentService
 }
 
 func NewAdminController(
 	adminUserService *services.AdminUserService,
 	doctorVerificationService *services.DoctorVerificationService,
 	doctorService *services.DoctorService,
+	paymentService *services.PaymentService,
 ) (*AdminController, error) {
 	if adminUserService == nil {
 		return nil, apperrors.ErrNilAdminUserService
@@ -28,11 +31,30 @@ func NewAdminController(
 	if doctorService == nil {
 		return nil, apperrors.ErrNilDoctorService
 	}
+	if paymentService == nil {
+		return nil, apperrors.ErrNilPaymentService
+	}
 	return &AdminController{
 		adminUserService:          adminUserService,
 		doctorVerificationService: doctorVerificationService,
 		doctorService:             doctorService,
+		paymentService:            paymentService,
 	}, nil
+}
+
+func (ac *AdminController) RefundPayment(ctx context.Context, request *admin.RefundPaymentRequest) (*payment.PaymentResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	refundedPayment, err := ac.paymentService.Refund(ctx, userID, request.ID, request.Note)
+	if err != nil {
+		return nil, err
+	}
+
+	response := toPaymentResponse(refundedPayment)
+	return &response, nil
 }
 
 func (ac *AdminController) CreateAdmin(ctx context.Context, request *admin.CreateAdminRequest) (*admin.CreateAdminResponse, error) {

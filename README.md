@@ -58,7 +58,7 @@ Before adding code, read these documents:
 
 |   |   |-- provider/               # Placeholder: provider selection and registration
 
-|   |   |-- adapters/               # Placeholder: external provider implementations
+|   |   |-- adapters/               # Provider implementations: payment/none (development gateway)
 
 |   |   |-- cache/                  # Placeholder: appointment cache policy
 
@@ -82,9 +82,13 @@ Before adding code, read these documents:
 
 |   |-- bootstrap/                  # Creates the first admin (make create-admin)
 
-|   |-- consumer/                   # Placeholder: message consumer loops
+|   |-- consumer/outbox/            # Publishes outbox events (make consumer)
 
-|   |-- cron/                       # Placeholder: scheduled jobs
+|   |-- cron/reminders/             # Queues appointment reminders (make reminders)
+
+|   |-- cron/expire_payments/       # Cancels bookings not paid in time (make expire-payments)
+
+|   |-- cron/expire_proposals/      # Closes unanswered reschedule proposals (make expire-proposals)
 
 |   `-- backfill/                   # Placeholder: restartable data repair/import jobs
 
@@ -602,7 +606,47 @@ appointments
 
     booked_by_user_id
 
+    starts_at, ends_at
+
+    mode, status
+
+    consultation_fee, slot_duration_min
+
+    cancelled_at, cancelled_by_user_id, cancel_reason
+
+    rescheduled_from_id, idempotency_key
+
+    payment_status, payment_due_at
+
     ...
+
+appointment_status_history
+
+    one row per appointment status change
+
+appointment_reminders
+
+    one row per reminder window sent, so a reminder is never queued twice
+
+outbox
+
+    events to publish, written in the same transaction as the change
+
+payments
+
+    one row per attempt to collect a fee through a gateway; one live payment per appointment
+
+appointment_reschedule_proposals
+
+    a doctor's offer to move an appointment; the offered time is held by a placeholder appointment
+
+payment_status_history
+
+    one row per payment status change
+
+refunds
+
+    full refunds of captured payments, at most one per payment unless an earlier one failed
 
 ```
 
@@ -617,6 +661,8 @@ The `appointments.booked_by_user_id` field identifies the user who created the b
 Authorization should be evaluated using the authenticated user, the relevant user-patient relationship, the user's system role, and the application's authorization rules.
 
 A doctor is a `users` row with role `doctor` plus exactly one `doctors` row (`doctors.user_id` is unique). `(registration_council, registration_number)` is unique, so the same registration cannot belong to two profiles. `doctors.verification_status` is the current state and `doctor_verifications` is its history.
+
+`appointments.starts_at` and `ends_at` are instants (`TIMESTAMPTZ`), not slots. The `appointments_doctor_no_overlap` exclusion constraint (`btree_gist`) lets a doctor hold only one `scheduled` appointment in any time range, so two concurrent bookings of the same slot cannot both succeed; a cancelled appointment frees its time without deleting the row. `consultation_fee` and `slot_duration_min` are copied from the doctor at booking time, so a later profile change never alters a booking. `appointments.status` is the current state and `appointment_status_history` is its history. Appointments are never deleted, only cancelled.
 
 ## Timestamps
 
@@ -752,6 +798,44 @@ PUT  /patients/:id       update a patient (requires full access)
 
 `dateOfBirth` is sent as `YYYY-MM-DD`. A patient the caller has no active link to is reported as `404`, so patient IDs are not revealed. Updating with a non-full access level returns `403`.
 
+Appointments (require `Authorization: Bearer <jwtToken>`):
+
+```text
+
+POST /appointments                 patient  book a free slot for a linked patient
+
+GET  /appointments                 any      the caller's appointments across their patients (?patientId=&status=&from=&to=&limit=&offset=)
+
+GET  /appointments/:id             any      one appointment of a linked patient, or one where the caller is the doctor
+
+POST /appointments/:id/cancel      any      cancel a scheduled appointment (optional {reason})
+
+POST /appointments/:id/reschedule  patient  move to another free slot of the same doctor ({startsAt, mode?})
+
+GET  /appointments/:id/reschedule-proposal          any      the doctor's pending proposal
+
+POST /appointments/:id/reschedule-proposal/accept   patient  move to the offered time
+
+POST /appointments/:id/reschedule-proposal/decline  patient  keep the current time
+
+```
+
+See **Appointments** below for the rules.
+
+Payments (require `Authorization: Bearer <jwtToken>`):
+
+```text
+
+POST /appointments/:id/payments    patient  open a payment for an unpaid booking; returns the gateway clientPayload
+
+GET  /appointments/:id/payment     any      the appointment's latest payment (patient side, its doctor, admins)
+
+POST /payments/:id/verify          patient  confirm a payment with {providerPaymentId, signature}
+
+```
+
+See **Payments** below for the rules.
+
 Doctors:
 
 ```text
@@ -776,6 +860,14 @@ POST /doctors/me/overrides        doctor   add a day off, partial leave or extra
 
 GET  /doctors/:id/slots?date=     any      free slots of a verified doctor on one date
 
+GET  /doctors/me/appointments     doctor   own appointments on one date (?date=, default today)
+
+POST /doctors/me/appointments/:id/complete   doctor   mark a started appointment completed
+
+POST /doctors/me/appointments/:id/no-show    doctor   mark a started appointment a no-show
+
+POST /doctors/me/appointments/:id/reschedule-proposals  doctor  offer a new time ({startsAt, mode?, reason, note?})
+
 ```
 
 Admin (each route needs an admin token and its own permission):
@@ -798,9 +890,11 @@ POST /admin/doctors/:id/reinstate          suspended -> verified          doctor
 
 POST /admin/specialities                   add a speciality               speciality:manage
 
+POST /admin/payments/:id/refund  {note?}   full refund of a captured payment  payment:refund
+
 ```
 
-`GET /health` (outside `/api/v1`) reports database readiness. Appointment endpoints are not implemented yet.
+`GET /health` (outside `/api/v1`) reports database readiness.
 
 ### Doctor onboarding
 
@@ -832,9 +926,59 @@ Availability is stored as rules, never as one row per slot. Slots are computed w
   - not available, no times: whole day off;
   - not available, with times: leave for that part of the day;
   - available, with times and a mode: extra session.
-- **Slots** (`GET /doctors/:id/slots?date=YYYY-MM-DD`): the day's rules plus extra sessions, minus leave, merged per mode and cut into `slotDurationMin` pieces. A whole day off returns nothing. Dates from today up to 90 days ahead; slots that already started today are left out. Only verified doctors who accept patients have slots. Booked appointments will be subtracted once appointments exist.
+- **Slots** (`GET /doctors/:id/slots?date=YYYY-MM-DD`): the day's rules plus extra sessions, minus leave, merged per mode and cut into `slotDurationMin` pieces. A whole day off returns nothing. Dates from today up to 90 days ahead; slots that already started today are left out. Only verified doctors who accept patients have slots. Any slot that overlaps a `scheduled` appointment is left out.
 
 All times are wall-clock times in the clinic timezone, `APP_TIMEZONE` (default `Asia/Kolkata`). Slot responses also carry `startsAt` / `endsAt` with the UTC offset. Times are stored as minutes from midnight (`540` = 09:00).
+
+### Appointments
+
+1. The patient side picks a time from `GET /doctors/:id/slots?date=` and sends it back unchanged: `{"patientId": 3, "doctorId": 5, "startsAt": "2026-10-26T09:00:00+05:30", "mode": "in_person", "notes": "..."}`.
+2. The server recomputes the doctor's free slots and requires an exact `startsAt` + `mode` match. The end time, fee and slot length come from the server, never from the request.
+3. The appointment is `scheduled`, and `booked_by_user_id` is the caller from the token.
+
+Rules:
+
+- Booking needs an active `user_patient` link with `full` or `appointments_only` access; no link is `404`, `read_only` is `403`. Only accounts with the `patient` role can book (`appointment:book`).
+- A time that is not a free slot is `422`. Losing a race for the same slot is `409` (`details: that time was just booked by someone else`).
+- Any active link, including `read_only`, can view the patient's appointments; the appointment's doctor can view it too. Anyone else gets `404`.
+- Only a `scheduled` appointment that has not started can be cancelled; anything else is `409`. The patient side must cancel at least 2 hours before the start (`422` after that); the doctor can cancel until the start. `cancelReason` records who cancelled (`patient_request`, `doctor_request`).
+- **Reschedule** (`POST /appointments/:id/reschedule`) is for the patient side with `full` or `appointments_only` access, under the same rules as cancelling. In one transaction the old appointment is cancelled with reason `rescheduled` and a new one is created with `rescheduledFromId` pointing back; it keeps the original fee and notes. The new time must be a free slot (`422` otherwise); `mode` defaults to the current one. Doctors get `403` here.
+- **Complete / no-show** are for the appointment's doctor, on a `scheduled` appointment that has started; anything else is `409`. Nothing moves out of `completed`, `cancelled` or `no_show`.
+- **Doctor reschedule proposals**: the appointment's doctor offers another free slot with a reason (`emergency`, `personal`, `clinic_closed`, `other`). The appointment must be scheduled, not started, and `paid` or `waived`. Both the current time and the offered one are held: the appointment becomes `reschedule_proposed`, and a placeholder appointment in the same status holds the offered slot for the same booker, fee and payment. The proposal expires after 24 hours or at the current start, whichever is first. While it waits, the appointment cannot be cancelled, rescheduled, completed or marked a no-show (`409`).
+  - **Accept** (patient side with `full` or `appointments_only` access): the current appointment is cancelled with reason `rescheduled`, the placeholder becomes `scheduled` with `rescheduledFromId`, and the payment moves to it.
+  - **Decline**: the placeholder is cancelled (`proposal_declined`) and the appointment is `scheduled` again at its current time.
+  - **Expiry**: `make expire-proposals` does the same as a decline (`proposal_expired`) for proposals nobody answered. An answer after expiry is `409`.
+  - Outbox events: `appointment.reschedule_proposed`, `appointment.rescheduled` (accept), `appointment.reschedule_declined`, `appointment.reschedule_expired`.
+- **Idempotency**: `POST /appointments` and `/reschedule` accept an `Idempotency-Key` header (at most 100 characters). Retrying with the same key and the same request returns the first result instead of failing because the slot is now taken; the same key on a different request is `422`. The key is stored on the appointment it created, unique per user.
+- Every status change writes a row to `appointment_status_history` and an `outbox` event (`appointment.booked`, `.cancelled`, `.rescheduled`, `.completed`, `.no_show`) in the same transaction. A reschedule writes one `rescheduled` event, not a cancel plus a booking.
+
+Background jobs:
+
+- `make consumer` (`scripts/consumer/outbox`) runs until stopped and publishes unpublished outbox events in order, at least once. Each batch locks its rows and skips rows another copy holds, so several copies can run. For now an event is written to the log; email, SMS or push replace that later.
+- `make reminders` (`scripts/cron/reminders`) queues due reminders once and exits; schedule it every few minutes. It queues an `appointment.reminder` event 2 hours before the start (`two_hours`) and, from 18:00 clinic time, for tomorrow's appointments (`day_before`). `appointment_reminders` makes repeated or overlapping runs safe. An appointment just after midnight that the 2-hour reminder covers gets only that one.
+- `make expire-payments` (`scripts/cron/expire_payments`) cancels unpaid bookings past their hold once and exits; schedule it every minute.
+- `make expire-proposals` (`scripts/cron/expire_proposals`) closes unanswered reschedule proposals once and exits; schedule it every few minutes.
+
+Responses carry `startsAt` / `endsAt` with the clinic UTC offset, plus `date` and `startTime` in clinic time, `doctor {id, name, speciality}`, `patient {id, name}` and `bookedBy {userId, patientRelationship}`. `patientRelationship` is the booker's `user_patient.patient_relationship` (for example `child`), so a doctor's day can show "booked by child" without another call.
+
+### Payments
+
+A fee is paid online before the booking is confirmed.
+
+1. `POST /appointments` books the slot with `paymentStatus: unpaid` and `paymentDueAt` 10 minutes ahead. The slot is held until then. A free consultation (fee 0) is `waived` and needs no payment.
+2. `POST /appointments/:id/payments` opens a gateway order for the fee stored on the appointment (paise, never sent by the client) and returns `clientPayload` for the gateway's payment screen. Anyone with `full` or `appointments_only` access can pay, so a caregiver can pay for a booking someone else made; `payerUserId` records who paid. Asking again returns the same open payment.
+3. `POST /payments/:id/verify` with the gateway's `providerPaymentId` and `signature` captures the payment and marks the appointment `paid` in one transaction. A wrong signature, or a `providerPaymentId` that already confirmed another payment, is `422`.
+
+Rules:
+
+- `make expire-payments` cancels bookings still unpaid after `paymentDueAt` with cancel reason `payment_expired`, which frees the slot. A payment that arrives after that is refunded automatically and verify returns `409` (`details: the booking expired before the payment arrived; the payment has been refunded`). Payment and expiry use conditional updates, so when they race exactly one wins.
+- Cancelling a paid appointment refunds it in full (`patient_cancelled` or `doctor_cancelled`); cancelling an unpaid one expires its open order.
+- Rescheduling keeps the payment: the new appointment takes over the payment status, due time and payments.
+- A doctor can complete an appointment only when it is `paid` or `waived` (`422 Payment is pending` otherwise). Reminders are sent only for paid or free appointments.
+- Admins refund a captured payment in full with `POST /admin/payments/:id/refund`. A refund is recorded as `requested` before the gateway is called and finished with its answer, so no gateway call holds a database transaction open.
+- Outbox events: `payment.captured`, `payment.refunded`.
+
+Gateways sit behind the `PaymentGateway` port in `services/`; `PAYMENT_PROVIDER` picks the adapter. The only adapter so far is `none` (`adapters/payment/none`), which moves no money: its `clientPayload` includes the `signature` to verify with, so the whole flow can be run from Swagger. `none` is refused when `APP_ENV` is production, so a production deploy needs a real gateway adapter.
 
 ### First admin
 
@@ -854,7 +998,7 @@ With the API running, open:
 
 `http://localhost:8080/swagger/index.html`
 
-To call the protected patient endpoints: run **POST /auth/register** then **POST /auth/login**, copy the `jwtToken` from the response, click **Authorize**, and enter `Bearer <jwtToken>`.
+To call the protected patient and appointment endpoints: run **POST /auth/register** then **POST /auth/login**, copy the `jwtToken` from the response, click **Authorize**, and enter `Bearer <jwtToken>`.
 
 Swagger is chosen at build time with the `swagger` Go build tag, not by an environment variable. Local builds include it: `make up`, `make run` and the VS Code **Debug Appointment API** launch all build with `-tags swagger`. A plain `go build` or `docker build` (what production uses) compiles it out, so the binary contains no Swagger code or route and no setting can turn it on.
 
@@ -903,6 +1047,10 @@ make cover                 # coverage of the application code, run from tests/
 | `make swagger` | Regenerate `docs/swagger` from the handler annotations |
 | `make create-admin` | Create the first admin (see **First admin**) |
 | `make logs` / `make ps` | Follow API logs / list containers |
+| `make consumer` | Publish outbox events until stopped (Ctrl+C) |
+| `make reminders` | Queue due appointment reminders once |
+| `make expire-payments` | Cancel bookings not paid within the hold, once |
+| `make expire-proposals` | Close reschedule proposals nobody answered in time, once |
 
 ## Tests
 
@@ -936,7 +1084,7 @@ go run .
 
 The `migrate` service applies every ordered migration in `migrations/` (`000001` onwards) and skips the ones already applied, so it is safe to run again after pulling new migrations. Schema migrations are explicit and are not run automatically when the application starts.
 
-Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development.
+Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 

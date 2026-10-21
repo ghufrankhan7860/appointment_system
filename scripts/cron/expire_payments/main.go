@@ -1,0 +1,115 @@
+// Command expire_payments cancels bookings whose payment did not arrive within
+// the hold, which frees their slots, and exits. Run it every minute from a
+// scheduler. A booking paid meanwhile is skipped, so it is safe to run while
+// payments come in and to overlap with itself.
+//
+//	go run ./scripts/cron/expire_payments
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"time"
+	_ "time/tzdata"
+
+	"appointment_system/config"
+	"appointment_system/internal/apps/appointment"
+	"appointment_system/internal/apps/appointment/repositories"
+	"appointment_system/internal/apps/appointment/services"
+	"appointment_system/internal/platform/datastore"
+)
+
+const (
+	expireBatchSize = 100
+	expireTimeout   = time.Minute
+)
+
+func main() {
+	if err := run(); err != nil {
+		log.Printf("expire unpaid bookings: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	config, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load configuration: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), expireTimeout)
+	defer cancel()
+
+	store, err := datastore.Open(ctx, datastore.Config{
+		Host:            config.Database.Host,
+		Port:            config.Database.Port,
+		User:            config.Database.User,
+		Password:        config.Database.Password,
+		Database:        config.Database.Name,
+		MaxOpenConns:    config.Database.MaxOpenConns,
+		MaxIdleConns:    config.Database.MaxIdleConns,
+		ConnMaxLifetime: config.Database.ConnMaxLifetime,
+		ConnectTimeout:  config.Database.ConnectTimeout,
+	})
+	if err != nil {
+		return fmt.Errorf("initialize datastore: %w", err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("close datastore: %v", err)
+		}
+	}()
+
+	paymentRepository, err := repositories.NewPaymentRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize payment repository: %w", err)
+	}
+	appointmentRepository, err := repositories.NewAppointmentRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize appointment repository: %w", err)
+	}
+	outboxRepository, err := repositories.NewOutboxRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize outbox repository: %w", err)
+	}
+	userPatientRepository, err := repositories.NewUserPatientRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize user-patient repository: %w", err)
+	}
+	doctorRepository, err := repositories.NewDoctorRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize doctor repository: %w", err)
+	}
+	txManager, err := repositories.NewGORMTransactionManager(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize transaction manager: %w", err)
+	}
+	paymentGateway, err := appointment.NewPaymentGateway(config.Payment.Provider)
+	if err != nil {
+		return fmt.Errorf("initialize payment gateway: %w", err)
+	}
+
+	paymentService, err := services.NewPaymentService(
+		paymentRepository,
+		appointmentRepository,
+		outboxRepository,
+		userPatientRepository,
+		doctorRepository,
+		paymentGateway,
+		txManager,
+		time.Now,
+	)
+	if err != nil {
+		return fmt.Errorf("initialize payment service: %w", err)
+	}
+
+	expired, err := paymentService.ExpireUnpaid(ctx, expireBatchSize)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("cancelled %d unpaid bookings", expired)
+	return nil
+}

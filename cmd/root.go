@@ -61,6 +61,7 @@ func Execute() error {
 		config.Auth.JWTIssuer,
 		config.Auth.TokenTTL,
 		config.App.Location,
+		config.Payment.Provider,
 	)
 	if err != nil {
 		return fmt.Errorf("initialize appointment application: %w", err)

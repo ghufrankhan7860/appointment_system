@@ -6,7 +6,7 @@ GO_TAGS = swagger
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy create-admin cover
+.PHONY: help up down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy create-admin cover consumer reminders expire-payments expire-proposals
 
 help:
 	@echo Docker:
@@ -30,6 +30,11 @@ help:
 	@echo   make tidy      go mod tidy
 	@echo Admin:
 	@echo   make create-admin  NAME=... EMAIL=... MOBILE=..., first admin only, password from ADMIN_PASSWORD
+	@echo Jobs:
+	@echo   make consumer  publish outbox events until stopped (Ctrl+C)
+	@echo   make reminders queue due appointment reminders once
+	@echo   make expire-payments  cancel bookings not paid within the hold, once
+	@echo   make expire-proposals close reschedule proposals nobody answered in time, once
 
 up: export GO_BUILD_TAGS = $(GO_TAGS)
 up:
@@ -88,3 +93,15 @@ tidy:
 
 create-admin:
 	go run ./scripts/bootstrap -name "$(NAME)" -email "$(EMAIL)" -mobile "$(MOBILE)"
+
+consumer:
+	go run ./scripts/consumer/outbox
+
+reminders:
+	go run ./scripts/cron/reminders
+
+expire-payments:
+	go run ./scripts/cron/expire_payments
+
+expire-proposals:
+	go run ./scripts/cron/expire_proposals

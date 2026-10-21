@@ -5,6 +5,8 @@ import "time"
 const (
 	// DateLayout is the wire format for calendar dates: dateOfBirth, override and slot dates.
 	DateLayout = time.DateOnly
+	// InstantLayout is the wire format for instants such as startsAt, with the UTC offset.
+	InstantLayout = time.RFC3339
 	// ClockLayout is the wire format for times of day such as startTime and endTime.
 	ClockLayout = "15:04"
 	// EndOfDayClock is accepted as an endTime meaning midnight at the end of the day.

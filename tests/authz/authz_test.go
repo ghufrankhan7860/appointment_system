@@ -26,6 +26,14 @@ func TestHasPermission(t *testing.T) {
 		{name: "doctor cannot verify doctors", role: models.RoleDoctor, permission: authz.PermDoctorVerify, want: false},
 		{name: "doctor has no admin access", role: models.RoleDoctor, permission: authz.PermAdminAccess, want: false},
 		{name: "patient has no admin access", role: models.RolePatient, permission: authz.PermAdminAccess, want: false},
+		{name: "patient can book appointments", role: models.RolePatient, permission: authz.PermAppointmentBook, want: true},
+		{name: "doctor cannot book appointments", role: models.RoleDoctor, permission: authz.PermAppointmentBook, want: false},
+		{name: "doctor manages own appointments", role: models.RoleDoctor, permission: authz.PermAppointmentManage, want: true},
+		{name: "patient cannot manage doctor appointments", role: models.RolePatient, permission: authz.PermAppointmentManage, want: false},
+		{name: "patient can pay", role: models.RolePatient, permission: authz.PermPaymentPay, want: true},
+		{name: "doctor cannot pay", role: models.RoleDoctor, permission: authz.PermPaymentPay, want: false},
+		{name: "admin can refund", role: models.RoleAdmin, permission: authz.PermPaymentRefund, want: true},
+		{name: "patient cannot refund", role: models.RolePatient, permission: authz.PermPaymentRefund, want: false},
 		{name: "unknown role has nothing", role: models.Role("ghost"), permission: authz.PermAdminAccess, want: false},
 	}
 

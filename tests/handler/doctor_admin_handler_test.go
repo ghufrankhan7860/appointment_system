@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"appointment_system/internal/apps/appointment/adapters/payment/none"
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
@@ -28,6 +29,12 @@ func newDoctorAdminRouter(t *testing.T, doctors *fakeDoctorRepo) *gin.Engine {
 
 func newDoctorAdminRouterWithAvailability(t *testing.T, doctors *fakeDoctorRepo, availability *fakeAvailabilityRepo) *gin.Engine {
 	t.Helper()
+
+	return newDoctorAdminRouterWithPayments(t, doctors, availability, &fakePaymentRepo{})
+}
+
+func newDoctorAdminRouterWithPayments(t *testing.T, doctors *fakeDoctorRepo, availability *fakeAvailabilityRepo, payments *fakePaymentRepo) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	doctorService, err := services.NewDoctorService(doctors, &fakeSpecialityRepo{}, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
@@ -42,7 +49,7 @@ func newDoctorAdminRouterWithAvailability(t *testing.T, doctors *fakeDoctorRepo,
 	if err != nil {
 		t.Fatalf("NewAdminUserService returned error: %v", err)
 	}
-	availabilityService, err := services.NewAvailabilityService(doctors, availability, &fakeTxManager{}, time.UTC, time.Now)
+	availabilityService, err := services.NewAvailabilityService(doctors, availability, &fakeAppointmentRepo{}, &fakeTxManager{}, time.UTC, time.Now)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
@@ -50,7 +57,11 @@ func newDoctorAdminRouterWithAvailability(t *testing.T, doctors *fakeDoctorRepo,
 	if err != nil {
 		t.Fatalf("NewDoctorController returned error: %v", err)
 	}
-	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService)
+	paymentService, err := services.NewPaymentService(payments, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, none.New(), &fakeTxManager{}, time.Now)
+	if err != nil {
+		t.Fatalf("NewPaymentService returned error: %v", err)
+	}
+	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService)
 	if err != nil {
 		t.Fatalf("NewAdminController returned error: %v", err)
 	}
