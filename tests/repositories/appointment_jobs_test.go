@@ -30,14 +30,18 @@ func TestAppointmentRepositoryReminders(t *testing.T) {
 		t.Fatalf("Cancel returned error: %v", err)
 	}
 
+	// The window can hold other doctors' appointments left in the shared local
+	// database, so only this fixture's appointments are looked at.
 	listDue := func(window models.ReminderWindow) []uint64 {
-		appointments, err := fixture.appointments.ListDueForReminder(ctx, window, startsAt, startsAt.Add(24*time.Hour), 10)
+		appointments, err := fixture.appointments.ListDueForReminder(ctx, window, startsAt, startsAt.Add(24*time.Hour), 100)
 		if err != nil {
 			t.Fatalf("ListDueForReminder returned error: %v", err)
 		}
 		ids := []uint64{}
 		for _, appointment := range appointments {
-			ids = append(ids, appointment.ID)
+			if appointment.DoctorID == fixture.doctor.ID {
+				ids = append(ids, appointment.ID)
+			}
 		}
 		return ids
 	}

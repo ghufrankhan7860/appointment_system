@@ -14,6 +14,7 @@ type AdminController struct {
 	doctorVerificationService *services.DoctorVerificationService
 	doctorService             *services.DoctorService
 	paymentService            *services.PaymentService
+	medicalRecordService      *services.MedicalRecordService
 }
 
 func NewAdminController(
@@ -21,6 +22,7 @@ func NewAdminController(
 	doctorVerificationService *services.DoctorVerificationService,
 	doctorService *services.DoctorService,
 	paymentService *services.PaymentService,
+	medicalRecordService *services.MedicalRecordService,
 ) (*AdminController, error) {
 	if adminUserService == nil {
 		return nil, apperrors.ErrNilAdminUserService
@@ -34,12 +36,41 @@ func NewAdminController(
 	if paymentService == nil {
 		return nil, apperrors.ErrNilPaymentService
 	}
+	if medicalRecordService == nil {
+		return nil, apperrors.ErrNilMedicalRecordService
+	}
 	return &AdminController{
 		adminUserService:          adminUserService,
 		doctorVerificationService: doctorVerificationService,
 		doctorService:             doctorService,
 		paymentService:            paymentService,
+		medicalRecordService:      medicalRecordService,
 	}, nil
+}
+
+func (ac *AdminController) ListRecordAccessLog(ctx context.Context, request *admin.ListAccessLogRequest) (*admin.ListAccessLogResponse, error) {
+	entries, err := ac.medicalRecordService.ListAccessLog(ctx, request.ID, request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	response := admin.ListAccessLogResponse{
+		Entries: make([]admin.RecordAccessResponse, 0, len(entries)),
+	}
+	for _, entry := range entries {
+		response.Entries = append(response.Entries, admin.RecordAccessResponse{
+			ID:               entry.ID,
+			PatientID:        entry.PatientID,
+			MedicalRecordID:  entry.MedicalRecordID,
+			AttachmentID:     entry.AttachmentID,
+			AccessedByUserID: entry.AccessedByUserID,
+			Action:           string(entry.Action),
+			CorrelationID:    entry.CorrelationID,
+			CreatedAt:        entry.CreatedAt,
+		})
+	}
+
+	return &response, nil
 }
 
 func (ac *AdminController) RefundPayment(ctx context.Context, request *admin.RefundPaymentRequest) (*payment.PaymentResponse, error) {

@@ -125,6 +125,22 @@ var (
 	ErrInvalidPaymentInput       = errors.New("invalid payment input")
 )
 
+var (
+	ErrNilMedicalRecordService    = errors.New("medical record service is nil")
+	ErrNilMedicalRecordController = errors.New("medical record controller is nil")
+	ErrNilMedicalRecordRepository = errors.New("medical record repository is nil")
+	ErrNilFileStorage             = errors.New("file storage is nil")
+	ErrNilMedicalRecordRequest    = errors.New("medical record request is nil")
+	ErrInvalidMedicalRecordInput  = errors.New("invalid medical record input")
+	ErrMedicalRecordNotFound      = errors.New("medical record not found")
+	ErrMedicalRecordExists        = errors.New("appointment already has a medical record")
+	ErrMedicalRecordFinalized     = errors.New("medical record is finalized")
+	ErrAttachmentNotFound         = errors.New("attachment not found")
+	ErrAttachmentTooLarge         = errors.New("attachment is too large")
+	ErrAttachmentType             = errors.New("attachment type is not allowed")
+	ErrStoredFileNotFound         = errors.New("stored file not found")
+)
+
 // Which unique field clashed when creating a user. Both wrap ErrUserAlreadyExists,
 // so code that only cares that the user exists can keep matching that.
 var (

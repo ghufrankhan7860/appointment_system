@@ -43,3 +43,22 @@ func TestLoadPaymentProvider(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadStorageProvider(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+
+	t.Setenv("STORAGE_PROVIDER", "s3")
+	if _, err := config.Load(); err == nil || !strings.Contains(err.Error(), "STORAGE_PROVIDER") {
+		t.Fatalf("Load error = %v, want an unsupported storage provider", err)
+	}
+
+	t.Setenv("STORAGE_PROVIDER", "local")
+	t.Setenv("STORAGE_LOCAL_DIR", "/data/uploads")
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.Storage.Provider != "local" || loaded.Storage.LocalDir != "/data/uploads" {
+		t.Fatalf("Load storage = %+v, want local at /data/uploads", loaded.Storage)
+	}
+}

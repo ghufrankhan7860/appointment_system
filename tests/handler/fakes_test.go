@@ -437,3 +437,93 @@ func (f *fakeAppointmentRepo) CloseProposal(ctx context.Context, id uint64, toSt
 	f.proposal.Status = toStatus
 	return nil
 }
+
+type fakeMedicalRecordRepo struct {
+	record      *models.MedicalRecord
+	attachments []*models.MedicalAttachment
+	accesses    []*models.RecordAccess
+}
+
+func (f *fakeMedicalRecordRepo) Create(ctx context.Context, record *models.MedicalRecord) (*models.MedicalRecord, error) {
+	created := *record
+	created.ID = 90
+	created.Status = models.MedicalRecordStatusDraft
+	f.record = &created
+	found := created
+	return &found, nil
+}
+
+func (f *fakeMedicalRecordRepo) GetByID(ctx context.Context, id uint64) (*models.MedicalRecord, error) {
+	if f.record == nil || f.record.ID != id {
+		return nil, apperrors.ErrMedicalRecordNotFound
+	}
+	found := *f.record
+	return &found, nil
+}
+
+func (f *fakeMedicalRecordRepo) GetByAppointment(ctx context.Context, appointmentID uint64) (*models.MedicalRecord, error) {
+	if f.record == nil || f.record.AppointmentID != appointmentID {
+		return nil, apperrors.ErrMedicalRecordNotFound
+	}
+	found := *f.record
+	return &found, nil
+}
+
+func (f *fakeMedicalRecordRepo) UpdateDraft(ctx context.Context, record *models.MedicalRecord) error {
+	if f.record == nil || f.record.Status != models.MedicalRecordStatusDraft {
+		return apperrors.ErrMedicalRecordFinalized
+	}
+	updated := *record
+	updated.AppointmentID = f.record.AppointmentID
+	updated.PatientID = f.record.PatientID
+	updated.DoctorID = f.record.DoctorID
+	updated.Status = f.record.Status
+	f.record = &updated
+	return nil
+}
+
+func (f *fakeMedicalRecordRepo) Finalize(ctx context.Context, id uint64) error {
+	f.record.Status = models.MedicalRecordStatusFinalized
+	return nil
+}
+
+func (f *fakeMedicalRecordRepo) ListFinalizedByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalRecord, error) {
+	if f.record == nil || f.record.Status != models.MedicalRecordStatusFinalized {
+		return []*models.MedicalRecord{}, nil
+	}
+	return []*models.MedicalRecord{f.record}, nil
+}
+
+func (f *fakeMedicalRecordRepo) CreateAttachment(ctx context.Context, attachment *models.MedicalAttachment) (*models.MedicalAttachment, error) {
+	created := *attachment
+	created.ID = uint64(95 + len(f.attachments))
+	f.attachments = append(f.attachments, &created)
+	return &created, nil
+}
+
+func (f *fakeMedicalRecordRepo) GetAttachment(ctx context.Context, id uint64) (*models.MedicalAttachment, error) {
+	for _, attachment := range f.attachments {
+		if attachment.ID == id {
+			found := *attachment
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrAttachmentNotFound
+}
+
+func (f *fakeMedicalRecordRepo) ListAttachmentsByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalAttachment, error) {
+	return f.attachments, nil
+}
+
+func (f *fakeMedicalRecordRepo) ListAttachmentsByRecord(ctx context.Context, recordID uint64) ([]*models.MedicalAttachment, error) {
+	return f.attachments, nil
+}
+
+func (f *fakeMedicalRecordRepo) LogAccess(ctx context.Context, access *models.RecordAccess) error {
+	f.accesses = append(f.accesses, access)
+	return nil
+}
+
+func (f *fakeMedicalRecordRepo) ListAccessLog(ctx context.Context, recordID uint64, limit int, offset int) ([]*models.RecordAccess, error) {
+	return f.accesses, nil
+}

@@ -5,6 +5,9 @@
 
 # Go build and test output
 bin/
+
+# Uploaded files from the local storage provider
+var/
 coverage.out
 *.test
 *.prof

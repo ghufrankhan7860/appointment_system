@@ -77,6 +77,9 @@ func newAppointmentFixture(t *testing.T, db *gorm.DB) appointmentFixture {
 		t.Fatalf("Create doctor returned error: %v", err)
 	}
 	t.Cleanup(func() {
+		db.Exec("DELETE FROM medical_record_access_log WHERE patient_id = ?", patient.ID)
+		db.Exec("DELETE FROM medical_attachments WHERE patient_id = ?", patient.ID)
+		db.Exec("DELETE FROM medical_records WHERE patient_id = ?", patient.ID)
 		db.Exec("DELETE FROM appointment_reschedule_proposals WHERE appointment_id IN (SELECT id FROM appointments WHERE doctor_id = ?)", doctor.ID)
 		db.Exec("DELETE FROM refunds WHERE payment_id IN (SELECT payments.id FROM payments JOIN appointments ON appointments.id = payments.appointment_id WHERE appointments.doctor_id = ?)", doctor.ID)
 		db.Exec("DELETE FROM payment_status_history WHERE payment_id IN (SELECT payments.id FROM payments JOIN appointments ON appointments.id = payments.appointment_id WHERE appointments.doctor_id = ?)", doctor.ID)

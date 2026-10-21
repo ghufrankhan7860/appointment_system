@@ -47,8 +47,13 @@ services:
             JWT_SECRET: appointment-local-jwt-secret-change-me
             JWT_ISSUER: appointment-system
             GIN_MODE: release
+            # Local stack: the none payment gateway and local file storage are allowed.
+            APP_ENV: development
+            STORAGE_LOCAL_DIR: /app/var/storage
         ports:
             - "8080:8080"
+        volumes:
+            - appointment_storage_data:/app/var/storage
         depends_on:
             postgres:
                 condition: service_healthy
@@ -58,3 +63,4 @@ services:
 
 volumes:
     appointment_postgres_data:
+    appointment_storage_data:

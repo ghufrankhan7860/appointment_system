@@ -58,7 +58,7 @@ Before adding code, read these documents:
 
 |   |   |-- provider/               # Placeholder: provider selection and registration
 
-|   |   |-- adapters/               # Provider implementations: payment/none (development gateway)
+|   |   |-- adapters/               # Provider implementations: payment/none, storage/local
 
 |   |   |-- cache/                  # Placeholder: appointment cache policy
 
@@ -648,6 +648,22 @@ refunds
 
     full refunds of captured payments, at most one per payment unless an earlier one failed
 
+medical_records
+
+    one clinical note per appointment: complaint, diagnosis, advice, vitals, follow-up; draft or finalized
+
+prescription_items
+
+    the medicines on a record's prescription
+
+medical_attachments
+
+    uploaded reports and scans; only the file's storage key, never the file or a public URL
+
+medical_record_access_log
+
+    who created, edited, finalized, viewed, uploaded or downloaded clinical data, with the request's correlation id
+
 ```
 
 The `user_patient` table represents the many-to-many relationship and should enforce uniqueness for a `(user_id, patient_id)` pair so the same relationship is not accidentally stored multiple times.
@@ -836,6 +852,32 @@ POST /payments/:id/verify          patient  confirm a payment with {providerPaym
 
 See **Payments** below for the rules.
 
+Medical records (require `Authorization: Bearer <jwtToken>`):
+
+```text
+
+POST /doctors/me/appointments/:id/record      doctor   open the record of a started appointment
+
+PUT  /doctors/me/records/:id                  doctor   edit a draft: notes, vitals, medicines
+
+POST /doctors/me/records/:id/finalize         doctor   lock the record and share it with the patient side
+
+POST /doctors/me/records/:id/attachments      doctor   add a file to a draft (multipart)
+
+GET  /records/:id                             any      one record with its files
+
+GET  /patients/:id/records                    any      the patient's finalized records
+
+GET  /patients/:id/attachments                any      the patient's files
+
+POST /patients/:id/attachments                any      upload a report outside a visit (multipart)
+
+GET  /attachments/:id/content                 any      download a file
+
+```
+
+See **Medical records** below for the rules.
+
 Doctors:
 
 ```text
@@ -891,6 +933,8 @@ POST /admin/doctors/:id/reinstate          suspended -> verified          doctor
 POST /admin/specialities                   add a speciality               speciality:manage
 
 POST /admin/payments/:id/refund  {note?}   full refund of a captured payment  payment:refund
+
+GET  /admin/records/:id/access-log         who touched a record, never what it says  record:audit
 
 ```
 
@@ -979,6 +1023,29 @@ Rules:
 - Outbox events: `payment.captured`, `payment.refunded`.
 
 Gateways sit behind the `PaymentGateway` port in `services/`; `PAYMENT_PROVIDER` picks the adapter. The only adapter so far is `none` (`adapters/payment/none`), which moves no money: its `clientPayload` includes the `signature` to verify with, so the whole flow can be run from Swagger. `none` is refused when `APP_ENV` is production, so a production deploy needs a real gateway adapter.
+
+### Medical records
+
+A record is the doctor's note for one appointment, with the visit's prescription. A visit has one prescription, so its medicines are part of the record.
+
+1. The appointment's doctor opens the record once the appointment has started and is not cancelled (`409` otherwise). Opening it again returns the same record.
+2. The doctor edits the draft with `PUT`: chief complaint, symptoms, diagnosis, examination notes, advice, prescription notes, follow-up date, vitals and up to 30 medicines. Vitals must be plausible (pulse 20-300, temperature 25-45 °C, weight 0.5-500 kg, SpO2 50-100) and each medicine needs a name and a dosage.
+3. Finalizing needs a diagnosis and locks the record for good (`409` on any later change). It writes a `medical_record.finalized` outbox event that carries ids only, no clinical content.
+
+Who can read:
+
+- The record's own doctor, in any status. Other doctors get `404`.
+- The patient side with **`full`** access, finalized records only. `appointments_only` and `read_only` links get `404`, the same as no link: they can manage appointments but not read diagnoses.
+- Admins see the access log (`record:audit`), never the record itself.
+
+Files:
+
+- The patient side with `full` access uploads reports outside a visit; the doctor adds files to their own draft. Uploads are `multipart/form-data` with `file`, `kind` (`lab_report`, `imaging`, `prescription_scan`, `referral`, `other`), `title` and an optional `takenOn`.
+- Only PDF, JPEG and PNG are kept, detected from the file's content, not its name or the client's content type (`415` otherwise). The limit is 10 MB, counted on the bytes received (`413`).
+- Downloads stream through the API after the same access check, as `Content-Disposition: attachment` with `X-Content-Type-Options: nosniff`.
+- Files are stored behind the `FileStorage` port in `services/`; `STORAGE_PROVIDER` picks the adapter. The `local` adapter (`adapters/storage/local`) writes under `STORAGE_LOCAL_DIR` (default `var/storage`, ignored by git); the Docker stack keeps it on the `appointment_storage_data` volume. Cloudflare R2 will be another adapter with no service change.
+
+Every read and write of a record or file, including lists, writes a row to `medical_record_access_log` with the user, the action and the request's correlation id, in the same transaction as the read or write.
 
 ### First admin
 
@@ -1084,7 +1151,7 @@ go run .
 
 The `migrate` service applies every ordered migration in `migrations/` (`000001` onwards) and skips the ones already applied, so it is safe to run again after pulling new migrations. Schema migrations are explicit and are not run automatically when the application starts.
 
-Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only.
+Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only. `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 

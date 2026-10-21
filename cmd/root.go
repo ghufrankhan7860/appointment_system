@@ -62,6 +62,8 @@ func Execute() error {
 		config.Auth.TokenTTL,
 		config.App.Location,
 		config.Payment.Provider,
+		config.Storage.Provider,
+		config.Storage.LocalDir,
 	)
 	if err != nil {
 		return fmt.Errorf("initialize appointment application: %w", err)

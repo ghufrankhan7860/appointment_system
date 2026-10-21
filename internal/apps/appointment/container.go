@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"appointment_system/internal/apps/appointment/adapters/payment/none"
+	"appointment_system/internal/apps/appointment/adapters/storage/local"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
 	"appointment_system/internal/apps/appointment/repositories"
@@ -26,12 +27,13 @@ import (
 // It takes only narrow infrastructure values (a query handle plus token
 // policy), never a broad store, config object, or request-scoped state.
 type Container struct {
-	AuthHandler        *handler.AuthHandler
-	PatientHandler     *handler.PatientHandler
-	DoctorHandler      *handler.DoctorHandler
-	AdminHandler       *handler.AdminHandler
-	AppointmentHandler *handler.AppointmentHandler
-	PaymentHandler     *handler.PaymentHandler
+	AuthHandler          *handler.AuthHandler
+	PatientHandler       *handler.PatientHandler
+	DoctorHandler        *handler.DoctorHandler
+	AdminHandler         *handler.AdminHandler
+	AppointmentHandler   *handler.AppointmentHandler
+	PaymentHandler       *handler.PaymentHandler
+	MedicalRecordHandler *handler.MedicalRecordHandler
 }
 
 func NewContainer(
@@ -41,6 +43,8 @@ func NewContainer(
 	tokenTTL time.Duration,
 	clinicLocation *time.Location,
 	paymentProvider string,
+	storageProvider string,
+	storageLocalDir string,
 ) (*Container, error) {
 	userRepository, err := repositories.NewUserRepository(db)
 	if err != nil {
@@ -225,6 +229,40 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize doctor controller: %w", err)
 	}
 
+	medicalRecordRepository, err := repositories.NewMedicalRecordRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize medical record repository: %w", err)
+	}
+
+	fileStorage, err := NewFileStorage(storageProvider, storageLocalDir)
+	if err != nil {
+		return nil, fmt.Errorf("initialize file storage: %w", err)
+	}
+
+	medicalRecordService, err := services.NewMedicalRecordService(
+		medicalRecordRepository,
+		appointmentRepository,
+		userPatientRepository,
+		doctorRepository,
+		fileStorage,
+		outboxRepository,
+		txManager,
+		time.Now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize medical record service: %w", err)
+	}
+
+	medicalRecordController, err := controller.NewMedicalRecordController(medicalRecordService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize medical record controller: %w", err)
+	}
+
+	medicalRecordHandler, err := handler.NewMedicalRecordHandler(medicalRecordController, tokenGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("initialize medical record handler: %w", err)
+	}
+
 	paymentController, err := controller.NewPaymentController(paymentService)
 	if err != nil {
 		return nil, fmt.Errorf("initialize payment controller: %w", err)
@@ -235,7 +273,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize payment handler: %w", err)
 	}
 
-	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService)
+	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService, medicalRecordService)
 	if err != nil {
 		return nil, fmt.Errorf("initialize admin controller: %w", err)
 	}
@@ -251,12 +289,13 @@ func NewContainer(
 	}
 
 	return &Container{
-		AuthHandler:        authHandler,
-		PatientHandler:     patientHandler,
-		DoctorHandler:      doctorHandler,
-		AdminHandler:       adminHandler,
-		AppointmentHandler: appointmentHandler,
-		PaymentHandler:     paymentHandler,
+		AuthHandler:          authHandler,
+		PatientHandler:       patientHandler,
+		DoctorHandler:        doctorHandler,
+		AdminHandler:         adminHandler,
+		AppointmentHandler:   appointmentHandler,
+		PaymentHandler:       paymentHandler,
+		MedicalRecordHandler: medicalRecordHandler,
 	}, nil
 }
 
@@ -267,6 +306,18 @@ func (c *Container) RegisterRoutes(router *gin.RouterGroup) {
 	c.AdminHandler.RegisterRoutes(router)
 	c.AppointmentHandler.RegisterRoutes(router)
 	c.PaymentHandler.RegisterRoutes(router)
+	c.MedicalRecordHandler.RegisterRoutes(router)
+}
+
+// NewFileStorage returns the file storage adapter for the configured provider.
+// Config validation has already rejected unknown providers.
+func NewFileStorage(provider string, localDir string) (services.FileStorage, error) {
+	switch provider {
+	case local.ProviderName:
+		return local.New(localDir)
+	default:
+		return nil, fmt.Errorf("storage provider %q is not supported", provider)
+	}
 }
 
 // NewPaymentGateway returns the adapter for the configured provider. Config

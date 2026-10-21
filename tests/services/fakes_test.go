@@ -1,8 +1,10 @@
 package services_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
@@ -727,5 +729,148 @@ func (f *fakeAppointmentRepo) CloseProposal(ctx context.Context, id uint64, toSt
 	}
 	f.closedTo = toStatus
 	f.closedBy = respondedByUserID
+	return nil
+}
+
+type fakeMedicalRecordRepo struct {
+	record      *models.MedicalRecord
+	createErr   error
+	created     bool
+	updated     *models.MedicalRecord
+	finalizeErr error
+
+	listed []*models.MedicalRecord
+
+	attachments         []*models.MedicalAttachment
+	createAttachmentErr error
+
+	accesses  []*models.RecordAccess
+	accessLog []*models.RecordAccess
+}
+
+func (f *fakeMedicalRecordRepo) Create(ctx context.Context, record *models.MedicalRecord) (*models.MedicalRecord, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	created := *record
+	created.ID = 90
+	created.Status = models.MedicalRecordStatusDraft
+	f.record = &created
+	f.created = true
+	found := created
+	return &found, nil
+}
+
+func (f *fakeMedicalRecordRepo) GetByID(ctx context.Context, id uint64) (*models.MedicalRecord, error) {
+	if f.record == nil || f.record.ID != id {
+		return nil, apperrors.ErrMedicalRecordNotFound
+	}
+	found := *f.record
+	return &found, nil
+}
+
+func (f *fakeMedicalRecordRepo) GetByAppointment(ctx context.Context, appointmentID uint64) (*models.MedicalRecord, error) {
+	if f.record == nil || f.record.AppointmentID != appointmentID {
+		return nil, apperrors.ErrMedicalRecordNotFound
+	}
+	found := *f.record
+	return &found, nil
+}
+
+func (f *fakeMedicalRecordRepo) UpdateDraft(ctx context.Context, record *models.MedicalRecord) error {
+	if f.record == nil || f.record.Status != models.MedicalRecordStatusDraft {
+		return apperrors.ErrMedicalRecordFinalized
+	}
+	updated := *record
+	updated.PatientID = f.record.PatientID
+	updated.DoctorID = f.record.DoctorID
+	updated.AppointmentID = f.record.AppointmentID
+	updated.Status = f.record.Status
+	f.updated = &updated
+	f.record = &updated
+	return nil
+}
+
+func (f *fakeMedicalRecordRepo) Finalize(ctx context.Context, id uint64) error {
+	if f.finalizeErr != nil {
+		return f.finalizeErr
+	}
+	f.record.Status = models.MedicalRecordStatusFinalized
+	return nil
+}
+
+func (f *fakeMedicalRecordRepo) ListFinalizedByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalRecord, error) {
+	return f.listed, nil
+}
+
+func (f *fakeMedicalRecordRepo) CreateAttachment(ctx context.Context, attachment *models.MedicalAttachment) (*models.MedicalAttachment, error) {
+	if f.createAttachmentErr != nil {
+		return nil, f.createAttachmentErr
+	}
+	created := *attachment
+	created.ID = uint64(95 + len(f.attachments))
+	f.attachments = append(f.attachments, &created)
+	return &created, nil
+}
+
+func (f *fakeMedicalRecordRepo) GetAttachment(ctx context.Context, id uint64) (*models.MedicalAttachment, error) {
+	for _, attachment := range f.attachments {
+		if attachment.ID == id {
+			found := *attachment
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrAttachmentNotFound
+}
+
+func (f *fakeMedicalRecordRepo) ListAttachmentsByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalAttachment, error) {
+	return f.attachments, nil
+}
+
+func (f *fakeMedicalRecordRepo) ListAttachmentsByRecord(ctx context.Context, recordID uint64) ([]*models.MedicalAttachment, error) {
+	return f.attachments, nil
+}
+
+func (f *fakeMedicalRecordRepo) LogAccess(ctx context.Context, access *models.RecordAccess) error {
+	f.accesses = append(f.accesses, access)
+	return nil
+}
+
+func (f *fakeMedicalRecordRepo) ListAccessLog(ctx context.Context, recordID uint64, limit int, offset int) ([]*models.RecordAccess, error) {
+	return f.accessLog, nil
+}
+
+type fakeFileStorage struct {
+	files   map[string][]byte
+	deleted []string
+	putErr  error
+}
+
+func (f *fakeFileStorage) Put(ctx context.Context, key string, content io.Reader, contentType string) error {
+	if f.putErr != nil {
+		return f.putErr
+	}
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return err
+	}
+	if f.files == nil {
+		f.files = map[string][]byte{}
+	}
+	f.files[key] = data
+	return nil
+}
+
+func (f *fakeFileStorage) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	data, ok := f.files[key]
+	if !ok {
+		return nil, apperrors.ErrStoredFileNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func (f *fakeFileStorage) Delete(ctx context.Context, key string) error {
+	delete(f.files, key)
+	f.deleted = append(f.deleted, key)
 	return nil
 }

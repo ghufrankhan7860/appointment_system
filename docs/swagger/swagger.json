@@ -636,6 +636,94 @@
                 }
             }
         },
+        "/admin/records/{id}/access-log": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every create, edit, finalize, view and download of a record and its files, newest first, with the user and the request's correlation id. It never shows what the record says. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List who accessed a medical record",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Medical record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of entries to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.ListAccessLogResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/specialities": {
             "post": {
                 "security": [
@@ -1654,6 +1742,66 @@
                 }
             }
         },
+        "/attachments/{id}/content": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Streams the file to the patient side with full access, or to the doctor of the record it belongs to. Anyone else gets 404. Every download is written to the access log.",
+                "produces": [
+                    "application/pdf",
+                    "image/jpeg",
+                    "image/png"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "Download an uploaded file",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Attachment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/login": {
             "post": {
                 "description": "Log in with exactly one of email or mobileNo and a password.",
@@ -2490,6 +2638,88 @@
                 }
             }
         },
+        "/doctors/me/appointments/{id}/record": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Opens a draft record for one of the caller's appointments once it has started and is not cancelled. Asking again returns the existing record.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "Open the medical record of an appointment",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Appointment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.MedicalRecordResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/doctors/me/appointments/{id}/reschedule-proposals": {
             "post": {
                 "security": [
@@ -2804,6 +3034,313 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/doctors/me/records/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the draft's notes, vitals and prescription. A finalized record cannot change.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "Edit a draft medical record",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Medical record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Record contents",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/record.UpdateRecordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.MedicalRecordResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/doctors/me/records/{id}/attachments": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The record's doctor adds a lab report, scan or other file to their draft. Only PDF, JPEG and PNG are kept, detected from the file's content, up to 10 MB.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "Add a file to a draft medical record",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Medical record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "PDF, JPEG or PNG, at most 10 MB",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "lab_report",
+                            "imaging",
+                            "prescription_scan",
+                            "referral",
+                            "other"
+                        ],
+                        "type": "string",
+                        "description": "Kind of file",
+                        "name": "kind",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Short title",
+                        "name": "title",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Date the report was taken, as YYYY-MM-DD",
+                        "name": "takenOn",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.AttachmentResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Unsupported Media Type",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/doctors/me/records/{id}/finalize": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Locks the draft for good and makes it readable by the patient side with full access. It needs a diagnosis.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "Finalize a medical record",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Medical record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.MedicalRecordResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/dtos.ErrorResponse"
                         }
@@ -3262,6 +3799,287 @@
                 }
             }
         },
+        "/patients/{id}/attachments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the patient's attachments, newest first. Needs full access to the patient; other access levels get 404. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "List a patient's uploaded files",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Patient ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of files to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.ListAttachmentsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Uploads a lab report, scan or other file for a patient the caller has full access to. Only PDF, JPEG and PNG are kept, detected from the file's content, up to 10 MB.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "Upload a report for a patient",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Patient ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "PDF, JPEG or PNG, at most 10 MB",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "lab_report",
+                            "imaging",
+                            "prescription_scan",
+                            "referral",
+                            "other"
+                        ],
+                        "type": "string",
+                        "description": "Kind of file",
+                        "name": "kind",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Short title",
+                        "name": "title",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Date the report was taken, as YYYY-MM-DD",
+                        "name": "takenOn",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.AttachmentResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Unsupported Media Type",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/patients/{id}/records": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the patient's finalized records, newest first. Needs full access to the patient; other access levels get 404. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "List a patient's medical records",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Patient ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of records to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.ListRecordsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/payments/{id}/verify": {
             "post": {
                 "security": [
@@ -3349,6 +4167,76 @@
                     },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/records/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a record with its attachments. The record's doctor sees it in any status; the patient side needs full access and sees finalized records only. Anyone else gets 404. Every read is written to the access log.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "medical records"
+                ],
+                "summary": "Get a medical record",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Medical record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.MedicalRecordResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/dtos.ErrorResponse"
                         }
@@ -3568,6 +4456,17 @@
                 }
             }
         },
+        "admin.ListAccessLogResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/admin.RecordAccessResponse"
+                    }
+                }
+            }
+        },
         "admin.ListDoctorsResponse": {
             "type": "object",
             "properties": {
@@ -3576,6 +4475,45 @@
                     "items": {
                         "$ref": "#/definitions/admin.GetDoctorResponse"
                     }
+                }
+            }
+        },
+        "admin.RecordAccessResponse": {
+            "type": "object",
+            "properties": {
+                "accessedByUserId": {
+                    "type": "integer"
+                },
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "create",
+                        "update",
+                        "finalize",
+                        "view",
+                        "list",
+                        "upload",
+                        "download"
+                    ],
+                    "example": "view"
+                },
+                "attachmentId": {
+                    "type": "integer"
+                },
+                "correlationId": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "medicalRecordId": {
+                    "type": "integer"
+                },
+                "patientId": {
+                    "type": "integer"
                 }
             }
         },
@@ -4931,6 +5869,254 @@
                 "signature": {
                     "type": "string",
                     "example": "none_signature_none_order_12_1761040000000000000"
+                }
+            }
+        },
+        "record.AttachmentResponse": {
+            "type": "object",
+            "properties": {
+                "contentType": {
+                    "type": "string",
+                    "example": "application/pdf"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "lab_report",
+                        "imaging",
+                        "prescription_scan",
+                        "referral",
+                        "other"
+                    ],
+                    "example": "lab_report"
+                },
+                "medicalRecordId": {
+                    "type": "integer"
+                },
+                "patientId": {
+                    "type": "integer"
+                },
+                "sizeBytes": {
+                    "type": "integer",
+                    "example": 48213
+                },
+                "takenOn": {
+                    "type": "string",
+                    "example": "2026-10-20"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Complete blood count"
+                }
+            }
+        },
+        "record.ListAttachmentsResponse": {
+            "type": "object",
+            "properties": {
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/record.AttachmentResponse"
+                    }
+                }
+            }
+        },
+        "record.ListRecordsResponse": {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/record.MedicalRecordResponse"
+                    }
+                }
+            }
+        },
+        "record.MedicalRecordResponse": {
+            "type": "object",
+            "properties": {
+                "advice": {
+                    "type": "string",
+                    "example": "Rest and fluids"
+                },
+                "appointmentId": {
+                    "type": "integer"
+                },
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/record.AttachmentResponse"
+                    }
+                },
+                "chiefComplaint": {
+                    "type": "string",
+                    "example": "Fever for three days"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "diagnosis": {
+                    "type": "string",
+                    "example": "Viral fever"
+                },
+                "doctorId": {
+                    "type": "integer"
+                },
+                "examinationNotes": {
+                    "type": "string"
+                },
+                "finalizedAt": {
+                    "type": "string"
+                },
+                "followUpOn": {
+                    "type": "string",
+                    "example": "2026-11-02"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "medicines": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/record.Medicine"
+                    }
+                },
+                "patientId": {
+                    "type": "integer"
+                },
+                "prescriptionNotes": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "draft",
+                        "finalized"
+                    ],
+                    "example": "draft"
+                },
+                "symptoms": {
+                    "type": "string",
+                    "example": "Fever, body ache"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "vitals": {
+                    "$ref": "#/definitions/record.Vitals"
+                }
+            }
+        },
+        "record.Medicine": {
+            "type": "object",
+            "properties": {
+                "dosage": {
+                    "type": "string",
+                    "example": "1-0-1"
+                },
+                "durationDays": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "form": {
+                    "type": "string",
+                    "example": "tablet"
+                },
+                "frequency": {
+                    "type": "string",
+                    "example": "twice daily"
+                },
+                "instructions": {
+                    "type": "string"
+                },
+                "medicineName": {
+                    "type": "string",
+                    "example": "Paracetamol"
+                },
+                "strength": {
+                    "type": "string",
+                    "example": "500 mg"
+                },
+                "timing": {
+                    "type": "string",
+                    "enum": [
+                        "before_food",
+                        "after_food",
+                        "with_food",
+                        "any"
+                    ],
+                    "example": "after_food"
+                }
+            }
+        },
+        "record.UpdateRecordRequest": {
+            "type": "object",
+            "properties": {
+                "advice": {
+                    "type": "string",
+                    "example": "Rest and fluids"
+                },
+                "chiefComplaint": {
+                    "type": "string",
+                    "example": "Fever for three days"
+                },
+                "diagnosis": {
+                    "type": "string",
+                    "example": "Viral fever"
+                },
+                "examinationNotes": {
+                    "type": "string"
+                },
+                "followUpOn": {
+                    "type": "string",
+                    "example": "2026-11-02"
+                },
+                "medicines": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/record.Medicine"
+                    }
+                },
+                "prescriptionNotes": {
+                    "type": "string"
+                },
+                "symptoms": {
+                    "type": "string",
+                    "example": "Fever, body ache"
+                },
+                "vitals": {
+                    "$ref": "#/definitions/record.Vitals"
+                }
+            }
+        },
+        "record.Vitals": {
+            "type": "object",
+            "properties": {
+                "bloodPressure": {
+                    "type": "string",
+                    "example": "120/80"
+                },
+                "pulsePerMinute": {
+                    "type": "integer",
+                    "example": 82
+                },
+                "spo2Percent": {
+                    "type": "integer",
+                    "example": 98
+                },
+                "temperatureCelsius": {
+                    "type": "number",
+                    "example": 38.2
+                },
+                "weightKg": {
+                    "type": "number",
+                    "example": 64.5
                 }
             }
         }

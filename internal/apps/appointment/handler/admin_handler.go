@@ -50,6 +50,57 @@ func (ah *AdminHandler) RegisterRoutes(router *gin.RouterGroup) {
 	adminRoutes.POST("/doctors/:id/reinstate", authz.RequirePermission(authz.PermDoctorSuspend), ah.ReinstateDoctor)
 	adminRoutes.POST("/specialities", authz.RequirePermission(authz.PermSpecialityManage), ah.CreateSpeciality)
 	adminRoutes.POST("/payments/:id/refund", authz.RequirePermission(authz.PermPaymentRefund), ah.RefundPayment)
+	adminRoutes.GET("/records/:id/access-log", authz.RequirePermission(authz.PermRecordAudit), ah.ListRecordAccessLog)
+}
+
+// ListRecordAccessLog godoc
+// @Summary List who accessed a medical record
+// @Description Returns every create, edit, finalize, view and download of a record and its files, newest first, with the user and the request's correlation id. It never shows what the record says. Limit defaults to 20 and is capped at 100.
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Param id path int true "Medical record ID"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Number of entries to skip"
+// @Success 200 {object} dtos.SuccessResponse{data=admin.ListAccessLogResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/records/{id}/access-log [get]
+func (ah *AdminHandler) ListRecordAccessLog(ctx *gin.Context) {
+	var listAccessLogRequest admin.ListAccessLogRequest
+	if err := ctx.ShouldBindUri(&listAccessLogRequest); err != nil || listAccessLogRequest.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid medical record id"})
+		return
+	}
+	if err := ctx.ShouldBindQuery(&listAccessLogRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := ah.adminController.ListRecordAccessLog(ctx.Request.Context(), &listAccessLogRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrMedicalRecordNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Medical record not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list access log"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Access log retrieved successfully",
+	})
 }
 
 // RefundPayment godoc

@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"appointment_system/internal/apps/appointment/adapters/payment/none"
+	"appointment_system/internal/apps/appointment/adapters/storage/local"
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
@@ -35,6 +36,12 @@ func newDoctorAdminRouterWithAvailability(t *testing.T, doctors *fakeDoctorRepo,
 
 func newDoctorAdminRouterWithPayments(t *testing.T, doctors *fakeDoctorRepo, availability *fakeAvailabilityRepo, payments *fakePaymentRepo) *gin.Engine {
 	t.Helper()
+
+	return newDoctorAdminRouterWithRecords(t, doctors, availability, payments, &fakeMedicalRecordRepo{})
+}
+
+func newDoctorAdminRouterWithRecords(t *testing.T, doctors *fakeDoctorRepo, availability *fakeAvailabilityRepo, payments *fakePaymentRepo, records *fakeMedicalRecordRepo) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	doctorService, err := services.NewDoctorService(doctors, &fakeSpecialityRepo{}, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
@@ -61,7 +68,15 @@ func newDoctorAdminRouterWithPayments(t *testing.T, doctors *fakeDoctorRepo, ava
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService)
+	storage, err := local.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("local.New returned error: %v", err)
+	}
+	medicalRecordService, err := services.NewMedicalRecordService(records, &fakeAppointmentRepo{}, &fakeUserPatientRepo{}, doctors, storage, &fakeOutboxRepo{}, &fakeTxManager{}, time.Now)
+	if err != nil {
+		t.Fatalf("NewMedicalRecordService returned error: %v", err)
+	}
+	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService, medicalRecordService)
 	if err != nil {
 		t.Fatalf("NewAdminController returned error: %v", err)
 	}

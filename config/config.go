@@ -30,6 +30,9 @@ const (
 	defaultEnvironment    = "development"
 	// paymentProviderNone moves no money and is refused in production.
 	paymentProviderNone = "none"
+	// storageProviderLocal keeps uploads on the local disk under StorageConfig.LocalDir.
+	storageProviderLocal = "local"
+	defaultStorageDir    = "var/storage"
 )
 
 const (
@@ -50,6 +53,7 @@ type Config struct {
 	Database DatabaseConfig
 	Auth     AuthConfig
 	Payment  PaymentConfig
+	Storage  StorageConfig
 }
 
 type AppConfig struct {
@@ -84,6 +88,13 @@ type PaymentConfig struct {
 	Provider string
 }
 
+type StorageConfig struct {
+	// Provider selects the file storage adapter for uploaded medical files.
+	Provider string
+	// LocalDir is the root folder of the local provider.
+	LocalDir string
+}
+
 type AuthConfig struct {
 	JWTSecret string
 	JWTIssuer string
@@ -116,6 +127,10 @@ func Load() (Config, error) {
 			TokenTTL:  constant.AccessTokenTTL,
 		},
 		Payment: PaymentConfig{Provider: env("PAYMENT_PROVIDER", paymentProviderNone)},
+		Storage: StorageConfig{
+			Provider: env("STORAGE_PROVIDER", storageProviderLocal),
+			LocalDir: env("STORAGE_LOCAL_DIR", defaultStorageDir),
+		},
 	}
 
 	integerValues := []struct {
@@ -165,6 +180,12 @@ func Load() (Config, error) {
 
 	if config.Payment.Provider != paymentProviderNone {
 		return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q is not supported; use %q", config.Payment.Provider, paymentProviderNone)
+	}
+	if config.Storage.Provider != storageProviderLocal {
+		return Config{}, fmt.Errorf("STORAGE_PROVIDER %q is not supported; use %q", config.Storage.Provider, storageProviderLocal)
+	}
+	if config.Storage.Provider == storageProviderLocal && config.Storage.LocalDir == "" {
+		return Config{}, fmt.Errorf("STORAGE_LOCAL_DIR is required for the %q storage provider", storageProviderLocal)
 	}
 	if config.Payment.Provider == paymentProviderNone && isProductionEnvironment() {
 		return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q takes no money and is not allowed in production", paymentProviderNone)

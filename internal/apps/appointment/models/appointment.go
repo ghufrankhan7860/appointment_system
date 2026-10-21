@@ -114,6 +114,9 @@ const (
 	OutboxEventRescheduleDeclined = "appointment.reschedule_declined"
 	OutboxEventRescheduleExpired  = "appointment.reschedule_expired"
 
+	OutboxAggregateMedicalRecord      = "medical_record"
+	OutboxEventMedicalRecordFinalized = "medical_record.finalized"
+
 	OutboxAggregatePayment     = "payment"
 	OutboxEventPaymentCaptured = "payment.captured"
 	OutboxEventPaymentRefunded = "payment.refunded"

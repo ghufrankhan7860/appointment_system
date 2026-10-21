@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS medical_record_access_log;
