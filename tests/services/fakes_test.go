@@ -3,6 +3,7 @@ package services_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -594,6 +595,9 @@ type fakePaymentRepo struct {
 	refunds   []*models.Refund
 	refundErr error
 	finished  []models.RefundStatus
+
+	listedStatus models.RefundStatus
+	listedLimit  int
 }
 
 func (f *fakePaymentRepo) Create(ctx context.Context, payment *models.Payment) (*models.Payment, error) {
@@ -668,7 +672,43 @@ func (f *fakePaymentRepo) CreateRefund(ctx context.Context, refund *models.Refun
 
 func (f *fakePaymentRepo) FinishRefund(ctx context.Context, id uint64, status models.RefundStatus, providerRefundID string) error {
 	f.finished = append(f.finished, status)
+	for _, refund := range f.refunds {
+		if refund.ID == id {
+			refund.Status = status
+			refund.ProviderRefundID = providerRefundID
+		}
+	}
 	return nil
+}
+
+func (f *fakePaymentRepo) GetByProviderOrderID(ctx context.Context, provider string, providerOrderID string) (*models.Payment, error) {
+	if f.payment == nil || f.payment.ProviderOrderID != providerOrderID {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetRefundByID(ctx context.Context, id uint64) (*models.Refund, error) {
+	for _, refund := range f.refunds {
+		if refund.ID == id {
+			found := *refund
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrRefundNotFound
+}
+
+func (f *fakePaymentRepo) ListRefunds(ctx context.Context, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error) {
+	f.listedStatus = status
+	f.listedLimit = limit
+	var listed []*models.Refund
+	for _, refund := range f.refunds {
+		if refund.Status == status {
+			listed = append(listed, refund)
+		}
+	}
+	return listed, nil
 }
 
 type fakeGateway struct {
@@ -676,6 +716,9 @@ type fakeGateway struct {
 	verifyErr error
 	refundErr error
 	refunded  int
+	cancelled int
+	event     *models.GatewayEvent
+	parseErr  error
 }
 
 func (f *fakeGateway) Provider() string {
@@ -701,6 +744,18 @@ func (f *fakeGateway) Refund(ctx context.Context, payment *models.Payment, amoun
 	}
 	f.refunded += amount
 	return "refund-1", nil
+}
+
+func (f *fakeGateway) CancelOrder(ctx context.Context, payment *models.Payment) error {
+	f.cancelled++
+	return errors.New("gateway unreachable")
+}
+
+func (f *fakeGateway) ParseWebhook(body []byte, headers map[string][]string) (*models.GatewayEvent, error) {
+	if f.parseErr != nil {
+		return nil, f.parseErr
+	}
+	return f.event, nil
 }
 
 func (f *fakeAppointmentRepo) CreateProposal(ctx context.Context, proposal *models.RescheduleProposal) (*models.RescheduleProposal, error) {

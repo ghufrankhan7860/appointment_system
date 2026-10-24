@@ -63,3 +63,13 @@ func (g *Gateway) Refund(ctx context.Context, payment *models.Payment, amount in
 
 	return fmt.Sprintf("%s%d", refundPrefix, payment.ID), nil
 }
+
+func (g *Gateway) CancelOrder(ctx context.Context, payment *models.Payment) error {
+	return nil
+}
+
+// ParseWebhook refuses every callback: nothing calls back for a gateway that
+// moves no money.
+func (g *Gateway) ParseWebhook(body []byte, headers map[string][]string) (*models.GatewayEvent, error) {
+	return nil, apperrors.ErrPaymentVerificationFailed
+}

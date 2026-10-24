@@ -42,6 +42,12 @@ func newDoctorAdminRouterWithPayments(t *testing.T, doctors *fakeDoctorRepo, ava
 
 func newDoctorAdminRouterWithRecords(t *testing.T, doctors *fakeDoctorRepo, availability *fakeAvailabilityRepo, payments *fakePaymentRepo, records *fakeMedicalRecordRepo) *gin.Engine {
 	t.Helper()
+
+	return newDoctorAdminRouterWithGateway(t, doctors, availability, payments, records, none.New())
+}
+
+func newDoctorAdminRouterWithGateway(t *testing.T, doctors *fakeDoctorRepo, availability *fakeAvailabilityRepo, payments *fakePaymentRepo, records *fakeMedicalRecordRepo, gateway services.PaymentGateway) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	doctorService, err := services.NewDoctorService(doctors, &fakeSpecialityRepo{}, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
@@ -64,7 +70,7 @@ func newDoctorAdminRouterWithRecords(t *testing.T, doctors *fakeDoctorRepo, avai
 	if err != nil {
 		t.Fatalf("NewDoctorController returned error: %v", err)
 	}
-	paymentService, err := services.NewPaymentService(payments, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, none.New(), &fakeTxManager{}, time.Now)
+	paymentService, err := services.NewPaymentService(payments, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, &fakeTxManager{}, time.Now)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}

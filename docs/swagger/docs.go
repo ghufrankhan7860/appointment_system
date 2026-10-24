@@ -557,7 +557,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Refunds a captured payment in full through its gateway. The appointment's payment status becomes refunded. Cancelled paid appointments are refunded automatically; this is for everything else.",
+                "description": "Refunds a captured payment in full through its gateway. The appointment's payment status becomes refunded. Cancelled paid appointments are refunded automatically; this is for everything else. A gateway with no refund API (YouPI) returns 202 with refundPending true: the refund waits in GET /admin/refunds until an admin pays it back by UPI and completes it.",
                 "consumes": [
                     "application/json"
                 ],
@@ -597,7 +597,25 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/payment.PaymentResponse"
+                                            "$ref": "#/definitions/admin.RefundPaymentResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.RefundPaymentResponse"
                                         }
                                     }
                                 }
@@ -718,6 +736,186 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/refunds": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns refunds in one status, oldest first. The default, requested, is the queue of refunds to pay back by hand: YouPI has no refund API, so every YouPI refund waits here until an admin sends the money by UPI and completes it. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List refunds",
+                "parameters": [
+                    {
+                        "enum": [
+                            "requested",
+                            "succeeded",
+                            "failed"
+                        ],
+                        "type": "string",
+                        "description": "Refund status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of refunds to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.ListRefundsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/refunds/{id}/complete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Records that an admin paid a requested refund back by hand, with the payout's reference such as the UPI UTR (at most 100 characters). The payment and the appointment's payment status become refunded.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Complete a manual refund",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Refund ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Payout reference",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.CompleteRefundRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/payment.RefundResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/dtos.ErrorResponse"
                         }
@@ -4094,7 +4292,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. Verifying a captured payment again with the same providerPaymentId returns it. If the booking expired first, the money is refunded and 409 is returned.",
+                "description": "Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. With none, send the signature from clientPayload; with YouPI, send the UTR as providerPaymentId and no signature, because the server asks YouPI itself. YouPI's webhook usually captures the payment first, and then this returns it. Verifying a captured payment again with the same providerPaymentId returns it. If the booking expired first, the money is refunded and 409 is returned.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4305,9 +4503,83 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/webhooks/payment": {
+            "post": {
+                "description": "Called by the configured gateway (YouPI PG), never by clients, so it takes no token. The X-Gateway-Signature HMAC must match the raw body, and a reported payment is confirmed with the gateway again before any money is recorded. Repeats get 200 and change nothing; money for a booking that was already cancelled is recorded and refunded. Any other answer than 2xx makes the gateway retry. The body is limited to 64 KB.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "Receive a payment gateway callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "sha256=\u003chex HMAC-SHA256 of the raw body\u003e",
+                        "name": "X-Gateway-Signature",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "admin.CompleteRefundRequest": {
+            "type": "object",
+            "required": [
+                "reference"
+            ],
+            "properties": {
+                "reference": {
+                    "type": "string",
+                    "example": "412345678901"
+                }
+            }
+        },
         "admin.CreateAdminRequest": {
             "type": "object",
             "required": [
@@ -4485,6 +4757,17 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.ListRefundsResponse": {
+            "type": "object",
+            "properties": {
+                "refunds": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/payment.RefundResponse"
+                    }
+                }
+            }
+        },
         "admin.RecordAccessResponse": {
             "type": "object",
             "properties": {
@@ -4530,6 +4813,59 @@ const docTemplate = `{
                 "note": {
                     "type": "string",
                     "example": "Doctor unavailable, refunded as goodwill"
+                }
+            }
+        },
+        "admin.RefundPaymentResponse": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer",
+                    "example": 50000
+                },
+                "appointmentId": {
+                    "type": "integer"
+                },
+                "capturedAt": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "INR"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "payerUserId": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string",
+                    "example": "none"
+                },
+                "providerOrderId": {
+                    "type": "string",
+                    "example": "none_order_12_1761040000000000000"
+                },
+                "providerPaymentId": {
+                    "type": "string"
+                },
+                "refundPending": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "created",
+                        "captured",
+                        "failed",
+                        "expired",
+                        "refunded"
+                    ],
+                    "example": "created"
                 }
             }
         },
@@ -5862,11 +6198,60 @@ const docTemplate = `{
                 }
             }
         },
+        "payment.RefundResponse": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer",
+                    "example": 50000
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "initiatedByUserId": {
+                    "type": "integer"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "paymentId": {
+                    "type": "integer"
+                },
+                "processedAt": {
+                    "type": "string"
+                },
+                "providerRefundId": {
+                    "type": "string",
+                    "example": "412345678901"
+                },
+                "reason": {
+                    "type": "string",
+                    "enum": [
+                        "patient_cancelled",
+                        "doctor_cancelled",
+                        "late_payment",
+                        "admin"
+                    ],
+                    "example": "doctor_cancelled"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "requested",
+                        "succeeded",
+                        "failed"
+                    ],
+                    "example": "requested"
+                }
+            }
+        },
         "payment.VerifyPaymentRequest": {
             "type": "object",
             "required": [
-                "providerPaymentId",
-                "signature"
+                "providerPaymentId"
             ],
             "properties": {
                 "providerPaymentId": {

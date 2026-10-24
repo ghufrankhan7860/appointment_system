@@ -3,10 +3,12 @@ package handler
 import (
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/authz"
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/dtos/payment"
 	"appointment_system/middleware"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -40,6 +42,57 @@ func (ph *PaymentHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.POST("/appointments/:id/payments", authenticate, pay, ph.Create)
 	router.GET("/appointments/:id/payment", authenticate, ph.GetForAppointment)
 	router.POST("/payments/:id/verify", authenticate, pay, ph.Verify)
+	router.POST("/webhooks/payment", ph.HandleWebhook)
+}
+
+// HandleWebhook godoc
+// @Summary Receive a payment gateway callback
+// @Description Called by the configured gateway (YouPI PG), never by clients, so it takes no token. The X-Gateway-Signature HMAC must match the raw body, and a reported payment is confirmed with the gateway again before any money is recorded. Repeats get 200 and change nothing; money for a booking that was already cancelled is recorded and refunded. Any other answer than 2xx makes the gateway retry. The body is limited to 64 KB.
+// @Tags payments
+// @Accept json
+// @Produce json
+// @Param X-Gateway-Signature header string true "sha256=<hex HMAC-SHA256 of the raw body>"
+// @Success 200 {object} dtos.SuccessResponse
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 413 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /webhooks/payment [post]
+func (ph *PaymentHandler) HandleWebhook(ctx *gin.Context) {
+	body, err := io.ReadAll(http.MaxBytesReader(ctx.Writer, ctx.Request.Body, constant.MaxWebhookBodyBytes))
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "error": "Webhook body is too large"})
+			return
+		}
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid webhook body"})
+		return
+	}
+
+	if err := ph.paymentController.HandleWebhook(ctx.Request.Context(), body, ctx.Request.Header); err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPaymentVerificationFailed):
+			ctx.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "Webhook could not be verified",
+				"details": apperrors.Reason(err),
+			})
+		case errors.Is(err, apperrors.ErrPaymentNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Payment not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to handle webhook"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"received": true,
+		"message":  "Webhook received",
+	})
 }
 
 // Create godoc
@@ -146,7 +199,7 @@ func (ph *PaymentHandler) GetForAppointment(ctx *gin.Context) {
 
 // Verify godoc
 // @Summary Confirm a payment
-// @Description Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. Verifying a captured payment again with the same providerPaymentId returns it. If the booking expired first, the money is refunded and 409 is returned.
+// @Description Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. With none, send the signature from clientPayload; with YouPI, send the UTR as providerPaymentId and no signature, because the server asks YouPI itself. YouPI's webhook usually captures the payment first, and then this returns it. Verifying a captured payment again with the same providerPaymentId returns it. If the booking expired first, the money is refunded and 409 is returned.
 // @Tags payments
 // @Security BearerAuth
 // @Accept json

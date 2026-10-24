@@ -12,4 +12,9 @@ const (
 	PaymentCurrency = "INR"
 	// MaxRefundNoteLength is the longest note on an admin refund.
 	MaxRefundNoteLength = 500
+	// MaxRefundReferenceLength is the longest payout reference, such as a UPI
+	// UTR, an admin records for a manual refund.
+	MaxRefundReferenceLength = 100
+	// MaxWebhookBodyBytes caps a gateway callback; real ones are under 2 KB.
+	MaxWebhookBodyBytes = 64 << 10
 )

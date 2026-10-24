@@ -58,7 +58,7 @@ Before adding code, read these documents:
 
 |   |   |-- provider/               # Placeholder: provider selection and registration
 
-|   |   |-- adapters/               # Provider implementations: payment/none, storage/local
+|   |   |-- adapters/               # Provider implementations: payment/none, payment/youpi, storage/local
 
 |   |   |-- cache/                  # Placeholder: appointment cache policy
 
@@ -846,7 +846,9 @@ POST /appointments/:id/payments    patient  open a payment for an unpaid booking
 
 GET  /appointments/:id/payment     any      the appointment's latest payment (patient side, its doctor, admins)
 
-POST /payments/:id/verify          patient  confirm a payment with {providerPaymentId, signature}
+POST /payments/:id/verify          patient  confirm a payment with {providerPaymentId, signature?}
+
+POST /webhooks/payment             gateway  YouPI's signed callback; no token, X-Gateway-Signature instead
 
 ```
 
@@ -934,6 +936,10 @@ POST /admin/specialities                   add a speciality               specia
 
 POST /admin/payments/:id/refund  {note?}   full refund of a captured payment  payment:refund
 
+GET  /admin/refunds?status=      refunds, oldest first; default requested = manual payouts to make  payment:refund
+
+POST /admin/refunds/:id/complete {reference}  record a manual payout's UTR  payment:refund
+
 GET  /admin/records/:id/access-log         who touched a record, never what it says  record:audit
 
 ```
@@ -1011,18 +1017,43 @@ A fee is paid online before the booking is confirmed.
 
 1. `POST /appointments` books the slot with `paymentStatus: unpaid` and `paymentDueAt` 10 minutes ahead. The slot is held until then. A free consultation (fee 0) is `waived` and needs no payment.
 2. `POST /appointments/:id/payments` opens a gateway order for the fee stored on the appointment (paise, never sent by the client) and returns `clientPayload` for the gateway's payment screen. Anyone with `full` or `appointments_only` access can pay, so a caregiver can pay for a booking someone else made; `payerUserId` records who paid. Asking again returns the same open payment.
-3. `POST /payments/:id/verify` with the gateway's `providerPaymentId` and `signature` captures the payment and marks the appointment `paid` in one transaction. A wrong signature, or a `providerPaymentId` that already confirmed another payment, is `422`.
+3. The payment is captured and the appointment marked `paid` in one transaction, either by the gateway's webhook (YouPI) or by `POST /payments/:id/verify` with the gateway's `providerPaymentId` and, for `none`, its `signature`. Proof the gateway does not accept, or a `providerPaymentId` that already confirmed another payment, is `422`.
 
 Rules:
 
-- `make expire-payments` cancels bookings still unpaid after `paymentDueAt` with cancel reason `payment_expired`, which frees the slot. A payment that arrives after that is refunded automatically and verify returns `409` (`details: the booking expired before the payment arrived; the payment has been refunded`). Payment and expiry use conditional updates, so when they race exactly one wins.
+- `make expire-payments` cancels bookings still unpaid after `paymentDueAt` with cancel reason `payment_expired`, which frees the slot. A payment that arrives after that is refunded automatically and verify returns `409` (`details: the booking expired before the payment arrived; the payment is being refunded`). Payment and expiry use conditional updates, so when they race exactly one wins.
 - Cancelling a paid appointment refunds it in full (`patient_cancelled` or `doctor_cancelled`); cancelling an unpaid one expires its open order.
 - Rescheduling keeps the payment: the new appointment takes over the payment status, due time and payments.
 - A doctor can complete an appointment only when it is `paid` or `waived` (`422 Payment is pending` otherwise). Reminders are sent only for paid or free appointments.
 - Admins refund a captured payment in full with `POST /admin/payments/:id/refund`. A refund is recorded as `requested` before the gateway is called and finished with its answer, so no gateway call holds a database transaction open.
-- Outbox events: `payment.captured`, `payment.refunded`.
+- A gateway with no refund API (YouPI) leaves the refund `requested`: the refund route answers `202` with `refundPending: true`, and a `refund.manual_required` event is written. The admin sends the money back by UPI, then records the payout's UTR with `POST /admin/refunds/:id/complete`, which marks the payment and the appointment `refunded`. `GET /admin/refunds` is the queue; it also shows any refund a crash left `requested`.
+- Cancelling or expiring an unpaid booking also cancels its open gateway order. That call is best effort: money that still arrives is reported by webhook, captured and refunded.
+- Outbox events: `payment.captured`, `payment.refunded`, `refund.manual_required`.
 
-Gateways sit behind the `PaymentGateway` port in `services/`; `PAYMENT_PROVIDER` picks the adapter. The only adapter so far is `none` (`adapters/payment/none`), which moves no money: its `clientPayload` includes the `signature` to verify with, so the whole flow can be run from Swagger. `none` is refused when `APP_ENV` is production, so a production deploy needs a real gateway adapter.
+Gateways sit behind the `PaymentGateway` port in `services/`; `PAYMENT_PROVIDER` picks the adapter:
+
+- `none` (`adapters/payment/none`) moves no money: its `clientPayload` includes the `signature` to verify with, so the whole flow can be run from Swagger. It is refused when `APP_ENV` is production.
+- `youpi` (`adapters/payment/youpi`) collects UPI through a self-hosted [YouPI PG](https://github.com/youpi-pg/YouPI-PG) server. See **YouPI PG** below.
+
+### YouPI PG
+
+YouPI is a separate Node.js service that takes UPI payments straight into your own UPI account and confirms them from bank SMS, email or app alerts. The API talks to it over HTTP:
+
+1. `POST /appointments/:id/payments` opens a YouPI session; `clientPayload.checkoutUrl` is the checkout page to send the payer to. YouPI sends them back to `PAYMENT_RETURN_URL`.
+2. YouPI calls `POST /api/v1/webhooks/payment`. The `X-Gateway-Signature` (`sha256=` HMAC-SHA256 of the raw body, keyed with `YOUPI_WEBHOOK_SECRET`) must match, then the API asks YouPI's status API whether the session was paid in full before it records anything. A repeat changes nothing. The bank UTR becomes `providerPaymentId`.
+3. The client can also call `POST /payments/:id/verify` with the UTR and no signature; the server checks with YouPI the same way.
+
+Setup:
+
+- Run YouPI on its own (`npm install`, `npm start`; Node 22.13 or later) and create the merchant. In YouPI, set the merchant's webhook URL to `https://<api host>/api/v1/webhooks/payment` and its webhook secret to the value of `YOUPI_WEBHOOK_SECRET`. For a local API also set `YOUPI_ALLOW_PRIVATE_WEBHOOKS=true` in YouPI.
+- Set `PAYMENT_PROVIDER=youpi`, `YOUPI_BASE_URL` (the public URL of YouPI's checkout portal, which also serves its API), `YOUPI_MERCHANT_ID`, `YOUPI_WEBHOOK_SECRET` (at least 32 characters; YouPI also uses it as the merchant key) and `PAYMENT_RETURN_URL` (the frontend page after checkout). The Docker stack passes these five through from the shell, and a YouPI running on the host is `http://host.docker.internal:<port>` from inside it. Run `make expire-payments` and `make expire-proposals` with the same settings, because they cancel YouPI sessions too.
+
+Read before going live:
+
+- YouPI's own README calls it an experimental project, not certified, bank-approved, NPCI-approved or audited, and suggests at most about 20 payments a day per receiving account. It serves one payer per UPI ID at a time; others queue.
+- The repository has no LICENSE file, so its authors keep all rights by default. Check its terms before you deploy it.
+- YouPI creates sessions without a credential and does not sign its webhook timestamp. Keep `YOUPI_WEBHOOK_SECRET` private; this API never records money a webhook reports without YouPI's status API confirming it.
+- There is no refund API: every refund is a manual UPI payout (see **Payments**).
 
 ### Medical records
 
@@ -1151,7 +1182,7 @@ go run .
 
 The `migrate` service applies every ordered migration in `migrations/` (`000001` onwards) and skips the ones already applied, so it is safe to run again after pulling new migrations. Schema migrations are explicit and are not run automatically when the application starts.
 
-Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only. `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
+Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only; `youpi` needs the `YOUPI_*` settings and `PAYMENT_RETURN_URL` (see **YouPI PG**). `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 

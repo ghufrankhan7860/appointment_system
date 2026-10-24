@@ -20,3 +20,18 @@ func toPaymentResponse(paid *models.Payment) payment.PaymentResponse {
 		CreatedAt:         paid.CreatedAt,
 	}
 }
+
+func toRefundResponse(refund *models.Refund) payment.RefundResponse {
+	return payment.RefundResponse{
+		ID:                refund.ID,
+		PaymentID:         refund.PaymentID,
+		InitiatedByUserID: refund.InitiatedByUserID,
+		Amount:            refund.Amount,
+		Reason:            string(refund.Reason),
+		Note:              refund.Note,
+		ProviderRefundID:  refund.ProviderRefundID,
+		Status:            string(refund.Status),
+		ProcessedAt:       refund.ProcessedAt,
+		CreatedAt:         refund.CreatedAt,
+	}
+}

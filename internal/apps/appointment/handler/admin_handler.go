@@ -50,6 +50,8 @@ func (ah *AdminHandler) RegisterRoutes(router *gin.RouterGroup) {
 	adminRoutes.POST("/doctors/:id/reinstate", authz.RequirePermission(authz.PermDoctorSuspend), ah.ReinstateDoctor)
 	adminRoutes.POST("/specialities", authz.RequirePermission(authz.PermSpecialityManage), ah.CreateSpeciality)
 	adminRoutes.POST("/payments/:id/refund", authz.RequirePermission(authz.PermPaymentRefund), ah.RefundPayment)
+	adminRoutes.GET("/refunds", authz.RequirePermission(authz.PermPaymentRefund), ah.ListRefunds)
+	adminRoutes.POST("/refunds/:id/complete", authz.RequirePermission(authz.PermPaymentRefund), ah.CompleteRefund)
 	adminRoutes.GET("/records/:id/access-log", authz.RequirePermission(authz.PermRecordAudit), ah.ListRecordAccessLog)
 }
 
@@ -105,14 +107,15 @@ func (ah *AdminHandler) ListRecordAccessLog(ctx *gin.Context) {
 
 // RefundPayment godoc
 // @Summary Refund a payment
-// @Description Refunds a captured payment in full through its gateway. The appointment's payment status becomes refunded. Cancelled paid appointments are refunded automatically; this is for everything else.
+// @Description Refunds a captured payment in full through its gateway. The appointment's payment status becomes refunded. Cancelled paid appointments are refunded automatically; this is for everything else. A gateway with no refund API (YouPI) returns 202 with refundPending true: the refund waits in GET /admin/refunds until an admin pays it back by UPI and completes it.
 // @Tags admin
 // @Security BearerAuth
 // @Accept json
 // @Produce json
 // @Param id path int true "Payment ID"
 // @Param request body admin.RefundPaymentRequest false "Optional note"
-// @Success 200 {object} dtos.SuccessResponse{data=payment.PaymentResponse}
+// @Success 200 {object} dtos.SuccessResponse{data=admin.RefundPaymentResponse}
+// @Success 202 {object} dtos.SuccessResponse{data=admin.RefundPaymentResponse}
 // @Failure 400 {object} dtos.ErrorResponse
 // @Failure 401 {object} dtos.ErrorResponse
 // @Failure 403 {object} dtos.ErrorResponse
@@ -165,10 +168,133 @@ func (ah *AdminHandler) RefundPayment(ctx *gin.Context) {
 		return
 	}
 
+	if response.RefundPending {
+		ctx.JSON(http.StatusAccepted, gin.H{
+			"success": true,
+			"data":    response,
+			"message": "Refund recorded; pay it back by UPI and complete it",
+		})
+		return
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
 		"message": "Payment refunded successfully",
+	})
+}
+
+// ListRefunds godoc
+// @Summary List refunds
+// @Description Returns refunds in one status, oldest first. The default, requested, is the queue of refunds to pay back by hand: YouPI has no refund API, so every YouPI refund waits here until an admin sends the money by UPI and completes it. Limit defaults to 20 and is capped at 100.
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Param status query string false "Refund status" Enums(requested, succeeded, failed)
+// @Param limit query int false "Page size"
+// @Param offset query int false "Number of refunds to skip"
+// @Success 200 {object} dtos.SuccessResponse{data=admin.ListRefundsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/refunds [get]
+func (ah *AdminHandler) ListRefunds(ctx *gin.Context) {
+	var listRefundsRequest admin.ListRefundsRequest
+	if err := ctx.ShouldBindQuery(&listRefundsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := ah.adminController.ListRefunds(ctx.Request.Context(), &listRefundsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrInvalidPaymentInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid query parameters",
+				"details": apperrors.Reason(err),
+			})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list refunds"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Refunds retrieved successfully",
+	})
+}
+
+// CompleteRefund godoc
+// @Summary Complete a manual refund
+// @Description Records that an admin paid a requested refund back by hand, with the payout's reference such as the UPI UTR (at most 100 characters). The payment and the appointment's payment status become refunded.
+// @Tags admin
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path int true "Refund ID"
+// @Param request body admin.CompleteRefundRequest true "Payout reference"
+// @Success 200 {object} dtos.SuccessResponse{data=payment.RefundResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 409 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/refunds/{id}/complete [post]
+func (ah *AdminHandler) CompleteRefund(ctx *gin.Context) {
+	var completeRefundRequest admin.CompleteRefundRequest
+	if err := ctx.ShouldBindJSON(&completeRefundRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+	if err := ctx.ShouldBindUri(&completeRefundRequest); err != nil || completeRefundRequest.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid refund id"})
+		return
+	}
+
+	response, err := ah.adminController.CompleteRefund(ctx.Request.Context(), &completeRefundRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPaymentInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request payload",
+				"details": apperrors.Reason(err),
+			})
+		case errors.Is(err, apperrors.ErrRefundNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Refund not found"})
+		case errors.Is(err, apperrors.ErrPaymentNotModifiable):
+			ctx.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "This refund cannot be completed",
+				"details": apperrors.Reason(err),
+			})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to complete refund"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Refund completed successfully",
 	})
 }
 

@@ -73,7 +73,7 @@ func (ac *AdminController) ListRecordAccessLog(ctx context.Context, request *adm
 	return &response, nil
 }
 
-func (ac *AdminController) RefundPayment(ctx context.Context, request *admin.RefundPaymentRequest) (*payment.PaymentResponse, error) {
+func (ac *AdminController) RefundPayment(ctx context.Context, request *admin.RefundPaymentRequest) (*admin.RefundPaymentResponse, error) {
 	userID, err := actingUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,40 @@ func (ac *AdminController) RefundPayment(ctx context.Context, request *admin.Ref
 		return nil, err
 	}
 
-	response := toPaymentResponse(refundedPayment)
+	return &admin.RefundPaymentResponse{
+		PaymentResponse: toPaymentResponse(refundedPayment),
+		RefundPending:   refundedPayment.Status != models.PaymentStatusRefunded,
+	}, nil
+}
+
+func (ac *AdminController) ListRefunds(ctx context.Context, request *admin.ListRefundsRequest) (*admin.ListRefundsResponse, error) {
+	refunds, err := ac.paymentService.ListRefunds(ctx, models.RefundStatus(request.Status), request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	response := admin.ListRefundsResponse{
+		Refunds: make([]payment.RefundResponse, 0, len(refunds)),
+	}
+	for _, refund := range refunds {
+		response.Refunds = append(response.Refunds, toRefundResponse(refund))
+	}
+
+	return &response, nil
+}
+
+func (ac *AdminController) CompleteRefund(ctx context.Context, request *admin.CompleteRefundRequest) (*payment.RefundResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	completedRefund, err := ac.paymentService.CompleteRefund(ctx, userID, request.ID, request.Reference)
+	if err != nil {
+		return nil, err
+	}
+
+	response := toRefundResponse(completedRefund)
 	return &response, nil
 }
 

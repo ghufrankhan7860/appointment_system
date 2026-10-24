@@ -127,6 +127,74 @@ func TestPaymentRepositoryLivePaymentsAndRefunds(t *testing.T) {
 	}
 }
 
+func TestPaymentRepositoryProviderOrdersAndRefundQueue(t *testing.T) {
+	db := openTestDB(t)
+	fixture := newAppointmentFixture(t, db)
+	ctx := context.Background()
+	payments, err := repositories.NewPaymentRepository(db)
+	if err != nil {
+		t.Fatalf("NewPaymentRepository returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM refunds WHERE payment_id IN (SELECT id FROM payments WHERE payer_user_id = ?)", fixture.booker.ID)
+		db.Exec("DELETE FROM payments WHERE payer_user_id = ?", fixture.booker.ID)
+	})
+
+	appointment := newUnpaidAppointment(t, fixture, time.Now().Add(160*time.Hour).Truncate(time.Hour), time.Now().Add(10*time.Minute))
+	orderID := fmt.Sprintf("sess-%d", time.Now().UnixNano())
+	created, err := payments.Create(ctx, &models.Payment{AppointmentID: appointment.ID, PayerUserID: fixture.booker.ID, Amount: 50000, Currency: "INR", Provider: "youpi", ProviderOrderID: orderID, Status: models.PaymentStatusCreated})
+	if err != nil {
+		t.Fatalf("Create with the youpi provider returned error: %v", err)
+	}
+
+	found, err := payments.GetByProviderOrderID(ctx, "youpi", orderID)
+	if err != nil || found.ID != created.ID {
+		t.Fatalf("GetByProviderOrderID = %+v, %v; want payment %d", found, err, created.ID)
+	}
+	if _, err := payments.GetByProviderOrderID(ctx, "none", orderID); !errors.Is(err, apperrors.ErrPaymentNotFound) {
+		t.Fatalf("GetByProviderOrderID for another provider error = %v, want %v", err, apperrors.ErrPaymentNotFound)
+	}
+
+	capturedAt := time.Now()
+	if err := payments.UpdateStatus(ctx, created.ID, models.PaymentStatusCreated, models.PaymentStatusCaptured, fmt.Sprintf("utr-%d", time.Now().UnixNano()), &capturedAt); err != nil {
+		t.Fatalf("UpdateStatus to captured returned error: %v", err)
+	}
+	refund, err := payments.CreateRefund(ctx, &models.Refund{PaymentID: created.ID, Amount: 50000, Reason: models.RefundReasonDoctorCancelled, Status: models.RefundStatusRequested})
+	if err != nil {
+		t.Fatalf("CreateRefund returned error: %v", err)
+	}
+
+	listsRefund := func(status models.RefundStatus) bool {
+		listed, err := payments.ListRefunds(ctx, status, 200, 0)
+		if err != nil {
+			t.Fatalf("ListRefunds returned error: %v", err)
+		}
+		for _, candidate := range listed {
+			if candidate.ID == refund.ID {
+				return true
+			}
+		}
+		return false
+	}
+	if !listsRefund(models.RefundStatusRequested) || listsRefund(models.RefundStatusSucceeded) {
+		t.Fatalf("ListRefunds does not list refund %d as requested only", refund.ID)
+	}
+
+	if err := payments.FinishRefund(ctx, refund.ID, models.RefundStatusSucceeded, "412345678901"); err != nil {
+		t.Fatalf("FinishRefund returned error: %v", err)
+	}
+	completed, err := payments.GetRefundByID(ctx, refund.ID)
+	if err != nil || completed.Status != models.RefundStatusSucceeded || completed.ProviderRefundID != "412345678901" || completed.ProcessedAt == nil {
+		t.Fatalf("GetRefundByID = %+v, %v; want a succeeded refund with its reference", completed, err)
+	}
+	if listsRefund(models.RefundStatusRequested) || !listsRefund(models.RefundStatusSucceeded) {
+		t.Fatalf("ListRefunds does not list refund %d as succeeded only", refund.ID)
+	}
+	if _, err := payments.GetRefundByID(ctx, refund.ID+1_000_000); !errors.Is(err, apperrors.ErrRefundNotFound) {
+		t.Fatalf("GetRefundByID for a missing refund error = %v, want %v", err, apperrors.ErrRefundNotFound)
+	}
+}
+
 func TestAppointmentRepositoryPaidAndExpiredCannotBothWin(t *testing.T) {
 	db := openTestDB(t)
 	fixture := newAppointmentFixture(t, db)

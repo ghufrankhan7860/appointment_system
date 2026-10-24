@@ -344,6 +344,7 @@ func (f *fakeAppointmentRepo) CancelUnpaid(ctx context.Context, id uint64, dueBe
 
 type fakePaymentRepo struct {
 	payment *models.Payment
+	refunds []*models.Refund
 }
 
 func (f *fakePaymentRepo) Create(ctx context.Context, payment *models.Payment) (*models.Payment, error) {
@@ -403,7 +404,41 @@ func (f *fakePaymentRepo) CreateRefund(ctx context.Context, refund *models.Refun
 }
 
 func (f *fakePaymentRepo) FinishRefund(ctx context.Context, id uint64, status models.RefundStatus, providerRefundID string) error {
+	for _, refund := range f.refunds {
+		if refund.ID == id {
+			refund.Status = status
+			refund.ProviderRefundID = providerRefundID
+		}
+	}
 	return nil
+}
+
+func (f *fakePaymentRepo) GetByProviderOrderID(ctx context.Context, provider string, providerOrderID string) (*models.Payment, error) {
+	if f.payment == nil || f.payment.ProviderOrderID != providerOrderID {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetRefundByID(ctx context.Context, id uint64) (*models.Refund, error) {
+	for _, refund := range f.refunds {
+		if refund.ID == id {
+			found := *refund
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrRefundNotFound
+}
+
+func (f *fakePaymentRepo) ListRefunds(ctx context.Context, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error) {
+	var listed []*models.Refund
+	for _, refund := range f.refunds {
+		if refund.Status == status {
+			listed = append(listed, refund)
+		}
+	}
+	return listed, nil
 }
 
 func (f *fakeAppointmentRepo) CreateProposal(ctx context.Context, proposal *models.RescheduleProposal) (*models.RescheduleProposal, error) {

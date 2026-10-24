@@ -120,6 +120,9 @@ const (
 	OutboxAggregatePayment     = "payment"
 	OutboxEventPaymentCaptured = "payment.captured"
 	OutboxEventPaymentRefunded = "payment.refunded"
+	// OutboxEventRefundManual asks an admin to pay a refund back by hand, for a
+	// gateway with no refund API.
+	OutboxEventRefundManual = "refund.manual_required"
 )
 
 // ReminderWindow names one reminder sent before an appointment. Each window is

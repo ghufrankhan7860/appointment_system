@@ -70,3 +70,9 @@ func (pc *PaymentController) Verify(ctx context.Context, request *payment.Verify
 	response := toPaymentResponse(verifiedPayment)
 	return &response, nil
 }
+
+// HandleWebhook passes a gateway callback's raw body and headers through; the
+// gateway's signature covers the exact bytes, so nothing is decoded here.
+func (pc *PaymentController) HandleWebhook(ctx context.Context, body []byte, headers map[string][]string) error {
+	return pc.paymentService.HandleWebhook(ctx, body, headers)
+}

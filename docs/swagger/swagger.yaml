@@ -1,5 +1,13 @@
 basePath: /api/v1
 definitions:
+  admin.CompleteRefundRequest:
+    properties:
+      reference:
+        example: "412345678901"
+        type: string
+    required:
+    - reference
+    type: object
   admin.CreateAdminRequest:
     properties:
       email:
@@ -120,6 +128,13 @@ definitions:
           $ref: '#/definitions/admin.GetDoctorResponse'
         type: array
     type: object
+  admin.ListRefundsResponse:
+    properties:
+      refunds:
+        items:
+          $ref: '#/definitions/payment.RefundResponse'
+        type: array
+    type: object
   admin.RecordAccessResponse:
     properties:
       accessedByUserId:
@@ -152,6 +167,44 @@ definitions:
     properties:
       note:
         example: Doctor unavailable, refunded as goodwill
+        type: string
+    type: object
+  admin.RefundPaymentResponse:
+    properties:
+      amount:
+        example: 50000
+        type: integer
+      appointmentId:
+        type: integer
+      capturedAt:
+        type: string
+      createdAt:
+        type: string
+      currency:
+        example: INR
+        type: string
+      id:
+        type: integer
+      payerUserId:
+        type: integer
+      provider:
+        example: none
+        type: string
+      providerOrderId:
+        example: none_order_12_1761040000000000000
+        type: string
+      providerPaymentId:
+        type: string
+      refundPending:
+        type: boolean
+      status:
+        enum:
+        - created
+        - captured
+        - failed
+        - expired
+        - refunded
+        example: created
         type: string
     type: object
   admin.ReviewDoctorRequest:
@@ -1103,6 +1156,42 @@ definitions:
         example: created
         type: string
     type: object
+  payment.RefundResponse:
+    properties:
+      amount:
+        example: 50000
+        type: integer
+      createdAt:
+        type: string
+      id:
+        type: integer
+      initiatedByUserId:
+        type: integer
+      note:
+        type: string
+      paymentId:
+        type: integer
+      processedAt:
+        type: string
+      providerRefundId:
+        example: "412345678901"
+        type: string
+      reason:
+        enum:
+        - patient_cancelled
+        - doctor_cancelled
+        - late_payment
+        - admin
+        example: doctor_cancelled
+        type: string
+      status:
+        enum:
+        - requested
+        - succeeded
+        - failed
+        example: requested
+        type: string
+    type: object
   payment.VerifyPaymentRequest:
     properties:
       providerPaymentId:
@@ -1113,7 +1202,6 @@ definitions:
         type: string
     required:
     - providerPaymentId
-    - signature
     type: object
   record.AttachmentResponse:
     properties:
@@ -1632,9 +1720,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: Refunds a captured payment in full through its gateway. The appointment's
+      description: 'Refunds a captured payment in full through its gateway. The appointment''s
         payment status becomes refunded. Cancelled paid appointments are refunded
-        automatically; this is for everything else.
+        automatically; this is for everything else. A gateway with no refund API (YouPI)
+        returns 202 with refundPending true: the refund waits in GET /admin/refunds
+        until an admin pays it back by UPI and completes it.'
       parameters:
       - description: Payment ID
         in: path
@@ -1656,7 +1746,16 @@ paths:
             - $ref: '#/definitions/dtos.SuccessResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/payment.PaymentResponse'
+                  $ref: '#/definitions/admin.RefundPaymentResponse'
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.RefundPaymentResponse'
               type: object
         "400":
           description: Bad Request
@@ -1742,6 +1841,122 @@ paths:
       security:
       - BearerAuth: []
       summary: List who accessed a medical record
+      tags:
+      - admin
+  /admin/refunds:
+    get:
+      description: 'Returns refunds in one status, oldest first. The default, requested,
+        is the queue of refunds to pay back by hand: YouPI has no refund API, so every
+        YouPI refund waits here until an admin sends the money by UPI and completes
+        it. Limit defaults to 20 and is capped at 100.'
+      parameters:
+      - description: Refund status
+        enum:
+        - requested
+        - succeeded
+        - failed
+        in: query
+        name: status
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Number of refunds to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.ListRefundsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List refunds
+      tags:
+      - admin
+  /admin/refunds/{id}/complete:
+    post:
+      consumes:
+      - application/json
+      description: Records that an admin paid a requested refund back by hand, with
+        the payout's reference such as the UPI UTR (at most 100 characters). The payment
+        and the appointment's payment status become refunded.
+      parameters:
+      - description: Refund ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Payout reference
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.CompleteRefundRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.RefundResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Complete a manual refund
       tags:
       - admin
   /admin/specialities:
@@ -3871,7 +4086,10 @@ paths:
       consumes:
       - application/json
       description: Confirms with the gateway that the order was paid, captures the
-        payment and marks the appointment paid. Verifying a captured payment again
+        payment and marks the appointment paid. With none, send the signature from
+        clientPayload; with YouPI, send the UTR as providerPaymentId and no signature,
+        because the server asks YouPI itself. YouPI's webhook usually captures the
+        payment first, and then this returns it. Verifying a captured payment again
         with the same providerPaymentId returns it. If the booking expired first,
         the money is refunded and 409 is returned.
       parameters:
@@ -4004,6 +4222,52 @@ paths:
       summary: List specialities
       tags:
       - doctors
+  /webhooks/payment:
+    post:
+      consumes:
+      - application/json
+      description: Called by the configured gateway (YouPI PG), never by clients,
+        so it takes no token. The X-Gateway-Signature HMAC must match the raw body,
+        and a reported payment is confirmed with the gateway again before any money
+        is recorded. Repeats get 200 and change nothing; money for a booking that
+        was already cancelled is recorded and refunded. Any other answer than 2xx
+        makes the gateway retry. The body is limited to 64 KB.
+      parameters:
+      - description: sha256=<hex HMAC-SHA256 of the raw body>
+        in: header
+        name: X-Gateway-Signature
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Receive a payment gateway callback
+      tags:
+      - payments
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and the jwtToken returned by login.

@@ -86,7 +86,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize transaction manager: %w", err)
 	}
-	paymentGateway, err := appointment.NewPaymentGateway(config.Payment.Provider)
+	paymentGateway, err := appointment.NewPaymentGateway(appointment.PaymentSettings{
+		Provider:           config.Payment.Provider,
+		ReturnURL:          config.Payment.ReturnURL,
+		YouPIBaseURL:       config.Payment.YouPIBaseURL,
+		YouPIMerchantID:    config.Payment.YouPIMerchantID,
+		YouPIWebhookSecret: config.Payment.YouPIWebhookSecret,
+	})
 	if err != nil {
 		return fmt.Errorf("initialize payment gateway: %w", err)
 	}

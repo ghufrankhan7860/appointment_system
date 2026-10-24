@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"appointment_system/internal/apps/appointment/adapters/payment/none"
+	"appointment_system/internal/apps/appointment/adapters/payment/youpi"
 	"appointment_system/internal/apps/appointment/adapters/storage/local"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
@@ -42,7 +43,7 @@ func NewContainer(
 	jwtIssuer string,
 	tokenTTL time.Duration,
 	clinicLocation *time.Location,
-	paymentProvider string,
+	paymentSettings PaymentSettings,
 	storageProvider string,
 	storageLocalDir string,
 ) (*Container, error) {
@@ -182,7 +183,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize payment repository: %w", err)
 	}
 
-	paymentGateway, err := NewPaymentGateway(paymentProvider)
+	paymentGateway, err := NewPaymentGateway(paymentSettings)
 	if err != nil {
 		return nil, fmt.Errorf("initialize payment gateway: %w", err)
 	}
@@ -320,14 +321,26 @@ func NewFileStorage(provider string, localDir string) (services.FileStorage, err
 	}
 }
 
+// PaymentSettings are the values the payment gateway adapters need. The YouPI
+// fields are used only when Provider is youpi.
+type PaymentSettings struct {
+	Provider           string
+	ReturnURL          string
+	YouPIBaseURL       string
+	YouPIMerchantID    string
+	YouPIWebhookSecret string
+}
+
 // NewPaymentGateway returns the adapter for the configured provider. Config
 // validation has already rejected unknown providers. Jobs that move money use
 // it too, so they pick the same gateway as the API.
-func NewPaymentGateway(provider string) (services.PaymentGateway, error) {
-	switch provider {
+func NewPaymentGateway(settings PaymentSettings) (services.PaymentGateway, error) {
+	switch settings.Provider {
 	case none.ProviderName:
 		return none.New(), nil
+	case youpi.ProviderName:
+		return youpi.New(settings.YouPIBaseURL, settings.YouPIMerchantID, settings.YouPIWebhookSecret, settings.ReturnURL)
 	default:
-		return nil, fmt.Errorf("payment provider %q is not supported", provider)
+		return nil, fmt.Errorf("payment provider %q is not supported", settings.Provider)
 	}
 }

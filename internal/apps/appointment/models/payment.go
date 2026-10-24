@@ -86,3 +86,12 @@ type Refund struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
+
+// GatewayEvent is what a gateway's callback says happened to one of its
+// orders. Status is captured, failed or expired; Amount is in paise.
+type GatewayEvent struct {
+	ProviderOrderID   string
+	ProviderPaymentID string
+	Amount            int
+	Status            PaymentStatus
+}

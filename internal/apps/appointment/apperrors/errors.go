@@ -121,6 +121,8 @@ var (
 	ErrPaymentVerificationFailed = errors.New("payment could not be verified")
 	ErrPaymentPending            = errors.New("payment is pending for this appointment")
 	ErrRefundAlreadyExists       = errors.New("payment already has a refund")
+	ErrRefundNotFound            = errors.New("refund not found")
+	ErrRefundManual              = errors.New("gateway cannot refund; pay it back by hand")
 	ErrProviderPaymentUsed       = errors.New("gateway payment id already confirmed another payment")
 	ErrInvalidPaymentInput       = errors.New("invalid payment input")
 )

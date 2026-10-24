@@ -61,7 +61,13 @@ func Execute() error {
 		config.Auth.JWTIssuer,
 		config.Auth.TokenTTL,
 		config.App.Location,
-		config.Payment.Provider,
+		appointment.PaymentSettings{
+			Provider:           config.Payment.Provider,
+			ReturnURL:          config.Payment.ReturnURL,
+			YouPIBaseURL:       config.Payment.YouPIBaseURL,
+			YouPIMerchantID:    config.Payment.YouPIMerchantID,
+			YouPIWebhookSecret: config.Payment.YouPIWebhookSecret,
+		},
 		config.Storage.Provider,
 		config.Storage.LocalDir,
 	)

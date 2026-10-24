@@ -153,6 +153,22 @@ func (repo *PaymentRepository) GetActiveByAppointment(ctx context.Context, appoi
 	return toPaymentModel(record), nil
 }
 
+// GetByProviderOrderID finds the payment a gateway callback is about.
+func (repo *PaymentRepository) GetByProviderOrderID(ctx context.Context, provider string, providerOrderID string) (*models.Payment, error) {
+	var record paymentRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("provider = ? AND provider_order_id = ?", provider, providerOrderID).
+		First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrPaymentNotFound
+		}
+		return nil, fmt.Errorf("get payment by provider order id: %w", err)
+	}
+
+	return toPaymentModel(record), nil
+}
+
 // UpdateStatus moves a payment from one status to another. It only matches a
 // row still in fromStatus, so two concurrent changes cannot both win. An empty
 // providerPaymentID or a nil capturedAt leaves the stored value. A gateway
@@ -283,6 +299,43 @@ func (repo *PaymentRepository) FinishRefund(ctx context.Context, id uint64, stat
 	}
 
 	return nil
+}
+
+func (repo *PaymentRepository) GetRefundByID(ctx context.Context, id uint64) (*models.Refund, error) {
+	var record refundRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("id = ?", id).
+		First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrRefundNotFound
+		}
+		return nil, fmt.Errorf("get refund by id: %w", err)
+	}
+
+	return toRefundModel(record), nil
+}
+
+// ListRefunds returns refunds in status, oldest first, so the longest waiting
+// manual payout comes first.
+func (repo *PaymentRepository) ListRefunds(ctx context.Context, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error) {
+	var records []refundRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("status = ?", string(status)).
+		Order("created_at ASC, id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list refunds: %w", err)
+	}
+
+	refunds := make([]*models.Refund, 0, len(records))
+	for _, record := range records {
+		refunds = append(refunds, toRefundModel(record))
+	}
+
+	return refunds, nil
 }
 
 func toPaymentModel(record paymentRecord) *models.Payment {

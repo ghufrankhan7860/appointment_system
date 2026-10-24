@@ -24,9 +24,21 @@ func newPaymentRouter(
 	payments *fakePaymentRepo,
 ) *gin.Engine {
 	t.Helper()
+
+	return newPaymentRouterWithGateway(t, appointments, userPatients, payments, none.New())
+}
+
+func newPaymentRouterWithGateway(
+	t *testing.T,
+	appointments *fakeAppointmentRepo,
+	userPatients *fakeUserPatientRepo,
+	payments *fakePaymentRepo,
+	gateway services.PaymentGateway,
+) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, &fakeDoctorRepo{}, none.New(), &fakeTxManager{}, time.Now)
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, &fakeDoctorRepo{}, gateway, &fakeTxManager{}, time.Now)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
@@ -93,8 +105,9 @@ func TestPaymentHandlerStatusCodes(t *testing.T) {
 		{name: "get when nothing was paid", method: http.MethodGet, path: "/api/v1/appointments/50/payment", token: "patient-token", link: fullLink, appointment: booking(models.AppointmentPaymentUnpaid, 5*time.Minute), wantStatus: http.StatusNotFound},
 		{name: "verify with the right signature", method: http.MethodPost, path: "/api/v1/payments/70/verify", body: verifyPayload, token: "patient-token", link: fullLink, appointment: booking(models.AppointmentPaymentUnpaid, 5*time.Minute), payment: openPayment(), wantStatus: http.StatusOK, wantBody: `"status":"captured"`},
 		{name: "verify with a wrong signature", method: http.MethodPost, path: "/api/v1/payments/70/verify", body: strings.Replace(verifyPayload, "none_signature_", "forged_", 1), token: "patient-token", link: fullLink, appointment: booking(models.AppointmentPaymentUnpaid, 5*time.Minute), payment: openPayment(), wantStatus: http.StatusUnprocessableEntity},
-		{name: "verify without a signature", method: http.MethodPost, path: "/api/v1/payments/70/verify", body: `{"providerPaymentId":"pay_1"}`, token: "patient-token", link: fullLink, wantStatus: http.StatusBadRequest},
-		{name: "verify after the hold refunds", method: http.MethodPost, path: "/api/v1/payments/70/verify", body: verifyPayload, token: "patient-token", link: fullLink, appointment: booking(models.AppointmentPaymentUnpaid, -time.Minute), payment: openPayment(), wantStatus: http.StatusConflict, wantBody: `the payment has been refunded`},
+		{name: "verify without a signature fails with the none gateway", method: http.MethodPost, path: "/api/v1/payments/70/verify", body: `{"providerPaymentId":"pay_1"}`, token: "patient-token", link: fullLink, appointment: booking(models.AppointmentPaymentUnpaid, 5*time.Minute), payment: openPayment(), wantStatus: http.StatusUnprocessableEntity},
+		{name: "verify without a payment id", method: http.MethodPost, path: "/api/v1/payments/70/verify", body: `{"signature":"none_signature_none_order_x"}`, token: "patient-token", link: fullLink, wantStatus: http.StatusBadRequest},
+		{name: "verify after the hold refunds", method: http.MethodPost, path: "/api/v1/payments/70/verify", body: verifyPayload, token: "patient-token", link: fullLink, appointment: booking(models.AppointmentPaymentUnpaid, -time.Minute), payment: openPayment(), wantStatus: http.StatusConflict, wantBody: `the payment is being refunded`},
 		{name: "verify a missing payment", method: http.MethodPost, path: "/api/v1/payments/71/verify", body: verifyPayload, token: "patient-token", link: fullLink, wantStatus: http.StatusNotFound},
 	}
 

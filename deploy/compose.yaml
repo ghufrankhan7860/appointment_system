@@ -50,6 +50,15 @@ services:
             # Local stack: the none payment gateway and local file storage are allowed.
             APP_ENV: development
             STORAGE_LOCAL_DIR: /app/var/storage
+            # Set these in the shell to run against a YouPI PG server; on this
+            # machine it is reachable as host.docker.internal.
+            PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-none}
+            YOUPI_BASE_URL: ${YOUPI_BASE_URL:-}
+            YOUPI_MERCHANT_ID: ${YOUPI_MERCHANT_ID:-}
+            YOUPI_WEBHOOK_SECRET: ${YOUPI_WEBHOOK_SECRET:-}
+            PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-}
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
         ports:
             - "8080:8080"
         volumes:
