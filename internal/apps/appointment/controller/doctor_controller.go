@@ -138,7 +138,7 @@ func (dc *DoctorController) GetByID(ctx context.Context, request *doctor.GetDoct
 }
 
 func (dc *DoctorController) List(ctx context.Context, request *doctor.ListDoctorsRequest) (*doctor.ListDoctorsResponse, error) {
-	doctors, err := dc.doctorService.List(ctx, models.DoctorSearch{
+	search := models.DoctorSearch{
 		Query:        request.Query,
 		Specialities: request.Specialities,
 		Tags:         request.Tags,
@@ -147,7 +147,16 @@ func (dc *DoctorController) List(ctx context.Context, request *doctor.ListDoctor
 		FeeMax:       request.FeeMax,
 		Limit:        request.Limit,
 		Offset:       request.Offset,
-	})
+	}
+	if request.Date != "" {
+		date, err := time.Parse(constant.DateLayout, request.Date)
+		if err != nil {
+			return nil, apperrors.Invalid(apperrors.ErrInvalidAvailabilityInput, "date", "must be YYYY-MM-DD")
+		}
+		search.Date = &date
+	}
+
+	doctors, err := dc.doctorService.List(ctx, search)
 	if err != nil {
 		return nil, err
 	}

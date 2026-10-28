@@ -9,6 +9,7 @@ package repositories
 import (
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/models"
+	"appointment_system/internal/apps/appointment/utils"
 	"context"
 	"errors"
 	"fmt"
@@ -389,6 +390,87 @@ func (repo *AppointmentRepository) ListByDoctorBetween(
 	}
 
 	return toAppointmentDetailsModels(records), nil
+}
+
+// countedBooking is the rule for the bookings that put a patient in a doctor's
+// patient list: completed, no-show, and scheduled ones that are not an unpaid
+// hold. Cancelled bookings and both rows of a pending reschedule never count.
+const countedBooking = "(appointments.status IN ('completed', 'no_show') OR (appointments.status = 'scheduled' AND appointments.payment_status <> 'unpaid'))"
+
+type doctorPatientRecord struct {
+	PatientID         uint64     `gorm:"column:patient_id"`
+	Name              string     `gorm:"column:name"`
+	Gender            string     `gorm:"column:gender"`
+	DateOfBirth       time.Time  `gorm:"column:date_of_birth"`
+	LastAppointmentAt *time.Time `gorm:"column:last_appointment_at"`
+	NextAppointmentAt *time.Time `gorm:"column:next_appointment_at"`
+	Visits            int        `gorm:"column:visits"`
+}
+
+// ListPatientsByDoctor returns the patients with a counted booking with the
+// doctor, the soonest next visit first, then the most recent last visit. A
+// non-empty query matches the patient's name, case-insensitively.
+func (repo *AppointmentRepository) ListPatientsByDoctor(
+	ctx context.Context,
+	doctorID uint64,
+	query string,
+	now time.Time,
+	limit int,
+	offset int,
+) ([]*models.DoctorPatient, error) {
+	var records []doctorPatientRecord
+
+	statement := dbFromContext(ctx, repo.db).
+		Table("appointments").
+		Select(`patients.id AS patient_id, patients.name, patients.gender, patients.date_of_birth,
+			MAX(appointments.starts_at) FILTER (WHERE appointments.starts_at <= ?) AS last_appointment_at,
+			MIN(appointments.starts_at) FILTER (WHERE appointments.starts_at > ?) AS next_appointment_at,
+			COUNT(*) AS visits`, now.UTC(), now.UTC()).
+		Joins("JOIN patients ON patients.id = appointments.patient_id").
+		Where("appointments.doctor_id = ? AND "+countedBooking, doctorID)
+	if query != "" {
+		statement = statement.Where("patients.name ILIKE ?", "%"+utils.EscapeLike(query)+"%")
+	}
+
+	if err := statement.
+		Group("patients.id").
+		Order("next_appointment_at ASC NULLS LAST, last_appointment_at DESC NULLS LAST, patients.id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list patients by doctor: %w", err)
+	}
+
+	patients := make([]*models.DoctorPatient, 0, len(records))
+	for _, record := range records {
+		patients = append(patients, &models.DoctorPatient{
+			PatientID:         record.PatientID,
+			Name:              record.Name,
+			Gender:            models.Gender(record.Gender),
+			DateOfBirth:       record.DateOfBirth,
+			LastAppointmentAt: record.LastAppointmentAt,
+			NextAppointmentAt: record.NextAppointmentAt,
+			Visits:            record.Visits,
+		})
+	}
+
+	return patients, nil
+}
+
+// HasCountedBooking reports whether the patient is in the doctor's patient
+// list, by the same rule as ListPatientsByDoctor.
+func (repo *AppointmentRepository) HasCountedBooking(ctx context.Context, doctorID uint64, patientID uint64) (bool, error) {
+	var found int64
+
+	if err := dbFromContext(ctx, repo.db).
+		Table("appointments").
+		Where("appointments.doctor_id = ? AND appointments.patient_id = ? AND "+countedBooking, doctorID, patientID).
+		Limit(1).
+		Count(&found).Error; err != nil {
+		return false, fmt.Errorf("check counted booking: %w", err)
+	}
+
+	return found > 0, nil
 }
 
 func (repo *AppointmentRepository) CreateStatusChange(ctx context.Context, change *models.AppointmentStatusChange) error {

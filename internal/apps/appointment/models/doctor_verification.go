@@ -12,3 +12,11 @@ type DoctorVerification struct {
 	Reason           string
 	CreatedAt        time.Time
 }
+
+// SuspensionResult says what suspending a doctor did to their bookings:
+// how many that had not started were cancelled, and how many of those were
+// paid and so got a refund.
+type SuspensionResult struct {
+	CancelledAppointments int
+	RefundsRequested      int
+}

@@ -218,20 +218,24 @@ func (ac *AdminController) RejectDoctor(ctx context.Context, request *admin.Revi
 	}, nil
 }
 
-func (ac *AdminController) SuspendDoctor(ctx context.Context, request *admin.ReviewDoctorRequest) (*admin.GetDoctorResponse, error) {
+func (ac *AdminController) SuspendDoctor(ctx context.Context, request *admin.ReviewDoctorRequest) (*admin.SuspendDoctorResponse, error) {
 	userID, err := actingUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	reviewedDoctor, err := ac.doctorVerificationService.Suspend(ctx, userID, request.ID, request.Reason)
+	suspendedDoctor, suspension, err := ac.doctorVerificationService.Suspend(ctx, userID, request.ID, request.Reason)
 	if err != nil {
 		return nil, err
 	}
 
-	return &admin.GetDoctorResponse{
-		DoctorResponse: toDoctorResponse(reviewedDoctor),
-		UserID:         reviewedDoctor.UserID,
+	return &admin.SuspendDoctorResponse{
+		GetDoctorResponse: admin.GetDoctorResponse{
+			DoctorResponse: toDoctorResponse(suspendedDoctor),
+			UserID:         suspendedDoctor.UserID,
+		},
+		CancelledAppointments: suspension.CancelledAppointments,
+		RefundsRequested:      suspension.RefundsRequested,
 	}, nil
 }
 

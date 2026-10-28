@@ -20,7 +20,8 @@ import (
 
 // MedicalRecordService keeps the clinical side of a visit: the doctor's notes,
 // the prescription and uploaded reports. Only the appointment's doctor writes
-// a record; the patient side needs full access to read finalized ones. Every
+// a record; the patient side needs full access to read finalized ones, and a
+// doctor treating the patient reads them too. Every
 // read and write is logged with the request's correlation ID in the same
 // transaction, so access to clinical data is always traceable.
 type MedicalRecordService struct {
@@ -289,7 +290,7 @@ func (mrs *MedicalRecordService) GetByID(
 		if record.Status != models.MedicalRecordStatusFinalized {
 			return nil, nil, apperrors.ErrMedicalRecordNotFound
 		}
-		if err := mrs.checkFullAccess(ctx, actingUserID, record.PatientID); err != nil {
+		if err := mrs.checkReadAccess(ctx, actingUserID, actingRole, record.PatientID); err != nil {
 			if errors.Is(err, apperrors.ErrPatientNotFound) {
 				return nil, nil, apperrors.ErrMedicalRecordNotFound
 			}
@@ -349,6 +350,88 @@ func (mrs *MedicalRecordService) ListForPatient(
 	}
 
 	return records, nil
+}
+
+// ListForDoctor returns what a doctor treating the patient sees: every
+// finalized record from any doctor and the doctor's own drafts, newest first.
+// A patient without a counted booking with the doctor reads as not found.
+func (mrs *MedicalRecordService) ListForDoctor(
+	ctx context.Context,
+	actingUserID uint64,
+	actingRole models.Role,
+	patientID uint64,
+	limit int,
+	offset int,
+) ([]*models.MedicalRecord, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list patient records for doctor context: %w", err)
+	}
+	if patientID == 0 {
+		return nil, fmt.Errorf("list patient records for doctor without patient id: %w", apperrors.ErrInvalidMedicalRecordInput)
+	}
+
+	doctor, err := mrs.treatingDoctor(ctx, actingUserID, actingRole, patientID)
+	if err != nil {
+		return nil, err
+	}
+
+	limit, offset = clampPagination(limit, offset)
+
+	var records []*models.MedicalRecord
+	err = mrs.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		records, err = mrs.records.ListForDoctorView(txCtx, patientID, doctor.ID, limit, offset)
+		if err != nil {
+			return err
+		}
+
+		return mrs.logAccess(txCtx, actingUserID, patientID, nil, nil, models.RecordAccessList)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list medical records of patient %d for doctor: %w", patientID, err)
+	}
+
+	return records, nil
+}
+
+// ListAttachmentsForDoctor returns a patient's attachments, newest first, to a
+// doctor treating the patient. Anyone else reads the patient as not found.
+func (mrs *MedicalRecordService) ListAttachmentsForDoctor(
+	ctx context.Context,
+	actingUserID uint64,
+	actingRole models.Role,
+	patientID uint64,
+	limit int,
+	offset int,
+) ([]*models.MedicalAttachment, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list patient attachments for doctor context: %w", err)
+	}
+	if patientID == 0 {
+		return nil, fmt.Errorf("list patient attachments for doctor without patient id: %w", apperrors.ErrInvalidMedicalRecordInput)
+	}
+
+	if _, err := mrs.treatingDoctor(ctx, actingUserID, actingRole, patientID); err != nil {
+		return nil, err
+	}
+
+	limit, offset = clampPagination(limit, offset)
+
+	var attachments []*models.MedicalAttachment
+	err := mrs.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		attachments, err = mrs.records.ListAttachmentsByPatient(txCtx, patientID, limit, offset)
+		if err != nil {
+			return err
+		}
+
+		return mrs.logAccess(txCtx, actingUserID, patientID, nil, nil, models.RecordAccessList)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list attachments of patient %d for doctor: %w", patientID, err)
+	}
+
+	return attachments, nil
 }
 
 // ListAccessLog returns who touched a record or its attachments. It shows no
@@ -516,7 +599,8 @@ func (mrs *MedicalRecordService) ListAttachments(
 }
 
 // OpenAttachment returns an attachment's file to the patient side with full
-// access, or to the doctor of the record it belongs to. The caller closes it.
+// access, to the doctor of the record it belongs to, or to a doctor treating
+// the patient. The caller closes it.
 func (mrs *MedicalRecordService) OpenAttachment(
 	ctx context.Context,
 	actingUserID uint64,
@@ -547,7 +631,7 @@ func (mrs *MedicalRecordService) OpenAttachment(
 		allowed = mrs.isRecordDoctor(ctx, actingUserID, actingRole, record)
 	}
 	if !allowed {
-		if err := mrs.checkFullAccess(ctx, actingUserID, attachment.PatientID); err != nil {
+		if err := mrs.checkReadAccess(ctx, actingUserID, actingRole, attachment.PatientID); err != nil {
 			if errors.Is(err, apperrors.ErrPatientNotFound) {
 				return nil, nil, apperrors.ErrAttachmentNotFound
 			}
@@ -641,6 +725,50 @@ func (mrs *MedicalRecordService) checkFullAccess(ctx context.Context, actingUser
 	}
 
 	return nil
+}
+
+// treatingDoctor returns the acting doctor when the patient has a counted
+// booking with them (the doctor's patient list). Anyone else, a doctor
+// without such a booking included, reads the patient as not found.
+func (mrs *MedicalRecordService) treatingDoctor(
+	ctx context.Context,
+	actingUserID uint64,
+	actingRole models.Role,
+	patientID uint64,
+) (*models.Doctor, error) {
+	doctor, err := mrs.actingDoctor(ctx, actingUserID, actingRole)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrDoctorNotFound) || errors.Is(err, apperrors.ErrDoctorRoleRequired) {
+			return nil, apperrors.ErrPatientNotFound
+		}
+		return nil, err
+	}
+
+	treats, err := mrs.appointments.HasCountedBooking(ctx, doctor.ID, patientID)
+	if err != nil {
+		return nil, fmt.Errorf("check doctor's patient: %w", err)
+	}
+	if !treats {
+		return nil, apperrors.ErrPatientNotFound
+	}
+
+	return doctor, nil
+}
+
+// checkReadAccess allows a doctor treating the patient or the patient side
+// with full access to read the patient's finalized records and files.
+func (mrs *MedicalRecordService) checkReadAccess(
+	ctx context.Context,
+	actingUserID uint64,
+	actingRole models.Role,
+	patientID uint64,
+) error {
+	if actingRole == models.RoleDoctor {
+		_, err := mrs.treatingDoctor(ctx, actingUserID, actingRole, patientID)
+		return err
+	}
+
+	return mrs.checkFullAccess(ctx, actingUserID, patientID)
 }
 
 func (mrs *MedicalRecordService) logAccess(

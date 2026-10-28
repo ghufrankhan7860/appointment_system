@@ -14,6 +14,8 @@ type AppointmentRepository interface {
 	Cancel(ctx context.Context, id uint64, cancelledByUserID uint64, reason models.CancelReason) error
 	ListByUser(ctx context.Context, userID uint64, filter models.AppointmentFilter) ([]*models.AppointmentDetails, error)
 	ListByDoctorBetween(ctx context.Context, doctorID uint64, from time.Time, to time.Time) ([]*models.AppointmentDetails, error)
+	ListPatientsByDoctor(ctx context.Context, doctorID uint64, query string, now time.Time, limit int, offset int) ([]*models.DoctorPatient, error)
+	HasCountedBooking(ctx context.Context, doctorID uint64, patientID uint64) (bool, error)
 	CreateStatusChange(ctx context.Context, change *models.AppointmentStatusChange) error
 	ListDueForReminder(ctx context.Context, window models.ReminderWindow, from time.Time, to time.Time, limit int) ([]*models.AppointmentDetails, error)
 	CreateReminder(ctx context.Context, appointmentID uint64, window models.ReminderWindow) (bool, error)

@@ -145,3 +145,16 @@ type OutboxEvent struct {
 	CreatedAt     time.Time
 	PublishedAt   *time.Time
 }
+
+// DoctorPatient is one patient in a doctor's patient list, built from the
+// bookings that count: completed, no-show, and scheduled ones that are not an
+// unpaid hold. Visits counts those bookings.
+type DoctorPatient struct {
+	PatientID         uint64
+	Name              string
+	Gender            Gender
+	DateOfBirth       time.Time
+	LastAppointmentAt *time.Time
+	NextAppointmentAt *time.Time
+	Visits            int
+}

@@ -56,6 +56,10 @@ func (as *AuthService) Register(
 	user *models.User,
 	password string,
 ) (*models.User, error) {
+	if len(password) < constant.MinPasswordLength {
+		return nil, apperrors.Invalid(apperrors.ErrInvalidRegisterInput, "password", fmt.Sprintf("must be at least %d characters", constant.MinPasswordLength))
+	}
+
 	passwordHash, err := utils.HashPassword(password)
 	if err != nil {
 		return nil, fmt.Errorf("error hashing password: %w", err)
@@ -77,12 +81,17 @@ func (as *AuthService) Login(
 	mobileNo *string,
 	password string,
 ) (*models.User, string, string, error) {
-	identifier, err := loginIdentifier(email, mobileNo)
+	identifier, isEmail, err := loginIdentifier(email, mobileNo)
 	if err != nil {
 		return nil, "", "", err
 	}
 
-	user, err := as.users.FindByLogin(ctx, identifier)
+	var user *models.User
+	if isEmail {
+		user, err = as.users.FindByEmail(ctx, identifier)
+	} else {
+		user, err = as.users.FindByMobile(ctx, identifier)
+	}
 	if err != nil {
 		if errors.Is(err, apperrors.ErrInvalidCredentials) {
 			return nil, "", "", apperrors.ErrInvalidCredentials
@@ -197,19 +206,21 @@ func (as *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	return nil
 }
 
-func loginIdentifier(email, mobileNo *string) (string, error) {
+// loginIdentifier returns the one identifier given, normalised, and whether
+// it is an email.
+func loginIdentifier(email, mobileNo *string) (string, bool, error) {
 	hasEmail := email != nil && strings.TrimSpace(*email) != ""
 	hasMobileNo := mobileNo != nil && strings.TrimSpace(*mobileNo) != ""
 
 	if hasEmail == hasMobileNo {
-		return "", apperrors.ErrLoginIdentifier
+		return "", false, apperrors.ErrLoginIdentifier
 	}
 
 	if hasEmail {
-		return strings.ToLower(strings.TrimSpace(*email)), nil
+		return strings.ToLower(strings.TrimSpace(*email)), true, nil
 	}
 
-	return strings.TrimSpace(*mobileNo), nil
+	return strings.TrimSpace(*mobileNo), false, nil
 }
 
 func newRefreshSession(userID uint64, tokenHash string) *models.Session {

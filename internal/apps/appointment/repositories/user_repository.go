@@ -78,14 +78,24 @@ func (repo *UserRepository) Create(ctx context.Context, user *models.User) (*mod
 	}, nil
 }
 
-func (repo *UserRepository) FindByLogin(ctx context.Context, identifier string) (*models.User, error) {
+// FindByEmail finds the user signing in with an email. Emails are stored
+// lowercased, so a plain equality uses the unique index.
+func (repo *UserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	return repo.findForLogin(ctx, "email = ?", strings.ToLower(strings.TrimSpace(email)))
+}
+
+// FindByMobile finds the user signing in with a mobile number.
+func (repo *UserRepository) FindByMobile(ctx context.Context, mobileNo string) (*models.User, error) {
+	return repo.findForLogin(ctx, "mobile_no = ?", strings.TrimSpace(mobileNo))
+}
+
+// findForLogin looks a user up by one login column; an unknown one reads as
+// invalid credentials.
+func (repo *UserRepository) findForLogin(ctx context.Context, condition string, value string) (*models.User, error) {
 	var record userRecord
 
-	emailIdentifier := strings.ToLower(strings.TrimSpace(identifier))
-	mobileIdentifier := strings.TrimSpace(identifier)
-
 	if err := dbFromContext(ctx, repo.db).
-		Where("LOWER(email) = ? OR mobile_no = ?", emailIdentifier, mobileIdentifier).
+		Where(condition, value).
 		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrInvalidCredentials

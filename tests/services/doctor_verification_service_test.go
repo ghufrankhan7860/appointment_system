@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/constant"
@@ -46,7 +47,7 @@ func TestDoctorVerificationServiceTransitions(t *testing.T) {
 			}
 			verifications := &fakeDoctorVerificationRepo{}
 			tx := &fakeTxManager{}
-			service, err := services.NewDoctorVerificationService(doctors, verifications, tx)
+			service, err := services.NewDoctorVerificationService(doctors, verifications, newTestAppointmentService(t, doctors, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, time.Now()), tx)
 			if err != nil {
 				t.Fatalf("NewDoctorVerificationService returned error: %v", err)
 			}
@@ -58,7 +59,7 @@ func TestDoctorVerificationServiceTransitions(t *testing.T) {
 			case "Reject":
 				reviewed, err = service.Reject(context.Background(), 1, 5, tt.reason)
 			case "Suspend":
-				reviewed, err = service.Suspend(context.Background(), 1, 5, tt.reason)
+				reviewed, _, err = service.Suspend(context.Background(), 1, 5, tt.reason)
 			case "Reinstate":
 				reviewed, err = service.Reinstate(context.Background(), 1, 5, tt.reason)
 			}
@@ -106,7 +107,7 @@ func TestDoctorVerificationServiceList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			doctors := &fakeDoctorRepo{}
-			service, _ := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+			service, _ := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, newTestAppointmentService(t, doctors, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, time.Now()), &fakeTxManager{})
 			if _, err := service.List(context.Background(), tt.status, 0, 0); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("List error = %v, want %v", err, tt.wantErr)
 			}

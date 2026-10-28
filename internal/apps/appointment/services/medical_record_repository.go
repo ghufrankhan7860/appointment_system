@@ -12,6 +12,7 @@ type MedicalRecordRepository interface {
 	UpdateDraft(ctx context.Context, record *models.MedicalRecord) error
 	Finalize(ctx context.Context, id uint64) error
 	ListFinalizedByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalRecord, error)
+	ListForDoctorView(ctx context.Context, patientID uint64, doctorID uint64, limit int, offset int) ([]*models.MedicalRecord, error)
 	CreateAttachment(ctx context.Context, attachment *models.MedicalAttachment) (*models.MedicalAttachment, error)
 	GetAttachment(ctx context.Context, id uint64) (*models.MedicalAttachment, error)
 	ListAttachmentsByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalAttachment, error)

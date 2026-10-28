@@ -13,6 +13,9 @@ const (
 
 	// MinJWTSecretLength is the shortest HS256 signing secret accepted at startup.
 	MinJWTSecretLength = 32
+	// MinPasswordLength is the shortest password a new patient or doctor account
+	// may set. Older accounts keep signing in with shorter ones.
+	MinPasswordLength = 8
 	// MinAdminPasswordLength is stricter than the public registration minimum.
 	MinAdminPasswordLength = 12
 	// RefreshTokenBytes is the random size of an opaque refresh token (hex-encoded to twice this).

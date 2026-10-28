@@ -70,12 +70,12 @@ func newTestUser(t *testing.T, db *gorm.DB) *models.User {
 func userExists(t *testing.T, users *repositories.UserRepository, email string) bool {
 	t.Helper()
 
-	_, err := users.FindByLogin(context.Background(), email)
+	_, err := users.FindByEmail(context.Background(), email)
 	if errors.Is(err, apperrors.ErrInvalidCredentials) {
 		return false
 	}
 	if err != nil {
-		t.Fatalf("FindByLogin returned error: %v", err)
+		t.Fatalf("FindByEmail returned error: %v", err)
 	}
 
 	return true

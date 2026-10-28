@@ -18,6 +18,8 @@ const (
 	ProposalStatusAccepted ProposalStatus = "accepted"
 	ProposalStatusDeclined ProposalStatus = "declined"
 	ProposalStatusExpired  ProposalStatus = "expired"
+	// ProposalStatusCancelled closes a proposal whose doctor was suspended.
+	ProposalStatusCancelled ProposalStatus = "cancelled"
 )
 
 // RescheduleProposal is a doctor's offer to move an appointment. The offered

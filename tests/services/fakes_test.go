@@ -28,7 +28,11 @@ func (f *fakeAdminUserRepo) Create(ctx context.Context, user *models.User) (*mod
 	return &created, nil
 }
 
-func (f *fakeAdminUserRepo) FindByLogin(ctx context.Context, identifier string) (*models.User, error) {
+func (f *fakeAdminUserRepo) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	return nil, apperrors.ErrInvalidCredentials
+}
+
+func (f *fakeAdminUserRepo) FindByMobile(ctx context.Context, mobileNo string) (*models.User, error) {
 	return nil, apperrors.ErrInvalidCredentials
 }
 
@@ -41,15 +45,22 @@ func (f *fakeAdminUserRepo) ExistsByRole(ctx context.Context, role models.Role) 
 }
 
 type fakeUserRepo struct {
-	user *models.User
-	err  error
+	user       *models.User
+	err        error
+	lookedUpBy string
 }
 
 func (f *fakeUserRepo) Create(ctx context.Context, user *models.User) (*models.User, error) {
 	return f.user, f.err
 }
 
-func (f *fakeUserRepo) FindByLogin(ctx context.Context, identifier string) (*models.User, error) {
+func (f *fakeUserRepo) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	f.lookedUpBy = "email:" + email
+	return f.user, f.err
+}
+
+func (f *fakeUserRepo) FindByMobile(ctx context.Context, mobileNo string) (*models.User, error) {
+	f.lookedUpBy = "mobile:" + mobileNo
 	return f.user, f.err
 }
 
@@ -129,7 +140,7 @@ func (f *fakeAvailabilityRepo) ListRulesByDay(ctx context.Context, doctorID uint
 	f.listRulesDay = dayOfWeek
 	result := []*models.AvailabilityRule{}
 	for _, rule := range f.rules {
-		if rule.DayOfWeek == dayOfWeek {
+		if rule.DayOfWeek == dayOfWeek && (rule.DoctorID == 0 || rule.DoctorID == doctorID) {
 			result = append(result, rule)
 		}
 	}
@@ -169,6 +180,7 @@ type fakeDoctorRepo struct {
 
 	searchInput  models.DoctorSearch
 	searchResult []*models.Doctor
+	searchCalls  int
 	listStatus   models.VerificationStatus
 	listLimit    int
 }
@@ -229,7 +241,11 @@ func (f *fakeDoctorRepo) ListByStatus(ctx context.Context, status models.Verific
 
 func (f *fakeDoctorRepo) Search(ctx context.Context, search models.DoctorSearch) ([]*models.Doctor, error) {
 	f.searchInput = search
-	return f.searchResult, nil
+	f.searchCalls++
+	if search.Limit == 0 || search.Offset >= len(f.searchResult) {
+		return f.searchResult[min(search.Offset, len(f.searchResult)):], nil
+	}
+	return f.searchResult[search.Offset:min(search.Offset+search.Limit, len(f.searchResult))], nil
 }
 
 type fakeSpecialityRepo struct {
@@ -453,6 +469,11 @@ type fakeAppointmentRepo struct {
 	due      map[models.ReminderWindow][]*models.AppointmentDetails
 	dueFrom  map[models.ReminderWindow]time.Time
 	reminded map[string]bool
+
+	patients      []*models.DoctorPatient
+	patientsQuery string
+	patientsLimit int
+	treated       map[uint64]bool
 }
 
 func (f *fakeAppointmentRepo) ListDueForReminder(ctx context.Context, window models.ReminderWindow, from time.Time, to time.Time, limit int) ([]*models.AppointmentDetails, error) {
@@ -528,12 +549,28 @@ func (f *fakeAppointmentRepo) ListByUser(ctx context.Context, userID uint64, fil
 func (f *fakeAppointmentRepo) ListByDoctorBetween(ctx context.Context, doctorID uint64, from time.Time, to time.Time) ([]*models.AppointmentDetails, error) {
 	f.listFrom = from
 	f.listTo = to
-	return f.booked, nil
+	var listed []*models.AppointmentDetails
+	for _, appointment := range f.booked {
+		if appointment.DoctorID == 0 || appointment.DoctorID == doctorID {
+			listed = append(listed, appointment)
+		}
+	}
+	return listed, nil
 }
 
 func (f *fakeAppointmentRepo) CreateStatusChange(ctx context.Context, change *models.AppointmentStatusChange) error {
 	f.statusChanges = append(f.statusChanges, change)
 	return nil
+}
+
+func (f *fakeAppointmentRepo) ListPatientsByDoctor(ctx context.Context, doctorID uint64, query string, now time.Time, limit int, offset int) ([]*models.DoctorPatient, error) {
+	f.patientsQuery = query
+	f.patientsLimit = limit
+	return f.patients, nil
+}
+
+func (f *fakeAppointmentRepo) HasCountedBooking(ctx context.Context, doctorID uint64, patientID uint64) (bool, error) {
+	return f.treated[patientID], nil
 }
 
 type fakeOutboxRepo struct {
@@ -628,7 +665,8 @@ func (f *fakePaymentRepo) GetLatestByAppointment(ctx context.Context, appointmen
 }
 
 func (f *fakePaymentRepo) GetActiveByAppointment(ctx context.Context, appointmentID uint64) (*models.Payment, error) {
-	if f.payment == nil || (f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured) {
+	if f.payment == nil || (f.payment.AppointmentID != 0 && f.payment.AppointmentID != appointmentID) ||
+		(f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured) {
 		return nil, apperrors.ErrPaymentNotFound
 	}
 	found := *f.payment
@@ -767,7 +805,7 @@ func (f *fakeAppointmentRepo) CreateProposal(ctx context.Context, proposal *mode
 }
 
 func (f *fakeAppointmentRepo) GetPendingProposal(ctx context.Context, appointmentID uint64) (*models.RescheduleProposal, error) {
-	if f.proposal == nil {
+	if f.proposal == nil || f.proposal.AppointmentID != appointmentID {
 		return nil, apperrors.ErrProposalNotFound
 	}
 	found := *f.proposal
@@ -801,6 +839,8 @@ type fakeMedicalRecordRepo struct {
 
 	accesses  []*models.RecordAccess
 	accessLog []*models.RecordAccess
+
+	viewDoctorID uint64
 }
 
 func (f *fakeMedicalRecordRepo) Create(ctx context.Context, record *models.MedicalRecord) (*models.MedicalRecord, error) {
@@ -855,6 +895,11 @@ func (f *fakeMedicalRecordRepo) Finalize(ctx context.Context, id uint64) error {
 }
 
 func (f *fakeMedicalRecordRepo) ListFinalizedByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalRecord, error) {
+	return f.listed, nil
+}
+
+func (f *fakeMedicalRecordRepo) ListForDoctorView(ctx context.Context, patientID uint64, doctorID uint64, limit int, offset int) ([]*models.MedicalRecord, error) {
+	f.viewDoctorID = doctorID
 	return f.listed, nil
 }
 

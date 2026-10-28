@@ -127,3 +127,41 @@ func TestReminderServiceQueueDue(t *testing.T) {
 		})
 	}
 }
+
+func TestOutboxServicePublishGivesEachSendADeadline(t *testing.T) {
+	outbox := &fakeOutboxRepo{unpublished: []*models.OutboxEvent{{ID: 1}, {ID: 2}}}
+	service, err := services.NewOutboxService(outbox, &fakeTxManager{})
+	if err != nil {
+		t.Fatalf("NewOutboxService returned error: %v", err)
+	}
+
+	var deadlines []time.Time
+	count, err := service.Publish(context.Background(), 10, func(ctx context.Context, event *models.OutboxEvent) error {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatalf("publish of event %d got no deadline", event.ID)
+		}
+		deadlines = append(deadlines, deadline)
+		return nil
+	})
+	if err != nil || count != 2 {
+		t.Fatalf("Publish = %d, %v; want 2", count, err)
+	}
+	for _, deadline := range deadlines {
+		if left := time.Until(deadline); left <= 0 || left > constant.OutboxSendTimeout {
+			t.Fatalf("send deadline in %v, want within %v", left, constant.OutboxSendTimeout)
+		}
+	}
+	if deadlines[1].Before(deadlines[0]) {
+		t.Fatalf("second send deadline %v is before the first %v, want one deadline per send", deadlines[1], deadlines[0])
+	}
+
+	stuck := &fakeOutboxRepo{unpublished: []*models.OutboxEvent{{ID: 3}}}
+	service, _ = services.NewOutboxService(stuck, &fakeTxManager{})
+	_, err = service.Publish(context.Background(), 10, func(ctx context.Context, event *models.OutboxEvent) error {
+		return context.DeadlineExceeded
+	})
+	if !errors.Is(err, context.DeadlineExceeded) || len(stuck.published) != 0 {
+		t.Fatalf("Publish of a timed-out send = %v with %v marked, want the deadline error and nothing marked", err, stuck.published)
+	}
+}

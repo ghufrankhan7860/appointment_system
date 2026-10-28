@@ -25,16 +25,19 @@ var (
 )
 
 // DoctorVerificationService owns admin review of doctor profiles. Every status
-// change is written together with an audit row naming the admin.
+// change is written together with an audit row naming the admin. Suspending a
+// doctor also cancels their bookings that have not started.
 type DoctorVerificationService struct {
 	doctors       DoctorRepository
 	verifications DoctorVerificationRepository
+	appointments  *AppointmentService
 	tx            TransactionManager
 }
 
 func NewDoctorVerificationService(
 	doctors DoctorRepository,
 	verifications DoctorVerificationRepository,
+	appointments *AppointmentService,
 	tx TransactionManager,
 ) (*DoctorVerificationService, error) {
 	if doctors == nil {
@@ -43,6 +46,9 @@ func NewDoctorVerificationService(
 	if verifications == nil {
 		return nil, apperrors.ErrNilDoctorVerificationRepository
 	}
+	if appointments == nil {
+		return nil, apperrors.ErrNilAppointmentService
+	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
@@ -50,6 +56,7 @@ func NewDoctorVerificationService(
 	return &DoctorVerificationService{
 		doctors:       doctors,
 		verifications: verifications,
+		appointments:  appointments,
 		tx:            tx,
 	}, nil
 }
@@ -59,7 +66,7 @@ func (dvs *DoctorVerificationService) Verify(
 	actingUserID uint64,
 	doctorID uint64,
 ) (*models.Doctor, error) {
-	return dvs.transition(ctx, actingUserID, doctorID, verifyTransition, "")
+	return dvs.transition(ctx, actingUserID, doctorID, verifyTransition, "", nil)
 }
 
 func (dvs *DoctorVerificationService) Reject(
@@ -68,16 +75,41 @@ func (dvs *DoctorVerificationService) Reject(
 	doctorID uint64,
 	reason string,
 ) (*models.Doctor, error) {
-	return dvs.transition(ctx, actingUserID, doctorID, rejectTransition, reason)
+	return dvs.transition(ctx, actingUserID, doctorID, rejectTransition, reason, nil)
 }
 
+// Suspend takes a verified doctor out of search and booking. In the same
+// transaction it cancels the doctor's bookings that have not started, with
+// reason doctor_suspended; after the commit their payments are settled, paid
+// ones refunded in full as doctor_cancelled. A refund failure is returned with
+// the suspension and cancellations already saved.
 func (dvs *DoctorVerificationService) Suspend(
 	ctx context.Context,
 	actingUserID uint64,
 	doctorID uint64,
 	reason string,
-) (*models.Doctor, error) {
-	return dvs.transition(ctx, actingUserID, doctorID, suspendTransition, reason)
+) (*models.Doctor, *models.SuspensionResult, error) {
+	var cancelled []*models.AppointmentDetails
+	suspended, err := dvs.transition(ctx, actingUserID, doctorID, suspendTransition, reason, func(txCtx context.Context) error {
+		var err error
+		cancelled, err = dvs.appointments.cancelForSuspension(txCtx, doctorID, actingUserID)
+		return err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result := &models.SuspensionResult{CancelledAppointments: len(cancelled)}
+	for _, appointment := range cancelled {
+		if appointment.PaymentStatus == models.AppointmentPaymentPaid {
+			result.RefundsRequested++
+		}
+	}
+	if err := dvs.appointments.settleSuspended(ctx, cancelled, actingUserID); err != nil {
+		return nil, nil, fmt.Errorf("settle bookings of suspended doctor %d: %w", doctorID, err)
+	}
+
+	return suspended, result, nil
 }
 
 func (dvs *DoctorVerificationService) Reinstate(
@@ -86,7 +118,7 @@ func (dvs *DoctorVerificationService) Reinstate(
 	doctorID uint64,
 	reason string,
 ) (*models.Doctor, error) {
-	return dvs.transition(ctx, actingUserID, doctorID, reinstateTransition, reason)
+	return dvs.transition(ctx, actingUserID, doctorID, reinstateTransition, reason, nil)
 }
 
 // List returns doctors in any status for the review queue. An empty status
@@ -133,12 +165,15 @@ func (dvs *DoctorVerificationService) GetByID(ctx context.Context, doctorID uint
 	return doctor, verifications, nil
 }
 
+// transition moves a doctor between verification statuses with its audit row.
+// alsoInTx, when set, runs inside the same transaction after the change.
 func (dvs *DoctorVerificationService) transition(
 	ctx context.Context,
 	actingUserID uint64,
 	doctorID uint64,
 	transition verificationTransition,
 	reason string,
+	alsoInTx func(txCtx context.Context) error,
 ) (*models.Doctor, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("review doctor context: %w", err)
@@ -179,6 +214,11 @@ func (dvs *DoctorVerificationService) transition(
 			Reason:           reason,
 		}); err != nil {
 			return err
+		}
+		if alsoInTx != nil {
+			if err := alsoInTx(txCtx); err != nil {
+				return err
+			}
 		}
 
 		doctor.VerificationStatus = transition.to

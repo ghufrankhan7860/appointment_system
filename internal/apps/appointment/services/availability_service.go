@@ -231,10 +231,9 @@ func (avs *AvailabilityService) ListSlots(
 		return nil, fmt.Errorf("list slots without doctor id: %w", apperrors.ErrInvalidDoctorInput)
 	}
 
-	date = utils.CivilDate(date)
-	today := avs.today()
-	if date.Before(today) || date.After(today.AddDate(0, 0, constant.SlotHorizonDays)) {
-		return nil, apperrors.Invalid(apperrors.ErrInvalidAvailabilityInput, "date", fmt.Sprintf("must be between today and %d days ahead", constant.SlotHorizonDays))
+	date, err := avs.slotDate(date)
+	if err != nil {
+		return nil, err
 	}
 
 	doctor, err := avs.verifiedDoctor(ctx, doctorID)
@@ -314,6 +313,18 @@ func (avs *AvailabilityService) freeSlots(
 	slots := buildSlots(date, rules, overrides, doctor.SlotDurationMin, avs.location, avs.now())
 
 	return withoutBooked(slots, booked), nil
+}
+
+// slotDate returns date as a clinic date when slots can be listed for it: from
+// today up to constant.SlotHorizonDays ahead.
+func (avs *AvailabilityService) slotDate(date time.Time) (time.Time, error) {
+	date = utils.CivilDate(date)
+	today := avs.today()
+	if date.Before(today) || date.After(today.AddDate(0, 0, constant.SlotHorizonDays)) {
+		return time.Time{}, apperrors.Invalid(apperrors.ErrInvalidAvailabilityInput, "date", fmt.Sprintf("must be between today and %d days ahead", constant.SlotHorizonDays))
+	}
+
+	return date, nil
 }
 
 func (avs *AvailabilityService) today() time.Time {

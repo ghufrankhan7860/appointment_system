@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
+	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/utils"
 )
@@ -16,11 +19,13 @@ var specialitySlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // DoctorService owns doctor profiles: a doctor account creates and edits its
 // own profile, and everyone else sees only verified doctors. Verification
-// decisions belong to DoctorVerificationService.
+// decisions belong to DoctorVerificationService. Searching by date asks the
+// availability engine for free slots.
 type DoctorService struct {
 	doctors       DoctorRepository
 	specialities  SpecialityRepository
 	verifications DoctorVerificationRepository
+	availability  *AvailabilityService
 	tx            TransactionManager
 }
 
@@ -28,6 +33,7 @@ func NewDoctorService(
 	doctors DoctorRepository,
 	specialities SpecialityRepository,
 	verifications DoctorVerificationRepository,
+	availability *AvailabilityService,
 	tx TransactionManager,
 ) (*DoctorService, error) {
 	if doctors == nil {
@@ -39,6 +45,9 @@ func NewDoctorService(
 	if verifications == nil {
 		return nil, apperrors.ErrNilDoctorVerificationRepository
 	}
+	if availability == nil {
+		return nil, apperrors.ErrNilAvailabilityService
+	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
@@ -47,6 +56,7 @@ func NewDoctorService(
 		doctors:       doctors,
 		specialities:  specialities,
 		verifications: verifications,
+		availability:  availability,
 		tx:            tx,
 	}, nil
 }
@@ -233,6 +243,9 @@ func (ds *DoctorService) GetByID(ctx context.Context, doctorID uint64) (*models.
 	return doctor, nil
 }
 
+// List searches verified doctors who accept patients. With a Date it returns
+// only doctors with a free slot that day, in Mode when one is given; the date
+// must be one slots can be listed for.
 func (ds *DoctorService) List(ctx context.Context, search models.DoctorSearch) ([]*models.Doctor, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("list doctors context: %w", err)
@@ -249,6 +262,14 @@ func (ds *DoctorService) List(ctx context.Context, search models.DoctorSearch) (
 		return nil, apperrors.Invalid(apperrors.ErrInvalidDoctorInput, "feeMax", "cannot be negative")
 	}
 	search.Limit, search.Offset = clampPagination(search.Limit, search.Offset)
+
+	if search.Date != nil {
+		date, err := ds.availability.slotDate(*search.Date)
+		if err != nil {
+			return nil, err
+		}
+		return ds.listBookable(ctx, search, date)
+	}
 
 	doctors, err := ds.doctors.Search(ctx, search)
 	if err != nil {
@@ -312,4 +333,46 @@ func (ds *DoctorService) resolveSpecialities(ctx context.Context, slugs []string
 	}
 
 	return specialities, nil
+}
+
+// listBookable pages through the search in batches and keeps the doctors with
+// a free slot on date, in the search's mode when one is given, so offset and
+// limit count bookable doctors only.
+// ponytail: about 3 queries per candidate doctor; load rules, overrides and
+// bookings for a whole batch at once when the directory grows past a few hundred.
+func (ds *DoctorService) listBookable(ctx context.Context, search models.DoctorSearch, date time.Time) ([]*models.Doctor, error) {
+	skip := search.Offset
+	batch := search
+	batch.Limit, batch.Offset = constant.MaxListLimit, 0
+
+	bookable := make([]*models.Doctor, 0, search.Limit)
+	for {
+		candidates, err := ds.doctors.Search(ctx, batch)
+		if err != nil {
+			return nil, fmt.Errorf("search doctors: %w", err)
+		}
+
+		for _, candidate := range candidates {
+			slots, err := ds.availability.freeSlots(ctx, candidate, date)
+			if err != nil {
+				return nil, fmt.Errorf("list free slots of doctor %d: %w", candidate.ID, err)
+			}
+			if !slices.ContainsFunc(slots, func(slot models.Slot) bool { return search.Mode == "" || slot.Mode == search.Mode }) {
+				continue
+			}
+			if skip > 0 {
+				skip--
+				continue
+			}
+
+			bookable = append(bookable, candidate)
+			if len(bookable) == search.Limit {
+				return bookable, nil
+			}
+		}
+		if len(candidates) < batch.Limit {
+			return bookable, nil
+		}
+		batch.Offset += batch.Limit
+	}
 }

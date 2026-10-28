@@ -248,29 +248,32 @@ func (repo *MedicalRecordRepository) ListFinalizedByPatient(ctx context.Context,
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list finalized medical records: %w", err)
 	}
-	if len(rows) == 0 {
-		return []*models.MedicalRecord{}, nil
+
+	return repo.withItems(ctx, rows)
+}
+
+// ListForDoctorView returns what a treating doctor sees of a patient: every
+// finalized record from any doctor and the doctor's own drafts, newest first,
+// with their medicines.
+func (repo *MedicalRecordRepository) ListForDoctorView(
+	ctx context.Context,
+	patientID uint64,
+	doctorID uint64,
+	limit int,
+	offset int,
+) ([]*models.MedicalRecord, error) {
+	var rows []medicalRecordRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("patient_id = ? AND (status = ? OR doctor_id = ?)", patientID, string(models.MedicalRecordStatusFinalized), doctorID).
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list medical records for doctor view: %w", err)
 	}
 
-	ids := make([]uint64, 0, len(rows))
-	for _, row := range rows {
-		ids = append(ids, row.ID)
-	}
-	itemsByRecord, err := repo.itemsByRecord(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]*models.MedicalRecord, 0, len(rows))
-	for _, row := range rows {
-		record, err := toMedicalRecordModel(row, itemsByRecord[row.ID])
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, record)
-	}
-
-	return result, nil
+	return repo.withItems(ctx, rows)
 }
 
 func (repo *MedicalRecordRepository) CreateAttachment(ctx context.Context, attachment *models.MedicalAttachment) (*models.MedicalAttachment, error) {
@@ -393,6 +396,33 @@ func (repo *MedicalRecordRepository) getWhere(ctx context.Context, condition str
 	}
 
 	return toMedicalRecordModel(row, itemsByRecord[row.ID])
+}
+
+// withItems loads the medicines of listed records and maps them to models.
+func (repo *MedicalRecordRepository) withItems(ctx context.Context, rows []medicalRecordRecord) ([]*models.MedicalRecord, error) {
+	if len(rows) == 0 {
+		return []*models.MedicalRecord{}, nil
+	}
+
+	ids := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	itemsByRecord, err := repo.itemsByRecord(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*models.MedicalRecord, 0, len(rows))
+	for _, row := range rows {
+		record, err := toMedicalRecordModel(row, itemsByRecord[row.ID])
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, record)
+	}
+
+	return result, nil
 }
 
 func (repo *MedicalRecordRepository) itemsByRecord(ctx context.Context, recordIDs []uint64) (map[uint64][]prescriptionItemRecord, error) {

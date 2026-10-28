@@ -50,11 +50,24 @@ func newDoctorAdminRouterWithGateway(t *testing.T, doctors *fakeDoctorRepo, avai
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	doctorService, err := services.NewDoctorService(doctors, &fakeSpecialityRepo{}, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+	appointments := &fakeAppointmentRepo{}
+	availabilityService, err := services.NewAvailabilityService(doctors, availability, appointments, &fakeTxManager{}, time.UTC, time.Now)
+	if err != nil {
+		t.Fatalf("NewAvailabilityService returned error: %v", err)
+	}
+	doctorService, err := services.NewDoctorService(doctors, &fakeSpecialityRepo{}, &fakeDoctorVerificationRepo{}, availabilityService, &fakeTxManager{})
 	if err != nil {
 		t.Fatalf("NewDoctorService returned error: %v", err)
 	}
-	doctorVerificationService, err := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, &fakeTxManager{}, time.Now)
+	if err != nil {
+		t.Fatalf("NewPaymentService returned error: %v", err)
+	}
+	appointmentService, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, availabilityService, paymentService, &fakeTxManager{})
+	if err != nil {
+		t.Fatalf("NewAppointmentService returned error: %v", err)
+	}
+	doctorVerificationService, err := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, appointmentService, &fakeTxManager{})
 	if err != nil {
 		t.Fatalf("NewDoctorVerificationService returned error: %v", err)
 	}
@@ -62,17 +75,9 @@ func newDoctorAdminRouterWithGateway(t *testing.T, doctors *fakeDoctorRepo, avai
 	if err != nil {
 		t.Fatalf("NewAdminUserService returned error: %v", err)
 	}
-	availabilityService, err := services.NewAvailabilityService(doctors, availability, &fakeAppointmentRepo{}, &fakeTxManager{}, time.UTC, time.Now)
-	if err != nil {
-		t.Fatalf("NewAvailabilityService returned error: %v", err)
-	}
 	doctorController, err := controller.NewDoctorController(doctorService, availabilityService)
 	if err != nil {
 		t.Fatalf("NewDoctorController returned error: %v", err)
-	}
-	paymentService, err := services.NewPaymentService(payments, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, &fakeTxManager{}, time.Now)
-	if err != nil {
-		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
 	storage, err := local.New(t.TempDir())
 	if err != nil {

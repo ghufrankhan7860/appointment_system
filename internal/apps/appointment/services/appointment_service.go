@@ -238,7 +238,7 @@ func (as *AppointmentService) Cancel(
 	}
 
 	err = as.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
-		if err := as.cancelBooking(txCtx, appointmentID, actingUserID, cancelReason, reason); err != nil {
+		if err := as.cancelBooking(txCtx, appointmentID, models.AppointmentStatusScheduled, actingUserID, cancelReason, reason); err != nil {
 			return err
 		}
 
@@ -333,7 +333,7 @@ func (as *AppointmentService) Reschedule(
 
 	var created *models.Appointment
 	err = as.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
-		if err := as.cancelBooking(txCtx, current.ID, actingUserID, models.CancelReasonRescheduled, ""); err != nil {
+		if err := as.cancelBooking(txCtx, current.ID, models.AppointmentStatusScheduled, actingUserID, models.CancelReasonRescheduled, ""); err != nil {
 			return err
 		}
 
@@ -458,6 +458,42 @@ func (as *AppointmentService) ListForDoctor(
 	}
 
 	return appointments, nil
+}
+
+// ListPatients returns the acting doctor's patients: everyone with a booking
+// that counts (completed, no-show, or scheduled and not an unpaid hold), the
+// soonest next visit first. A non-empty query matches the patient's name.
+func (as *AppointmentService) ListPatients(
+	ctx context.Context,
+	actingUserID uint64,
+	actingRole models.Role,
+	query string,
+	limit int,
+	offset int,
+) ([]*models.DoctorPatient, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list doctor patients context: %w", err)
+	}
+	if err := validateDoctorActor(actingUserID, actingRole); err != nil {
+		return nil, err
+	}
+
+	doctor, err := as.doctors.GetByUserID(ctx, actingUserID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrDoctorNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("get own doctor profile: %w", err)
+	}
+
+	limit, offset = clampPagination(limit, offset)
+
+	patients, err := as.appointments.ListPatientsByDoctor(ctx, doctor.ID, strings.TrimSpace(query), as.availability.now(), limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list patients by doctor: %w", err)
+	}
+
+	return patients, nil
 }
 
 // Location is the clinic timezone that appointment dates and clock times are local to.
@@ -635,11 +671,12 @@ func (as *AppointmentService) insertBooking(
 	return created, nil
 }
 
-// cancelBooking cancels a scheduled appointment and writes its history row.
-// Callers run it inside a transaction.
+// cancelBooking cancels a scheduled or reschedule_proposed appointment and
+// writes its history row. Callers run it inside a transaction.
 func (as *AppointmentService) cancelBooking(
 	txCtx context.Context,
 	appointmentID uint64,
+	fromStatus models.AppointmentStatus,
 	actingUserID uint64,
 	cancelReason models.CancelReason,
 	note string,
@@ -651,7 +688,7 @@ func (as *AppointmentService) cancelBooking(
 	return as.appointments.CreateStatusChange(txCtx, &models.AppointmentStatusChange{
 		AppointmentID:   appointmentID,
 		ChangedByUserID: actingUserID,
-		FromStatus:      models.AppointmentStatusScheduled,
+		FromStatus:      fromStatus,
 		ToStatus:        models.AppointmentStatusCancelled,
 		Reason:          note,
 	})

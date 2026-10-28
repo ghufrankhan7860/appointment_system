@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"appointment_system/internal/apps/appointment/apperrors"
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/models"
 )
 
@@ -31,8 +32,10 @@ func NewOutboxService(outbox OutboxRepository, tx TransactionManager) (*OutboxSe
 }
 
 // Publish sends up to limit unpublished events in order and marks the sent
-// ones published. It stops at the first failed publish; the events before it
-// stay published and the rest are retried on the next call.
+// ones published. Each send gets constant.OutboxSendTimeout, so the publisher
+// must honour its context. It stops at the first failed or timed-out publish;
+// the events before it stay published and the rest are retried on the next
+// call.
 func (obs *OutboxService) Publish(
 	ctx context.Context,
 	limit int,
@@ -56,7 +59,10 @@ func (obs *OutboxService) Publish(
 
 		ids := make([]uint64, 0, len(events))
 		for _, event := range events {
-			if publishErr = publish(txCtx, event); publishErr != nil {
+			sendCtx, cancel := context.WithTimeout(txCtx, constant.OutboxSendTimeout)
+			publishErr = publish(sendCtx, event)
+			cancel()
+			if publishErr != nil {
 				break
 			}
 			ids = append(ids, event.ID)

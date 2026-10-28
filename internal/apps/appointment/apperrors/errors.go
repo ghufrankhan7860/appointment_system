@@ -21,12 +21,13 @@ var (
 )
 
 var (
-	ErrNilRegisterRequest = errors.New("register request is nil")
-	ErrUserAlreadyExists  = errors.New("user already exists")
-	ErrNilLoginRequest    = errors.New("login request is nil")
-	ErrLoginIdentifier    = errors.New("provide exactly one of email or mobile number")
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrUserNotFound       = errors.New("user not found")
+	ErrNilRegisterRequest   = errors.New("register request is nil")
+	ErrInvalidRegisterInput = errors.New("invalid register input")
+	ErrUserAlreadyExists    = errors.New("user already exists")
+	ErrNilLoginRequest      = errors.New("login request is nil")
+	ErrLoginIdentifier      = errors.New("provide exactly one of email or mobile number")
+	ErrInvalidCredentials   = errors.New("invalid credentials")
+	ErrUserNotFound         = errors.New("user not found")
 )
 
 var (

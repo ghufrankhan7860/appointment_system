@@ -127,25 +127,6 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize doctor verification repository: %w", err)
 	}
 
-	doctorService, err := services.NewDoctorService(
-		doctorRepository,
-		specialityRepository,
-		doctorVerificationRepository,
-		txManager,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize doctor service: %w", err)
-	}
-
-	doctorVerificationService, err := services.NewDoctorVerificationService(
-		doctorRepository,
-		doctorVerificationRepository,
-		txManager,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize doctor verification service: %w", err)
-	}
-
 	adminUserService, err := services.NewAdminUserService(userRepository)
 	if err != nil {
 		return nil, fmt.Errorf("initialize admin user service: %w", err)
@@ -171,6 +152,17 @@ func NewContainer(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize availability service: %w", err)
+	}
+
+	doctorService, err := services.NewDoctorService(
+		doctorRepository,
+		specialityRepository,
+		doctorVerificationRepository,
+		availabilityService,
+		txManager,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor service: %w", err)
 	}
 
 	outboxRepository, err := repositories.NewOutboxRepository(db)
@@ -213,6 +205,16 @@ func NewContainer(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize appointment service: %w", err)
+	}
+
+	doctorVerificationService, err := services.NewDoctorVerificationService(
+		doctorRepository,
+		doctorVerificationRepository,
+		appointmentService,
+		txManager,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize doctor verification service: %w", err)
 	}
 
 	appointmentController, err := controller.NewAppointmentController(appointmentService)

@@ -68,6 +68,9 @@ type DoctorSearch struct {
 	City         string
 	Mode         ConsultationMode
 	FeeMax       int
-	Limit        int
-	Offset       int
+	// Date, when set, keeps only doctors with a free slot on that clinic date,
+	// in Mode when one is given.
+	Date   *time.Time
+	Limit  int
+	Offset int
 }

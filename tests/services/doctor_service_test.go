@@ -19,6 +19,14 @@ func knownSpecialities() *fakeSpecialityRepo {
 	}}
 }
 
+// newTestAvailability is an availability engine with no rules, for doctor
+// service tests that never search by date.
+func newTestAvailability(t *testing.T) *services.AvailabilityService {
+	t.Helper()
+
+	return newTestAvailabilityService(t, nil, &fakeAvailabilityRepo{}, time.Now())
+}
+
 func validDoctorInput() *models.Doctor {
 	return &models.Doctor{
 		FullName:            "  Dr. Asha Verma ",
@@ -68,18 +76,20 @@ func TestNewDoctorServiceValidation(t *testing.T) {
 		doctors       services.DoctorRepository
 		specialities  services.SpecialityRepository
 		verifications services.DoctorVerificationRepository
+		availability  *services.AvailabilityService
 		tx            services.TransactionManager
 		wantErr       error
 	}{
-		{name: "nil doctors", specialities: &fakeSpecialityRepo{}, verifications: &fakeDoctorVerificationRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilDoctorRepository},
-		{name: "nil specialities", doctors: &fakeDoctorRepo{}, verifications: &fakeDoctorVerificationRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilSpecialityRepository},
-		{name: "nil verifications", doctors: &fakeDoctorRepo{}, specialities: &fakeSpecialityRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilDoctorVerificationRepository},
-		{name: "nil tx", doctors: &fakeDoctorRepo{}, specialities: &fakeSpecialityRepo{}, verifications: &fakeDoctorVerificationRepo{}, wantErr: apperrors.ErrNilTransactionManager},
+		{name: "nil doctors", specialities: &fakeSpecialityRepo{}, verifications: &fakeDoctorVerificationRepo{}, availability: newTestAvailability(t), tx: &fakeTxManager{}, wantErr: apperrors.ErrNilDoctorRepository},
+		{name: "nil specialities", doctors: &fakeDoctorRepo{}, verifications: &fakeDoctorVerificationRepo{}, availability: newTestAvailability(t), tx: &fakeTxManager{}, wantErr: apperrors.ErrNilSpecialityRepository},
+		{name: "nil verifications", doctors: &fakeDoctorRepo{}, specialities: &fakeSpecialityRepo{}, availability: newTestAvailability(t), tx: &fakeTxManager{}, wantErr: apperrors.ErrNilDoctorVerificationRepository},
+		{name: "nil availability", doctors: &fakeDoctorRepo{}, specialities: &fakeSpecialityRepo{}, verifications: &fakeDoctorVerificationRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilAvailabilityService},
+		{name: "nil tx", doctors: &fakeDoctorRepo{}, specialities: &fakeSpecialityRepo{}, verifications: &fakeDoctorVerificationRepo{}, availability: newTestAvailability(t), wantErr: apperrors.ErrNilTransactionManager},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := services.NewDoctorService(tt.doctors, tt.specialities, tt.verifications, tt.tx); !errors.Is(err, tt.wantErr) {
+			if _, err := services.NewDoctorService(tt.doctors, tt.specialities, tt.verifications, tt.availability, tt.tx); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("NewDoctorService error = %v, want %v", err, tt.wantErr)
 			}
 		})
@@ -90,7 +100,7 @@ func TestDoctorServiceCreate(t *testing.T) {
 	t.Run("success normalizes and starts pending", func(t *testing.T) {
 		doctors := &fakeDoctorRepo{}
 		tx := &fakeTxManager{}
-		service, err := services.NewDoctorService(doctors, knownSpecialities(), &fakeDoctorVerificationRepo{}, tx)
+		service, err := services.NewDoctorService(doctors, knownSpecialities(), &fakeDoctorVerificationRepo{}, newTestAvailability(t), tx)
 		if err != nil {
 			t.Fatalf("NewDoctorService returned error: %v", err)
 		}
@@ -161,7 +171,7 @@ func TestDoctorServiceCreate(t *testing.T) {
 				input = validDoctorInput()
 			}
 
-			service, err := services.NewDoctorService(doctors, specialities, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+			service, err := services.NewDoctorService(doctors, specialities, &fakeDoctorVerificationRepo{}, newTestAvailability(t), &fakeTxManager{})
 			if err != nil {
 				t.Fatalf("NewDoctorService returned error: %v", err)
 			}
@@ -228,7 +238,7 @@ func TestDoctorServiceUpdate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			verifications := &fakeDoctorVerificationRepo{}
-			service, err := services.NewDoctorService(&fakeDoctorRepo{byUserID: tt.existing}, knownSpecialities(), verifications, &fakeTxManager{})
+			service, err := services.NewDoctorService(&fakeDoctorRepo{byUserID: tt.existing}, knownSpecialities(), verifications, newTestAvailability(t), &fakeTxManager{})
 			if err != nil {
 				t.Fatalf("NewDoctorService returned error: %v", err)
 			}
@@ -259,7 +269,7 @@ func TestDoctorServiceUpdate(t *testing.T) {
 	}
 
 	t.Run("missing profile", func(t *testing.T) {
-		service, _ := services.NewDoctorService(&fakeDoctorRepo{}, knownSpecialities(), &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+		service, _ := services.NewDoctorService(&fakeDoctorRepo{}, knownSpecialities(), &fakeDoctorVerificationRepo{}, newTestAvailability(t), &fakeTxManager{})
 		if _, err := service.Update(context.Background(), 11, models.RoleDoctor, validDoctorInput(), []string{"general-medicine"}, nil); !errors.Is(err, apperrors.ErrDoctorNotFound) {
 			t.Fatalf("Update error = %v, want %v", err, apperrors.ErrDoctorNotFound)
 		}
@@ -280,7 +290,7 @@ func TestDoctorServiceGetByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, _ := services.NewDoctorService(&fakeDoctorRepo{byID: tt.doctor}, knownSpecialities(), &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+			service, _ := services.NewDoctorService(&fakeDoctorRepo{byID: tt.doctor}, knownSpecialities(), &fakeDoctorVerificationRepo{}, newTestAvailability(t), &fakeTxManager{})
 			if _, err := service.GetByID(context.Background(), 5); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("GetByID error = %v, want %v", err, tt.wantErr)
 			}
@@ -291,7 +301,7 @@ func TestDoctorServiceGetByID(t *testing.T) {
 func TestDoctorServiceList(t *testing.T) {
 	t.Run("normalizes filters and clamps pagination", func(t *testing.T) {
 		doctors := &fakeDoctorRepo{}
-		service, _ := services.NewDoctorService(doctors, knownSpecialities(), &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+		service, _ := services.NewDoctorService(doctors, knownSpecialities(), &fakeDoctorVerificationRepo{}, newTestAvailability(t), &fakeTxManager{})
 
 		if _, err := service.List(context.Background(), models.DoctorSearch{
 			Query:        "  thyroid ",
@@ -312,7 +322,7 @@ func TestDoctorServiceList(t *testing.T) {
 	})
 
 	t.Run("invalid mode", func(t *testing.T) {
-		service, _ := services.NewDoctorService(&fakeDoctorRepo{}, knownSpecialities(), &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+		service, _ := services.NewDoctorService(&fakeDoctorRepo{}, knownSpecialities(), &fakeDoctorVerificationRepo{}, newTestAvailability(t), &fakeTxManager{})
 		if _, err := service.List(context.Background(), models.DoctorSearch{Mode: "teleport"}); !errors.Is(err, apperrors.ErrInvalidDoctorInput) {
 			t.Fatalf("List error = %v, want %v", err, apperrors.ErrInvalidDoctorInput)
 		}
@@ -333,7 +343,7 @@ func TestDoctorServiceCreateSpeciality(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, _ := services.NewDoctorService(&fakeDoctorRepo{}, tt.repo, &fakeDoctorVerificationRepo{}, &fakeTxManager{})
+			service, _ := services.NewDoctorService(&fakeDoctorRepo{}, tt.repo, &fakeDoctorVerificationRepo{}, newTestAvailability(t), &fakeTxManager{})
 			if _, err := service.CreateSpeciality(context.Background(), tt.slug, "Name"); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("CreateSpeciality error = %v, want %v", err, tt.wantErr)
 			}

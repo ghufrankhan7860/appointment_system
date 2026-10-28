@@ -239,7 +239,11 @@ func (f *fakeUserRepo) Create(ctx context.Context, user *models.User) (*models.U
 	return &created, nil
 }
 
-func (f *fakeUserRepo) FindByLogin(ctx context.Context, identifier string) (*models.User, error) {
+func (f *fakeUserRepo) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+	return nil, apperrors.ErrInvalidCredentials
+}
+
+func (f *fakeUserRepo) FindByMobile(ctx context.Context, mobileNo string) (*models.User, error) {
 	return nil, apperrors.ErrInvalidCredentials
 }
 
@@ -256,6 +260,8 @@ type fakeAppointmentRepo struct {
 	byID      *models.AppointmentDetails
 	createErr error
 	proposal  *models.RescheduleProposal
+	patients  []*models.DoctorPatient
+	treated   map[uint64]bool
 }
 
 func (f *fakeAppointmentRepo) Create(ctx context.Context, appointment *models.Appointment) (*models.Appointment, error) {
@@ -297,6 +303,14 @@ func (f *fakeAppointmentRepo) ListByUser(ctx context.Context, userID uint64, fil
 
 func (f *fakeAppointmentRepo) ListByDoctorBetween(ctx context.Context, doctorID uint64, from time.Time, to time.Time) ([]*models.AppointmentDetails, error) {
 	return f.booked, nil
+}
+
+func (f *fakeAppointmentRepo) ListPatientsByDoctor(ctx context.Context, doctorID uint64, query string, now time.Time, limit int, offset int) ([]*models.DoctorPatient, error) {
+	return f.patients, nil
+}
+
+func (f *fakeAppointmentRepo) HasCountedBooking(ctx context.Context, doctorID uint64, patientID uint64) (bool, error) {
+	return f.treated[patientID], nil
 }
 
 func (f *fakeAppointmentRepo) ListDueForReminder(ctx context.Context, window models.ReminderWindow, from time.Time, to time.Time, limit int) ([]*models.AppointmentDetails, error) {
@@ -520,6 +534,13 @@ func (f *fakeMedicalRecordRepo) UpdateDraft(ctx context.Context, record *models.
 func (f *fakeMedicalRecordRepo) Finalize(ctx context.Context, id uint64) error {
 	f.record.Status = models.MedicalRecordStatusFinalized
 	return nil
+}
+
+func (f *fakeMedicalRecordRepo) ListForDoctorView(ctx context.Context, patientID uint64, doctorID uint64, limit int, offset int) ([]*models.MedicalRecord, error) {
+	if f.record == nil || (f.record.Status != models.MedicalRecordStatusFinalized && f.record.DoctorID != doctorID) {
+		return []*models.MedicalRecord{}, nil
+	}
+	return []*models.MedicalRecord{f.record}, nil
 }
 
 func (f *fakeMedicalRecordRepo) ListFinalizedByPatient(ctx context.Context, patientID uint64, limit int, offset int) ([]*models.MedicalRecord, error) {
