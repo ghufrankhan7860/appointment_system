@@ -12,9 +12,9 @@ const (
 	PaymentCurrency = "INR"
 	// MaxRefundNoteLength is the longest note on an admin refund.
 	MaxRefundNoteLength = 500
-	// MaxRefundReferenceLength is the longest payout reference, such as a UPI
-	// UTR, an admin records for a manual refund.
-	MaxRefundReferenceLength = 100
+	// RefundGatewayGrace is how long a requested refund the gateway has no
+	// record of may wait, for a request still in flight, before it is failed.
+	RefundGatewayGrace = 15 * time.Minute
 	// MaxWebhookBodyBytes caps a gateway callback; real ones are under 2 KB.
 	MaxWebhookBodyBytes = 64 << 10
 )

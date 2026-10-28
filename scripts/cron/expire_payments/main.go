@@ -1,7 +1,8 @@
 // Command expire_payments cancels bookings whose payment did not arrive within
-// the hold, which frees their slots, and exits. Run it every minute from a
-// scheduler. A booking paid meanwhile is skipped, so it is safe to run while
-// payments come in and to overlap with itself.
+// the hold, which frees their slots, and exits. It first asks the gateway
+// whether each open order was paid after all, in case its webhook was lost.
+// Run it every minute from a scheduler. A booking paid meanwhile is skipped,
+// so it is safe to run while payments come in and to overlap with itself.
 //
 //	go run ./scripts/cron/expire_payments
 package main
@@ -87,11 +88,10 @@ func run() error {
 		return fmt.Errorf("initialize transaction manager: %w", err)
 	}
 	paymentGateway, err := appointment.NewPaymentGateway(appointment.PaymentSettings{
-		Provider:           config.Payment.Provider,
-		ReturnURL:          config.Payment.ReturnURL,
-		YouPIBaseURL:       config.Payment.YouPIBaseURL,
-		YouPIMerchantID:    config.Payment.YouPIMerchantID,
-		YouPIWebhookSecret: config.Payment.YouPIWebhookSecret,
+		Provider:              config.Payment.Provider,
+		RazorpayKeyID:         config.Payment.RazorpayKeyID,
+		RazorpayKeySecret:     config.Payment.RazorpayKeySecret,
+		RazorpayWebhookSecret: config.Payment.RazorpayWebhookSecret,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize payment gateway: %w", err)

@@ -10,9 +10,9 @@ package config
 import (
 	"appointment_system/internal/apps/appointment/constant"
 	"fmt"
-	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -31,11 +31,14 @@ const (
 	defaultEnvironment    = "development"
 	// paymentProviderNone moves no money and is refused in production.
 	paymentProviderNone = "none"
-	// paymentProviderYouPI collects UPI through a self-hosted YouPI PG server.
-	paymentProviderYouPI = "youpi"
-	// minYouPIWebhookSecretLength keeps the secret that signs YouPI webhooks,
-	// and doubles as its merchant key, out of guessing range.
-	minYouPIWebhookSecretLength = 32
+	// paymentProviderRazorpay collects payments through Razorpay Checkout.
+	paymentProviderRazorpay = "razorpay"
+	// minRazorpayWebhookSecretLength keeps the secret that signs Razorpay
+	// webhooks out of guessing range.
+	minRazorpayWebhookSecretLength = 32
+	// Razorpay key ids start with the mode they belong to.
+	razorpayTestKeyPrefix = "rzp_test_"
+	razorpayLiveKeyPrefix = "rzp_live_"
 	// storageProviderLocal keeps uploads on the local disk under StorageConfig.LocalDir.
 	storageProviderLocal = "local"
 	defaultStorageDir    = "var/storage"
@@ -92,13 +95,11 @@ type DatabaseConfig struct {
 type PaymentConfig struct {
 	// Provider selects the payment gateway adapter.
 	Provider string
-	// ReturnURL is the page a gateway's checkout sends the payer back to.
-	ReturnURL string
-	// YouPIBaseURL is the public URL of the YouPI checkout portal, which also
-	// serves its API. The YouPI settings are required when Provider is youpi.
-	YouPIBaseURL       string
-	YouPIMerchantID    string
-	YouPIWebhookSecret string
+	// The Razorpay settings are required when Provider is razorpay. The key id
+	// is public (Checkout needs it); the key secret and webhook secret are not.
+	RazorpayKeyID         string
+	RazorpayKeySecret     string
+	RazorpayWebhookSecret string
 }
 
 type StorageConfig struct {
@@ -140,11 +141,10 @@ func Load() (Config, error) {
 			TokenTTL:  constant.AccessTokenTTL,
 		},
 		Payment: PaymentConfig{
-			Provider:           env("PAYMENT_PROVIDER", paymentProviderNone),
-			ReturnURL:          env("PAYMENT_RETURN_URL", ""),
-			YouPIBaseURL:       env("YOUPI_BASE_URL", ""),
-			YouPIMerchantID:    env("YOUPI_MERCHANT_ID", ""),
-			YouPIWebhookSecret: env("YOUPI_WEBHOOK_SECRET", ""),
+			Provider:              env("PAYMENT_PROVIDER", paymentProviderNone),
+			RazorpayKeyID:         env("RAZORPAY_KEY_ID", ""),
+			RazorpayKeySecret:     env("RAZORPAY_KEY_SECRET", ""),
+			RazorpayWebhookSecret: env("RAZORPAY_WEBHOOK_SECRET", ""),
 		},
 		Storage: StorageConfig{
 			Provider: env("STORAGE_PROVIDER", storageProviderLocal),
@@ -199,18 +199,24 @@ func Load() (Config, error) {
 
 	switch config.Payment.Provider {
 	case paymentProviderNone:
-	case paymentProviderYouPI:
-		if config.Payment.YouPIMerchantID == "" {
-			return Config{}, fmt.Errorf("YOUPI_MERCHANT_ID is required for the %q payment provider", paymentProviderYouPI)
+	case paymentProviderRazorpay:
+		if config.Payment.RazorpayKeyID == "" || config.Payment.RazorpayKeySecret == "" {
+			return Config{}, fmt.Errorf("RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required for the %q payment provider", paymentProviderRazorpay)
 		}
-		if len(config.Payment.YouPIWebhookSecret) < minYouPIWebhookSecretLength {
-			return Config{}, fmt.Errorf("YOUPI_WEBHOOK_SECRET must contain at least %d characters", minYouPIWebhookSecretLength)
+		if len(config.Payment.RazorpayWebhookSecret) < minRazorpayWebhookSecretLength {
+			return Config{}, fmt.Errorf("RAZORPAY_WEBHOOK_SECRET must contain at least %d characters", minRazorpayWebhookSecretLength)
 		}
-		if !isHTTPURL(config.Payment.YouPIBaseURL) || !isHTTPURL(config.Payment.ReturnURL) {
-			return Config{}, fmt.Errorf("YOUPI_BASE_URL and PAYMENT_RETURN_URL must be absolute http or https URLs")
+		// Live keys only in production and test keys never there, so a local
+		// run cannot charge real money and production cannot take fake money.
+		wantPrefix := razorpayTestKeyPrefix
+		if isProductionEnvironment() {
+			wantPrefix = razorpayLiveKeyPrefix
+		}
+		if !strings.HasPrefix(config.Payment.RazorpayKeyID, wantPrefix) {
+			return Config{}, fmt.Errorf("RAZORPAY_KEY_ID must start with %q in this environment", wantPrefix)
 		}
 	default:
-		return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q is not supported; use %q or %q", config.Payment.Provider, paymentProviderNone, paymentProviderYouPI)
+		return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q is not supported; use %q or %q", config.Payment.Provider, paymentProviderNone, paymentProviderRazorpay)
 	}
 	if config.Storage.Provider != storageProviderLocal {
 		return Config{}, fmt.Errorf("STORAGE_PROVIDER %q is not supported; use %q", config.Storage.Provider, storageProviderLocal)
@@ -243,11 +249,6 @@ func envInt(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
 	}
 	return parsed, nil
-}
-
-func isHTTPURL(raw string) bool {
-	parsed, err := url.Parse(raw)
-	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func isProductionEnvironment() bool {

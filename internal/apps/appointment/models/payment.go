@@ -87,11 +87,22 @@ type Refund struct {
 	UpdatedAt         time.Time
 }
 
-// GatewayEvent is what a gateway's callback says happened to one of its
-// orders. Status is captured, failed or expired; Amount is in paise.
+// GatewayEventType names what a gateway callback reports.
+type GatewayEventType string
+
+const (
+	GatewayEventPaymentCaptured GatewayEventType = "payment_captured"
+	GatewayEventRefundProcessed GatewayEventType = "refund_processed"
+	GatewayEventRefundFailed    GatewayEventType = "refund_failed"
+)
+
+// GatewayEvent is what a gateway's callback says happened. A captured payment
+// names its order and gateway payment; a refund names the gateway payment it
+// returns, its own id and Amount in paise.
 type GatewayEvent struct {
+	Type              GatewayEventType
 	ProviderOrderID   string
 	ProviderPaymentID string
+	ProviderRefundID  string
 	Amount            int
-	Status            PaymentStatus
 }

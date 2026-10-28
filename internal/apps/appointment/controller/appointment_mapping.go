@@ -69,3 +69,33 @@ func toAppointmentResponse(details *models.AppointmentDetails, location *time.Lo
 
 	return response
 }
+
+func toDoctorPatientResponse(patient *models.DoctorPatient, location *time.Location, now time.Time) appointment.DoctorPatientResponse {
+	response := appointment.DoctorPatientResponse{
+		ID:     patient.PatientID,
+		Name:   patient.Name,
+		Age:    ageOn(patient.DateOfBirth, now.In(location)),
+		Gender: string(patient.Gender),
+		Visits: patient.Visits,
+	}
+	if patient.LastAppointmentAt != nil {
+		lastAppointmentAt := patient.LastAppointmentAt.In(location)
+		response.LastAppointmentAt = &lastAppointmentAt
+	}
+	if patient.NextAppointmentAt != nil {
+		nextAppointmentAt := patient.NextAppointmentAt.In(location)
+		response.NextAppointmentAt = &nextAppointmentAt
+	}
+
+	return response
+}
+
+// ageOn returns the whole years from a date of birth to today's clinic date.
+func ageOn(dateOfBirth time.Time, today time.Time) int {
+	age := today.Year() - dateOfBirth.Year()
+	if today.Month() < dateOfBirth.Month() || (today.Month() == dateOfBirth.Month() && today.Day() < dateOfBirth.Day()) {
+		age--
+	}
+
+	return age
+}

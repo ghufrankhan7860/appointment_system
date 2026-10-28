@@ -21,3 +21,6 @@ CREATE TABLE refunds (
 CREATE UNIQUE INDEX idx_refunds_payment_id_unique
     ON refunds (payment_id)
     WHERE status <> 'failed';
+
+CREATE INDEX idx_refunds_status_created_at
+    ON refunds (status, created_at);

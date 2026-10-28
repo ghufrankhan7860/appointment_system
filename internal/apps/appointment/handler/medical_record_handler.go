@@ -49,6 +49,10 @@ func (mrh *MedicalRecordHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/patients/:id/attachments", authenticate, mrh.ListAttachments)
 	router.POST("/patients/:id/attachments", authenticate, mrh.UploadForPatient)
 	router.GET("/attachments/:id/content", authenticate, mrh.Download)
+
+	view := authz.RequirePermission(authz.PermPatientView)
+	router.GET("/doctors/me/patients/:id/records", authenticate, view, mrh.ListForDoctor)
+	router.GET("/doctors/me/patients/:id/attachments", authenticate, view, mrh.ListAttachmentsForDoctor)
 }
 
 // CreateDraft godoc
@@ -615,5 +619,109 @@ func (mrh *MedicalRecordHandler) Download(ctx *gin.Context) {
 	ctx.DataFromReader(http.StatusOK, attachment.SizeBytes, attachment.ContentType, file, map[string]string{
 		"Content-Disposition":    fmt.Sprintf(`attachment; filename="attachment-%d%s"`, attachment.ID, constant.AttachmentExtensions[attachment.ContentType]),
 		"X-Content-Type-Options": "nosniff",
+	})
+}
+
+// ListForDoctor godoc
+// @Summary List a patient's medical records as their doctor
+// @Description For a patient with a completed, no-show or paid upcoming booking with the caller: every finalized record from any doctor plus the caller's own drafts, newest first. Any other patient gets 404. Each list is written to the access log. Limit defaults to 20 and is capped at 100.
+// @Tags doctors
+// @Security BearerAuth
+// @Produce json
+// @Param id path int true "Patient ID"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Number of records to skip"
+// @Success 200 {object} dtos.SuccessResponse{data=record.ListRecordsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /doctors/me/patients/{id}/records [get]
+func (mrh *MedicalRecordHandler) ListForDoctor(ctx *gin.Context) {
+	var listRecordsRequest record.ListRecordsRequest
+	if err := ctx.ShouldBindUri(&listRecordsRequest); err != nil || listRecordsRequest.PatientID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient id"})
+		return
+	}
+	if err := ctx.ShouldBindQuery(&listRecordsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := mrh.medicalRecordController.ListForDoctor(ctx.Request.Context(), &listRecordsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrPatientNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Patient not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list medical records"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Medical records retrieved successfully",
+	})
+}
+
+// ListAttachmentsForDoctor godoc
+// @Summary List a patient's files as their doctor
+// @Description For a patient with a completed, no-show or paid upcoming booking with the caller: all of the patient's attachments, newest first, downloadable with GET /attachments/{id}/content. Any other patient gets 404. Each list is written to the access log. Limit defaults to 20 and is capped at 100.
+// @Tags doctors
+// @Security BearerAuth
+// @Produce json
+// @Param id path int true "Patient ID"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Number of files to skip"
+// @Success 200 {object} dtos.SuccessResponse{data=record.ListAttachmentsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /doctors/me/patients/{id}/attachments [get]
+func (mrh *MedicalRecordHandler) ListAttachmentsForDoctor(ctx *gin.Context) {
+	var listAttachmentsRequest record.ListAttachmentsRequest
+	if err := ctx.ShouldBindUri(&listAttachmentsRequest); err != nil || listAttachmentsRequest.PatientID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid patient id"})
+		return
+	}
+	if err := ctx.ShouldBindQuery(&listAttachmentsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := mrh.medicalRecordController.ListAttachmentsForDoctor(ctx.Request.Context(), &listAttachmentsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrPatientNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Patient not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list attachments"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Attachments retrieved successfully",
 	})
 }

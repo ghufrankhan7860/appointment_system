@@ -201,3 +201,50 @@ func TestAppointmentHandlerStatusCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestAppointmentHandlerListPatients(t *testing.T) {
+	today := time.Now().UTC()
+	lastVisit := today.AddDate(0, 0, -3)
+	patients := []*models.DoctorPatient{
+		{PatientID: 3, Name: "Asha Verma", Gender: models.GenderFemale, DateOfBirth: today.AddDate(-34, 0, 0), LastAppointmentAt: &lastVisit, Visits: 3},
+		{PatientID: 4, Name: "Ravi Verma", Gender: models.GenderMale, DateOfBirth: today.AddDate(-34, 0, 1), Visits: 1},
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		token      string
+		wantStatus int
+		wantBody   []string
+	}{
+		{name: "doctor lists their patients", path: "/api/v1/doctors/me/patients?q=verma", token: "doctor-token", wantStatus: http.StatusOK, wantBody: []string{`"id":3,"name":"Asha Verma","age":34,"gender":"Female","lastAppointmentAt":`, `"visits":3`, `"id":4,"name":"Ravi Verma","age":33`}},
+		{name: "a birthday tomorrow is not a year yet", path: "/api/v1/doctors/me/patients", token: "doctor-token", wantStatus: http.StatusOK, wantBody: []string{`"age":33,"gender":"Male","visits":1`}},
+		{name: "patient cannot list a doctor's patients", path: "/api/v1/doctors/me/patients", token: "patient-token", wantStatus: http.StatusForbidden},
+		{name: "admin cannot list a doctor's patients", path: "/api/v1/doctors/me/patients", token: "admin-token", wantStatus: http.StatusForbidden},
+		{name: "list without token", path: "/api/v1/doctors/me/patients", wantStatus: http.StatusUnauthorized},
+		{name: "list with a bad limit", path: "/api/v1/doctors/me/patients?limit=many", token: "doctor-token", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := newAppointmentRouter(t, &fakeDoctorRepo{doctor: doctorWithStatus(models.VerificationStatusVerified)}, &fakeUserPatientRepo{}, &fakeAppointmentRepo{patients: patients}, nil)
+
+			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.token != "" {
+				request.Header.Set("Authorization", "Bearer "+tt.token)
+			}
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d, body = %s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+			for _, want := range tt.wantBody {
+				if !strings.Contains(recorder.Body.String(), want) {
+					t.Fatalf("body = %s, want it to contain %s", recorder.Body.String(), want)
+				}
+			}
+		})
+	}
+}

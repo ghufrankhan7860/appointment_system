@@ -116,8 +116,9 @@ func TestDoctorVerificationServiceSuspendCascade(t *testing.T) {
 		if doctors.updateStatusTo != models.VerificationStatusSuspended || len(appointments.cancelledIDs) != 4 {
 			t.Fatalf("Suspend left the doctor %q with %v cancelled, want suspended and all four cancelled", doctors.updateStatusTo, appointments.cancelledIDs)
 		}
-		if len(payments.finished) != 1 || payments.finished[0] != models.RefundStatusFailed {
-			t.Fatalf("Suspend finished refunds %v, want one failed refund", payments.finished)
+		// The gateway may have received it, so it waits for ReconcileRefunds.
+		if len(payments.finished) != 0 || len(payments.refunds) != 1 || payments.refunds[0].Status != models.RefundStatusRequested {
+			t.Fatalf("Suspend finished refunds %v, want one refund still requested", payments.finished)
 		}
 	})
 }

@@ -145,10 +145,10 @@ func (ps *PaymentService) Create(
 }
 
 // Verify confirms with the gateway that a created payment was paid, captures
-// it and marks the appointment paid in one transaction. Verifying a captured
-// payment again with the same payment id returns it unchanged. When the booking
-// expired first, the money is refunded and ErrPaymentWindowClosed is returned.
-// What signature must hold is the gateway's call; some need none.
+// it and marks the appointment paid in one transaction. signature is the proof
+// the gateway's checkout gave the client. Verifying a captured payment again
+// with the same payment id returns it unchanged. When the booking expired
+// first, the money is refunded and ErrPaymentWindowClosed is returned.
 func (ps *PaymentService) Verify(
 	ctx context.Context,
 	actingUserID uint64,
@@ -165,6 +165,10 @@ func (ps *PaymentService) Verify(
 	providerPaymentID = strings.TrimSpace(providerPaymentID)
 	if providerPaymentID == "" {
 		return nil, apperrors.Invalid(apperrors.ErrInvalidPaymentInput, "providerPaymentId", "is required")
+	}
+	signature = strings.TrimSpace(signature)
+	if signature == "" {
+		return nil, apperrors.Invalid(apperrors.ErrInvalidPaymentInput, "signature", "is required")
 	}
 
 	payment, err := ps.payments.GetByID(ctx, paymentID)
@@ -188,20 +192,23 @@ func (ps *PaymentService) Verify(
 	if payment.Status != models.PaymentStatusCreated {
 		return nil, apperrors.Invalid(apperrors.ErrPaymentNotModifiable, "", fmt.Sprintf("payment is %s", payment.Status))
 	}
-	if err := ps.gateway.VerifyPayment(ctx, payment, providerPaymentID, signature); err != nil {
+	paidAt, err := ps.gateway.VerifyPayment(ctx, payment, providerPaymentID, signature)
+	if err != nil {
 		if errors.Is(err, apperrors.ErrPaymentVerificationFailed) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("verify payment with gateway: %w", err)
 	}
 
-	return ps.capture(ctx, payment, appointment, actingUserID, providerPaymentID)
+	return ps.capture(ctx, payment, appointment, actingUserID, providerPaymentID, paidAt)
 }
 
 // HandleWebhook applies a gateway callback. Money is recorded only after the
 // gateway confirms it again, so a replayed or forged body captures nothing.
 // Money reported for an order that was already closed is captured and refunded.
-// A callback that changes nothing returns nil, so the gateway stops retrying.
+// A callback that changes nothing returns nil, so the gateway stops retrying;
+// one with nothing to apply, such as an order this service never opened,
+// returns ErrWebhookIgnored with the reason.
 func (ps *PaymentService) HandleWebhook(ctx context.Context, body []byte, headers map[string][]string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("handle payment webhook context: %w", err)
@@ -209,42 +216,26 @@ func (ps *PaymentService) HandleWebhook(ctx context.Context, body []byte, header
 
 	event, err := ps.gateway.ParseWebhook(body, headers)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrPaymentVerificationFailed) {
+		if errors.Is(err, apperrors.ErrPaymentVerificationFailed) || errors.Is(err, apperrors.ErrWebhookIgnored) {
 			return err
 		}
 		return fmt.Errorf("parse payment webhook: %w", err)
 	}
 
-	payment, err := ps.payments.GetByProviderOrderID(ctx, ps.gateway.Provider(), event.ProviderOrderID)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrPaymentNotFound) {
-			return err
-		}
-		return fmt.Errorf("get payment by provider order id: %w", err)
-	}
-
-	switch event.Status {
-	case models.PaymentStatusCaptured:
-		return ps.captureReported(ctx, payment, event)
-	case models.PaymentStatusFailed, models.PaymentStatusExpired:
-		err := ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
-			if err := ps.payments.UpdateStatus(txCtx, payment.ID, models.PaymentStatusCreated, event.Status, "", nil); err != nil {
-				return err
+	switch event.Type {
+	case models.GatewayEventPaymentCaptured:
+		payment, err := ps.payments.GetByProviderOrderID(ctx, ps.gateway.Provider(), event.ProviderOrderID)
+		if err != nil {
+			if errors.Is(err, apperrors.ErrPaymentNotFound) {
+				return webhookIgnored("no payment has order %s", event.ProviderOrderID)
 			}
-
-			return ps.payments.CreateStatusChange(txCtx, &models.PaymentStatusChange{
-				PaymentID:  payment.ID,
-				FromStatus: models.PaymentStatusCreated,
-				ToStatus:   event.Status,
-				Reason:     "reported by the gateway",
-			})
-		})
-		if err != nil && !errors.Is(err, apperrors.ErrPaymentNotModifiable) {
-			return fmt.Errorf("close payment %d from webhook: %w", payment.ID, err)
+			return fmt.Errorf("get payment by provider order id: %w", err)
 		}
-		return nil
+		return ps.captureReported(ctx, payment, event.ProviderPaymentID)
+	case models.GatewayEventRefundProcessed, models.GatewayEventRefundFailed:
+		return ps.settleReportedRefund(ctx, event)
 	default:
-		return nil
+		return webhookIgnored("event type %q is not handled", event.Type)
 	}
 }
 
@@ -286,7 +277,9 @@ func (ps *PaymentService) GetForAppointment(
 }
 
 // Refund returns a captured payment in full on an admin's request. The route
-// permission decides who is an admin.
+// permission decides who is an admin. The returned payment is still captured
+// while the gateway processes the refund. A refund the gateway refused returns
+// ErrRefundFailed; a failed refund can be asked for again.
 func (ps *PaymentService) Refund(
 	ctx context.Context,
 	actingUserID uint64,
@@ -316,7 +309,8 @@ func (ps *PaymentService) Refund(
 	}
 
 	if err := ps.refund(ctx, payment, models.RefundReasonAdmin, actingUserID, note); err != nil {
-		if errors.Is(err, apperrors.ErrRefundAlreadyExists) || errors.Is(err, apperrors.ErrPaymentNotModifiable) {
+		if errors.Is(err, apperrors.ErrRefundAlreadyExists) || errors.Is(err, apperrors.ErrPaymentNotModifiable) ||
+			errors.Is(err, apperrors.ErrRefundFailed) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("refund payment %d: %w", paymentID, err)
@@ -330,61 +324,8 @@ func (ps *PaymentService) Refund(
 	return refunded, nil
 }
 
-// CompleteRefund records that an admin paid a requested refund back by hand,
-// with the payout's reference such as a UPI UTR, and marks the payment and its
-// appointment refunded.
-func (ps *PaymentService) CompleteRefund(
-	ctx context.Context,
-	actingUserID uint64,
-	refundID uint64,
-	reference string,
-) (*models.Refund, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("complete refund context: %w", err)
-	}
-	if actingUserID == 0 || refundID == 0 {
-		return nil, fmt.Errorf("complete refund with missing ids: %w", apperrors.ErrInvalidPaymentInput)
-	}
-	reference = strings.TrimSpace(reference)
-	if reference == "" {
-		return nil, apperrors.Invalid(apperrors.ErrInvalidPaymentInput, "reference", "is required")
-	}
-	if len(reference) > constant.MaxRefundReferenceLength {
-		return nil, apperrors.Invalid(apperrors.ErrInvalidPaymentInput, "reference", fmt.Sprintf("must be at most %d characters", constant.MaxRefundReferenceLength))
-	}
-
-	refund, err := ps.payments.GetRefundByID(ctx, refundID)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrRefundNotFound) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("get refund by id: %w", err)
-	}
-	if refund.Status != models.RefundStatusRequested {
-		return nil, apperrors.Invalid(apperrors.ErrPaymentNotModifiable, "", fmt.Sprintf("refund is %s", refund.Status))
-	}
-
-	payment, err := ps.payments.GetByID(ctx, refund.PaymentID)
-	if err != nil {
-		return nil, fmt.Errorf("get refunded payment: %w", err)
-	}
-	if err := ps.finishRefund(ctx, payment, refund.ID, reference, refund.Reason, actingUserID); err != nil {
-		if errors.Is(err, apperrors.ErrPaymentNotModifiable) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("complete refund %d: %w", refundID, err)
-	}
-
-	completed, err := ps.payments.GetRefundByID(ctx, refundID)
-	if err != nil {
-		return nil, fmt.Errorf("get completed refund: %w", err)
-	}
-
-	return completed, nil
-}
-
 // ListRefunds returns refunds in one status, oldest first. Requested refunds
-// are the admin's queue of manual payouts. An empty status means requested.
+// are still with the gateway. An empty status means requested.
 func (ps *PaymentService) ListRefunds(
 	ctx context.Context,
 	status models.RefundStatus,
@@ -412,8 +353,10 @@ func (ps *PaymentService) ListRefunds(
 }
 
 // ExpireUnpaid cancels up to limit bookings whose payment was due and never
-// arrived, freeing their slots, and returns how many it cancelled. A booking
-// paid meanwhile is skipped, so it is safe to run while payments come in.
+// arrived, freeing their slots, and returns how many it cancelled. It first
+// asks the gateway whether the open order was paid after all, in case its
+// webhook was lost, and captures that payment instead. A booking paid
+// meanwhile is skipped, so it is safe to run while payments come in.
 func (ps *PaymentService) ExpireUnpaid(ctx context.Context, limit int) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, fmt.Errorf("expire unpaid context: %w", err)
@@ -428,6 +371,10 @@ func (ps *PaymentService) ExpireUnpaid(ctx context.Context, limit int) (int, err
 
 	expired := 0
 	for _, appointment := range due {
+		if err := ps.capturePaidOrder(ctx, appointment.ID); err != nil {
+			return expired, err
+		}
+
 		err := ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
 			if err := ps.appointments.CancelUnpaid(txCtx, appointment.ID, now); err != nil {
 				return err
@@ -462,8 +409,84 @@ func (ps *PaymentService) ExpireUnpaid(ctx context.Context, limit int) (int, err
 	return expired, nil
 }
 
+// ReconcileRefunds settles up to limit refunds still requested with what the
+// gateway says about them, for webhooks that were lost, and returns how many
+// it settled. A refund the gateway never received is failed after
+// constant.RefundGatewayGrace, so an admin can retry it.
+func (ps *PaymentService) ReconcileRefunds(ctx context.Context, limit int) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("reconcile refunds context: %w", err)
+	}
+	limit, _ = clampPagination(limit, 0)
+
+	// ponytail: only the oldest page of requested refunds; page through them if
+	// more than limit are ever waiting at once.
+	refunds, err := ps.payments.ListRefunds(ctx, models.RefundStatusRequested, limit, 0)
+	if err != nil {
+		return 0, fmt.Errorf("list requested refunds: %w", err)
+	}
+
+	settled := 0
+	for _, refund := range refunds {
+		payment, err := ps.payments.GetByID(ctx, refund.PaymentID)
+		if err != nil {
+			return settled, fmt.Errorf("get payment of refund %d: %w", refund.ID, err)
+		}
+		providerRefundID, status, err := ps.gateway.RefundStatus(ctx, payment)
+		if err != nil {
+			return settled, fmt.Errorf("get gateway status of refund %d: %w", refund.ID, err)
+		}
+		if providerRefundID == "" {
+			if ps.now().Sub(refund.CreatedAt) < constant.RefundGatewayGrace {
+				continue
+			}
+			status = models.RefundStatusFailed
+		}
+		if status == models.RefundStatusRequested {
+			continue
+		}
+
+		if err := ps.settleRefund(ctx, payment, refund, providerRefundID, status, 0); err != nil {
+			return settled, fmt.Errorf("settle refund %d: %w", refund.ID, err)
+		}
+		settled++
+	}
+
+	return settled, nil
+}
+
+// capturePaidOrder captures the appointment's open payment when the gateway
+// says its order was paid. An order that was not paid is left for expiry.
+func (ps *PaymentService) capturePaidOrder(ctx context.Context, appointmentID uint64) error {
+	payment, err := ps.payments.GetActiveByAppointment(ctx, appointmentID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrPaymentNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get active payment of unpaid appointment %d: %w", appointmentID, err)
+	}
+	if payment.Status != models.PaymentStatusCreated {
+		return nil
+	}
+
+	providerPaymentID, err := ps.gateway.FindPaidOrder(ctx, payment)
+	if err != nil {
+		return fmt.Errorf("ask gateway about the order of appointment %d: %w", appointmentID, err)
+	}
+	if providerPaymentID == "" {
+		return nil
+	}
+
+	if err := ps.captureReported(ctx, payment, providerPaymentID); err != nil && !errors.Is(err, apperrors.ErrWebhookIgnored) {
+		return fmt.Errorf("capture paid order of appointment %d: %w", appointmentID, err)
+	}
+
+	return nil
+}
+
 // settleCancelled closes the money side of a cancelled appointment: an open
-// order expires and a captured payment is refunded in full.
+// order expires and a captured payment is refunded in full. A payment already
+// being refunded, such as one that arrived late, is left to that refund.
 func (ps *PaymentService) settleCancelled(
 	ctx context.Context,
 	appointmentID uint64,
@@ -479,16 +502,14 @@ func (ps *PaymentService) settleCancelled(
 	}
 
 	if payment.Status == models.PaymentStatusCaptured {
-		if err := ps.refund(ctx, payment, reason, actingUserID, ""); err != nil {
+		if err := ps.refund(ctx, payment, reason, actingUserID, ""); err != nil && !errors.Is(err, apperrors.ErrRefundAlreadyExists) {
 			return fmt.Errorf("refund cancelled appointment %d: %w", appointmentID, err)
 		}
 		return nil
 	}
 
-	// Closing the gateway's order is best effort: money that still arrives is
-	// reported by webhook, captured and refunded, so a failure here loses nothing.
-	_ = ps.gateway.CancelOrder(ctx, payment)
-
+	// The gateway's order stays open: money that still arrives is reported by
+	// webhook, captured and refunded.
 	err = ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
 		if err := ps.payments.UpdateStatus(txCtx, payment.ID, models.PaymentStatusCreated, models.PaymentStatusExpired, "", nil); err != nil {
 			return err
@@ -516,8 +537,9 @@ func (ps *PaymentService) moveToAppointment(txCtx context.Context, fromAppointme
 }
 
 // capture records a confirmed created payment as captured and marks its
-// appointment paid in one transaction. A payment that arrived after the booking
-// expired or was cancelled is captured and refunded instead, and
+// appointment paid in one transaction. paidAt is when the payer paid, or zero
+// for now. A payment made after the booking's payment was due, or for a booking
+// no longer waiting for it, is captured and refunded instead, and
 // ErrPaymentWindowClosed is returned.
 func (ps *PaymentService) capture(
 	ctx context.Context,
@@ -525,11 +547,15 @@ func (ps *PaymentService) capture(
 	appointment *models.AppointmentDetails,
 	actingUserID uint64,
 	providerPaymentID string,
+	paidAt time.Time,
 ) (*models.Payment, error) {
 	now := ps.now()
+	if paidAt.IsZero() {
+		paidAt = now
+	}
 	late := appointment.Status != models.AppointmentStatusScheduled ||
 		appointment.PaymentStatus != models.AppointmentPaymentUnpaid ||
-		appointment.PaymentDueAt == nil || !now.Before(*appointment.PaymentDueAt)
+		appointment.PaymentDueAt == nil || !paidAt.Before(*appointment.PaymentDueAt)
 	fromStatus := payment.Status
 
 	err := ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
@@ -584,21 +610,19 @@ func (ps *PaymentService) capture(
 	return captured, nil
 }
 
-// captureReported captures money a webhook reports. The order may already be
-// closed, failed or expired, when the payer paid late; a captured or refunded
-// payment means the callback is a repeat.
-func (ps *PaymentService) captureReported(ctx context.Context, payment *models.Payment, event *models.GatewayEvent) error {
+// captureReported captures money the gateway reported, by webhook or when
+// asked. The order may already be closed, failed or expired, when the payer
+// paid late; a captured or refunded payment means the report is a repeat.
+func (ps *PaymentService) captureReported(ctx context.Context, payment *models.Payment, providerPaymentID string) error {
 	switch payment.Status {
 	case models.PaymentStatusCreated, models.PaymentStatusFailed, models.PaymentStatusExpired:
 	default:
 		return nil
 	}
-	if event.Amount != payment.Amount {
-		return apperrors.Invalid(apperrors.ErrPaymentVerificationFailed, "", "the reported amount differs from the payment")
-	}
-	if err := ps.gateway.VerifyPayment(ctx, payment, event.ProviderPaymentID, ""); err != nil {
+	paidAt, err := ps.gateway.VerifyPayment(ctx, payment, providerPaymentID, "")
+	if err != nil {
 		if errors.Is(err, apperrors.ErrPaymentVerificationFailed) {
-			return err
+			return webhookIgnored("the gateway does not confirm payment %d: %s", payment.ID, apperrors.Reason(err))
 		}
 		return fmt.Errorf("verify reported payment with gateway: %w", err)
 	}
@@ -607,9 +631,12 @@ func (ps *PaymentService) captureReported(ctx context.Context, payment *models.P
 	if err != nil {
 		return fmt.Errorf("get appointment of reported payment: %w", err)
 	}
-	if _, err := ps.capture(ctx, payment, appointment, 0, event.ProviderPaymentID); err != nil {
-		if errors.Is(err, apperrors.ErrPaymentWindowClosed) || errors.Is(err, apperrors.ErrPaymentNotModifiable) {
+	if _, err := ps.capture(ctx, payment, appointment, 0, providerPaymentID, paidAt); err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPaymentWindowClosed), errors.Is(err, apperrors.ErrPaymentNotModifiable):
 			return nil
+		case errors.Is(err, apperrors.ErrPaymentVerificationFailed):
+			return webhookIgnored("payment %d: %s", payment.ID, apperrors.Reason(err))
 		}
 		return err
 	}
@@ -617,11 +644,42 @@ func (ps *PaymentService) captureReported(ctx context.Context, payment *models.P
 	return nil
 }
 
+// settleReportedRefund settles the refund a webhook reports. A refund already
+// settled, or one this service did not ask for, changes nothing.
+func (ps *PaymentService) settleReportedRefund(ctx context.Context, event *models.GatewayEvent) error {
+	payment, err := ps.payments.GetByProviderPaymentID(ctx, ps.gateway.Provider(), event.ProviderPaymentID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrPaymentNotFound) {
+			return webhookIgnored("no payment has gateway payment %s", event.ProviderPaymentID)
+		}
+		return fmt.Errorf("get payment by provider payment id: %w", err)
+	}
+	refund, err := ps.payments.GetRequestedRefundByPayment(ctx, payment.ID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrRefundNotFound) {
+			return webhookIgnored("payment %d has no refund waiting", payment.ID)
+		}
+		return fmt.Errorf("get requested refund of payment %d: %w", payment.ID, err)
+	}
+	if event.Amount != refund.Amount {
+		return webhookIgnored("gateway refund %s of %d paise does not match refund %d", event.ProviderRefundID, event.Amount, refund.ID)
+	}
+
+	status := models.RefundStatusSucceeded
+	if event.Type == models.GatewayEventRefundFailed {
+		status = models.RefundStatusFailed
+	}
+
+	return ps.settleRefund(ctx, payment, refund, event.ProviderRefundID, status, 0)
+}
+
 // refund returns a captured payment in full. The refund is recorded as
-// requested and committed before the gateway is called, then finished with the
+// requested and committed before the gateway is called, then settled with the
 // gateway's answer, so a gateway call never holds a transaction open. A refund
-// the gateway cannot make, or one left requested by a crash between the steps,
-// waits in ListRefunds for an admin to pay back and complete.
+// the gateway is still processing stays requested until its webhook or
+// ReconcileRefunds settles it; so does one whose gateway call failed, since the
+// gateway may have received it. A refund the gateway refused returns
+// ErrRefundFailed.
 func (ps *PaymentService) refund(
 	ctx context.Context,
 	payment *models.Payment,
@@ -641,20 +699,52 @@ func (ps *PaymentService) refund(
 		return err
 	}
 
-	providerRefundID, gatewayErr := ps.gateway.Refund(ctx, payment, payment.Amount)
-	if errors.Is(gatewayErr, apperrors.ErrRefundManual) {
-		event := paymentEvent(models.OutboxEventRefundManual, payment)
-		event.Payload["refundId"] = requested.ID
-		return ps.outbox.Create(ctx, event)
+	providerRefundID, status, err := ps.gateway.Refund(ctx, payment, requested)
+	if err != nil {
+		return fmt.Errorf("refund with gateway: %w", err)
 	}
-	if gatewayErr != nil {
-		if err := ps.payments.FinishRefund(ctx, requested.ID, models.RefundStatusFailed, ""); err != nil {
-			return fmt.Errorf("record failed refund: %w", err)
-		}
-		return fmt.Errorf("refund with gateway: %w", gatewayErr)
+	if err := ps.settleRefund(ctx, payment, requested, providerRefundID, status, actingUserID); err != nil {
+		return err
+	}
+	if status == models.RefundStatusFailed {
+		return apperrors.ErrRefundFailed
 	}
 
-	return ps.finishRefund(ctx, payment, requested.ID, providerRefundID, reason, actingUserID)
+	return nil
+}
+
+// settleRefund records the gateway's final word on a requested refund. A
+// succeeded refund marks the payment and its appointment refunded; a failed one
+// tells admins through the outbox. A requested status changes nothing, and so
+// does a refund that something else settled first.
+func (ps *PaymentService) settleRefund(
+	ctx context.Context,
+	payment *models.Payment,
+	refund *models.Refund,
+	providerRefundID string,
+	status models.RefundStatus,
+	actingUserID uint64,
+) error {
+	var err error
+	switch status {
+	case models.RefundStatusSucceeded:
+		err = ps.finishRefund(ctx, payment, refund.ID, providerRefundID, refund.Reason, actingUserID)
+	case models.RefundStatusFailed:
+		err = ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+			if err := ps.payments.FinishRefund(txCtx, refund.ID, models.RefundStatusFailed, providerRefundID); err != nil {
+				return err
+			}
+
+			event := paymentEvent(models.OutboxEventRefundFailed, payment)
+			event.Payload["refundId"] = refund.ID
+			return ps.outbox.Create(txCtx, event)
+		})
+	}
+	if errors.Is(err, apperrors.ErrPaymentNotModifiable) {
+		return nil
+	}
+
+	return err
 }
 
 // finishRefund marks a requested refund succeeded and the payment and its
@@ -780,4 +870,9 @@ func paymentEvent(eventType string, payment *models.Payment) *models.OutboxEvent
 			"status":        payment.Status,
 		},
 	}
+}
+
+// webhookIgnored reports a gateway callback with nothing to apply and why.
+func webhookIgnored(format string, args ...any) error {
+	return apperrors.Invalid(apperrors.ErrWebhookIgnored, "", fmt.Sprintf(format, args...))
 }

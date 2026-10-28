@@ -1,11 +1,12 @@
 package handler_test
 
 import (
-	"appointment_system/internal/apps/appointment/adapters/payment/youpi"
+	"appointment_system/internal/apps/appointment/adapters/payment/razorpay"
 	"appointment_system/internal/apps/appointment/models"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,39 +14,47 @@ import (
 	"time"
 )
 
-const youpiWebhookSecret = "merchant-webhook-secret-at-least-32-chars"
+const (
+	razorpayKeySecret     = "razorpay-key-secret"
+	razorpayWebhookSecret = "razorpay-webhook-secret-at-least-32-chars"
+)
 
-// newYouPIGateway answers YouPI's status API with a paid session sess-1 and
-// knows no other session.
-func newYouPIGateway(t *testing.T) *youpi.Gateway {
+// newRazorpayGateway answers Razorpay's API with the captured payment pay_1 of
+// order_1, refunds it as pending and knows nothing else.
+func newRazorpayGateway(t *testing.T) *razorpay.Gateway {
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/payments/sess-1" {
-			w.WriteHeader(http.StatusNotFound)
-			return
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method + " " + r.URL.Path {
+		case "GET /v1/payments/pay_1":
+			fmt.Fprintf(w, `{"id":"pay_1","order_id":"order_1","amount":50000,"currency":"INR","status":"captured","created_at":%d}`, time.Now().Unix())
+		case "POST /v1/payments/pay_1/refund":
+			w.Write([]byte(`{"id":"rfnd_1","payment_id":"pay_1","amount":50000,"status":"pending"}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"code":"BAD_REQUEST_ERROR","description":"The id provided does not exist"}}`))
 		}
-		w.Write([]byte(`{"paymentId":"sess-1","status":"SUCCESS","amountPaise":"50000"}`))
 	}))
 	t.Cleanup(server.Close)
-	gateway, err := youpi.New(server.URL, "merchant-1", youpiWebhookSecret, "https://app.example.com/payments/return")
+	gateway, err := razorpay.New("rzp_test_key", razorpayKeySecret, razorpayWebhookSecret)
 	if err != nil {
-		t.Fatalf("youpi.New returned error: %v", err)
+		t.Fatalf("razorpay.New returned error: %v", err)
 	}
 
-	return gateway
+	return gateway.WithBaseURL(server.URL)
 }
 
-func signWebhook(body string) string {
-	mac := hmac.New(sha256.New, []byte(youpiWebhookSecret))
-	mac.Write([]byte(body))
-	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+func hexHMAC(secret string, message string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(message))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func TestPaymentHandlerWebhookStatusCodes(t *testing.T) {
+func razorpayBooking() *models.AppointmentDetails {
 	dueAt := time.Now().Add(5 * time.Minute)
 	nextWeek := time.Now().Add(7 * 24 * time.Hour)
-	booking := &models.AppointmentDetails{Appointment: models.Appointment{
+	return &models.AppointmentDetails{Appointment: models.Appointment{
 		ID:              50,
 		PatientID:       3,
 		DoctorID:        5,
@@ -56,38 +65,59 @@ func TestPaymentHandlerWebhookStatusCodes(t *testing.T) {
 		PaymentStatus:   models.AppointmentPaymentUnpaid,
 		PaymentDueAt:    &dueAt,
 	}}
-	success := `{"event":"SUCCESS","paymentId":"sess-1","orderId":"apt_50_1","amount":"500.00","amountPaise":50000,"utr":"412345678901"}`
-	unknown := `{"event":"SUCCESS","paymentId":"sess-9","amountPaise":50000,"utr":"412345678909"}`
+}
+
+func razorpayPayment(status models.PaymentStatus) *models.Payment {
+	payment := &models.Payment{ID: 70, AppointmentID: 50, PayerUserID: 7, Amount: 50000, Currency: "INR", Provider: razorpay.ProviderName, ProviderOrderID: "order_1", Status: status}
+	if status != models.PaymentStatusCreated {
+		payment.ProviderPaymentID = "pay_1"
+	}
+	return payment
+}
+
+func TestPaymentHandlerWebhookStatusCodes(t *testing.T) {
+	captured := `{"entity":"event","event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_1","order_id":"order_1","amount":50000,"currency":"INR","status":"captured"}}}}`
+	failed := `{"entity":"event","event":"payment.failed","payload":{"payment":{"entity":{"id":"pay_2","order_id":"order_1","amount":50000,"currency":"INR","status":"failed"}}}}`
+	unknown := `{"entity":"event","event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_9","order_id":"order_9","amount":50000,"currency":"INR","status":"captured"}}}}`
+	refunded := `{"entity":"event","event":"refund.processed","payload":{"refund":{"entity":{"id":"rfnd_1","payment_id":"pay_1","amount":50000,"status":"processed"}}}}`
 
 	tests := []struct {
 		name        string
 		body        string
 		signature   string
+		payment     *models.Payment
+		refunds     []*models.Refund
 		none        bool
 		wantStatus  int
 		wantBody    string
 		wantPayment models.PaymentStatus
 	}{
-		{name: "a signed success captures the payment", body: success, signature: signWebhook(success), wantStatus: http.StatusOK, wantBody: `"received":true`, wantPayment: models.PaymentStatusCaptured},
-		{name: "a forged signature", body: success, signature: signWebhook(success + " "), wantStatus: http.StatusUnauthorized, wantPayment: models.PaymentStatusCreated},
-		{name: "no signature", body: success, wantStatus: http.StatusUnauthorized, wantPayment: models.PaymentStatusCreated},
-		{name: "a session we never opened", body: unknown, signature: signWebhook(unknown), wantStatus: http.StatusNotFound, wantPayment: models.PaymentStatusCreated},
-		{name: "a body over 64 KB", body: success + strings.Repeat(" ", 64<<10), signature: signWebhook(success), wantStatus: http.StatusRequestEntityTooLarge, wantPayment: models.PaymentStatusCreated},
-		{name: "the none gateway takes no webhooks", body: success, signature: signWebhook(success), none: true, wantStatus: http.StatusUnauthorized, wantPayment: models.PaymentStatusCreated},
+		{name: "a signed capture captures the payment", body: captured, signature: hexHMAC(razorpayWebhookSecret, captured), wantStatus: http.StatusOK, wantBody: `"received":true`, wantPayment: models.PaymentStatusCaptured},
+		{name: "a forged signature", body: captured, signature: hexHMAC(razorpayWebhookSecret, captured+" "), wantStatus: http.StatusUnauthorized, wantPayment: models.PaymentStatusCreated},
+		{name: "a body signed with the key secret", body: captured, signature: hexHMAC(razorpayKeySecret, captured), wantStatus: http.StatusUnauthorized, wantPayment: models.PaymentStatusCreated},
+		{name: "no signature", body: captured, wantStatus: http.StatusUnauthorized, wantPayment: models.PaymentStatusCreated},
+		{name: "a failed attempt leaves the order open for a retry", body: failed, signature: hexHMAC(razorpayWebhookSecret, failed), wantStatus: http.StatusOK, wantBody: `"Webhook ignored"`, wantPayment: models.PaymentStatusCreated},
+		{name: "an order we never opened is acknowledged", body: unknown, signature: hexHMAC(razorpayWebhookSecret, unknown), wantStatus: http.StatusOK, wantBody: `"Webhook ignored"`, wantPayment: models.PaymentStatusCreated},
+		{name: "a processed refund marks the payment refunded", body: refunded, signature: hexHMAC(razorpayWebhookSecret, refunded), payment: razorpayPayment(models.PaymentStatusCaptured), refunds: []*models.Refund{{ID: 90, PaymentID: 70, Amount: 50000, Reason: models.RefundReasonAdmin, Status: models.RefundStatusRequested}}, wantStatus: http.StatusOK, wantPayment: models.PaymentStatusRefunded},
+		{name: "a body over 64 KB", body: captured + strings.Repeat(" ", 64<<10), signature: hexHMAC(razorpayWebhookSecret, captured), wantStatus: http.StatusRequestEntityTooLarge, wantPayment: models.PaymentStatusCreated},
+		{name: "the none gateway takes no webhooks", body: captured, signature: hexHMAC(razorpayWebhookSecret, captured), none: true, wantStatus: http.StatusUnauthorized, wantPayment: models.PaymentStatusCreated},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payments := &fakePaymentRepo{payment: &models.Payment{ID: 70, AppointmentID: 50, PayerUserID: 7, Amount: 50000, Currency: "INR", Provider: youpi.ProviderName, ProviderOrderID: "sess-1", Status: models.PaymentStatusCreated}}
-			router := newPaymentRouterWithGateway(t, &fakeAppointmentRepo{byID: booking}, &fakeUserPatientRepo{}, payments, newYouPIGateway(t))
+			if tt.payment == nil {
+				tt.payment = razorpayPayment(models.PaymentStatusCreated)
+			}
+			payments := &fakePaymentRepo{payment: tt.payment, refunds: tt.refunds}
+			router := newPaymentRouterWithGateway(t, &fakeAppointmentRepo{byID: razorpayBooking()}, &fakeUserPatientRepo{}, payments, newRazorpayGateway(t))
 			if tt.none {
-				router = newPaymentRouter(t, &fakeAppointmentRepo{byID: booking}, &fakeUserPatientRepo{}, payments)
+				router = newPaymentRouter(t, &fakeAppointmentRepo{byID: razorpayBooking()}, &fakeUserPatientRepo{}, payments)
 			}
 
 			request := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/payment", strings.NewReader(tt.body))
 			request.Header.Set("Content-Type", "application/json")
 			if tt.signature != "" {
-				request.Header.Set("X-Gateway-Signature", tt.signature)
+				request.Header.Set("X-Razorpay-Signature", tt.signature)
 			}
 			recorder := httptest.NewRecorder()
 
@@ -106,45 +136,75 @@ func TestPaymentHandlerWebhookStatusCodes(t *testing.T) {
 	}
 }
 
-func TestAdminRefundQueueStatusCodes(t *testing.T) {
-	refund := func(status models.RefundStatus) []*models.Refund {
-		return []*models.Refund{{ID: 90, PaymentID: 70, Amount: 50000, Reason: models.RefundReasonDoctorCancelled, Status: status}}
+func TestPaymentHandlerRazorpayVerifyStatusCodes(t *testing.T) {
+	fullLink := &models.UserPatient{UserID: 7, PatientID: 3, PatientRelationship: models.RelationshipChild, AccessLevel: models.AccessLevelFull, Status: models.UserPatientStatusActive}
+	body := func(paymentID string, signature string) string {
+		return fmt.Sprintf(`{"providerPaymentId":%q,"signature":%q}`, paymentID, signature)
 	}
+
+	tests := []struct {
+		name        string
+		body        string
+		wantStatus  int
+		wantPayment models.PaymentStatus
+	}{
+		{name: "checkout's signature over the stored order captures", body: body("pay_1", hexHMAC(razorpayKeySecret, "order_1|pay_1")), wantStatus: http.StatusOK, wantPayment: models.PaymentStatusCaptured},
+		{name: "a signature over another order is refused", body: body("pay_1", hexHMAC(razorpayKeySecret, "order_2|pay_1")), wantStatus: http.StatusUnprocessableEntity, wantPayment: models.PaymentStatusCreated},
+		{name: "a signature made with the webhook secret is refused", body: body("pay_1", hexHMAC(razorpayWebhookSecret, "order_1|pay_1")), wantStatus: http.StatusUnprocessableEntity, wantPayment: models.PaymentStatusCreated},
+		{name: "no signature", body: `{"providerPaymentId":"pay_1"}`, wantStatus: http.StatusBadRequest, wantPayment: models.PaymentStatusCreated},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payments := &fakePaymentRepo{payment: razorpayPayment(models.PaymentStatusCreated)}
+			router := newPaymentRouterWithGateway(t, &fakeAppointmentRepo{byID: razorpayBooking()}, &fakeUserPatientRepo{userPatient: fullLink}, payments, newRazorpayGateway(t))
+
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/payments/70/verify", strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer patient-token")
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d, body = %s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+			if payments.payment.Status != tt.wantPayment {
+				t.Fatalf("payment status = %q, want %q", payments.payment.Status, tt.wantPayment)
+			}
+		})
+	}
+}
+
+func TestAdminRefundStatusCodes(t *testing.T) {
+	requested := []*models.Refund{{ID: 90, PaymentID: 70, Amount: 50000, Reason: models.RefundReasonDoctorCancelled, Status: models.RefundStatusRequested}}
 
 	tests := []struct {
 		name       string
 		method     string
 		path       string
-		body       string
 		token      string
 		refunds    []*models.Refund
-		youpi      bool
+		razorpay   bool
 		wantStatus int
 		wantBody   string
 	}{
-		{name: "admin lists the manual queue", method: http.MethodGet, path: "/api/v1/admin/refunds", token: "admin-token", refunds: refund(models.RefundStatusRequested), wantStatus: http.StatusOK, wantBody: `"refunds":[{"id":90`},
+		{name: "admin lists refunds still with the gateway", method: http.MethodGet, path: "/api/v1/admin/refunds", token: "admin-token", refunds: requested, wantStatus: http.StatusOK, wantBody: `"refunds":[{"id":90`},
 		{name: "an unknown status", method: http.MethodGet, path: "/api/v1/admin/refunds?status=pending", token: "admin-token", wantStatus: http.StatusBadRequest, wantBody: `"details":"status must be one of requested, succeeded, failed"`},
 		{name: "patient cannot list refunds", method: http.MethodGet, path: "/api/v1/admin/refunds", token: "patient-token", wantStatus: http.StatusForbidden},
-		{name: "admin completes a payout", method: http.MethodPost, path: "/api/v1/admin/refunds/90/complete", body: `{"reference":"412345678901"}`, token: "admin-token", refunds: refund(models.RefundStatusRequested), wantStatus: http.StatusOK, wantBody: `"providerRefundId":"412345678901"`},
-		{name: "complete without a reference", method: http.MethodPost, path: "/api/v1/admin/refunds/90/complete", body: `{}`, token: "admin-token", refunds: refund(models.RefundStatusRequested), wantStatus: http.StatusBadRequest},
-		{name: "complete a finished refund", method: http.MethodPost, path: "/api/v1/admin/refunds/90/complete", body: `{"reference":"412345678901"}`, token: "admin-token", refunds: refund(models.RefundStatusSucceeded), wantStatus: http.StatusConflict},
-		{name: "complete a missing refund", method: http.MethodPost, path: "/api/v1/admin/refunds/91/complete", body: `{"reference":"412345678901"}`, token: "admin-token", wantStatus: http.StatusNotFound},
-		{name: "doctor cannot complete a refund", method: http.MethodPost, path: "/api/v1/admin/refunds/90/complete", body: `{"reference":"412345678901"}`, token: "doctor-token", refunds: refund(models.RefundStatusRequested), wantStatus: http.StatusForbidden},
-		{name: "a youpi refund is accepted for a manual payout", method: http.MethodPost, path: "/api/v1/admin/payments/70/refund", token: "admin-token", youpi: true, wantStatus: http.StatusAccepted, wantBody: `"refundPending":true`},
+		{name: "a razorpay refund is accepted while it is processed", method: http.MethodPost, path: "/api/v1/admin/payments/70/refund", token: "admin-token", razorpay: true, wantStatus: http.StatusAccepted, wantBody: `"refundPending":true`},
+		{name: "the manual complete route is gone", method: http.MethodPost, path: "/api/v1/admin/refunds/90/complete", token: "admin-token", refunds: requested, wantStatus: http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payments := &fakePaymentRepo{payment: &models.Payment{ID: 70, AppointmentID: 50, Amount: 50000, Currency: "INR", Provider: youpi.ProviderName, ProviderOrderID: "sess-1", Status: models.PaymentStatusCaptured}, refunds: tt.refunds}
+			payments := &fakePaymentRepo{payment: razorpayPayment(models.PaymentStatusCaptured), refunds: tt.refunds}
 			router := newDoctorAdminRouterWithPayments(t, &fakeDoctorRepo{}, &fakeAvailabilityRepo{}, payments)
-			if tt.youpi {
-				router = newDoctorAdminRouterWithGateway(t, &fakeDoctorRepo{}, &fakeAvailabilityRepo{}, payments, &fakeMedicalRecordRepo{}, newYouPIGateway(t))
+			if tt.razorpay {
+				router = newDoctorAdminRouterWithGateway(t, &fakeDoctorRepo{}, &fakeAvailabilityRepo{}, payments, &fakeMedicalRecordRepo{}, newRazorpayGateway(t))
 			}
 
-			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
-			if tt.body != "" {
-				request.Header.Set("Content-Type", "application/json")
-			}
+			request := httptest.NewRequest(tt.method, tt.path, nil)
 			request.Header.Set("Authorization", "Bearer "+tt.token)
 			recorder := httptest.NewRecorder()
 

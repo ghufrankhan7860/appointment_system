@@ -44,33 +44,34 @@ func TestLoadPaymentProvider(t *testing.T) {
 	}
 }
 
-func TestLoadYouPIProvider(t *testing.T) {
+func TestLoadRazorpayProvider(t *testing.T) {
 	secret := strings.Repeat("w", 32)
 
 	tests := []struct {
-		name       string
-		baseURL    string
-		merchantID string
-		secret     string
-		returnURL  string
-		wantErr    string
+		name          string
+		environment   string
+		keyID         string
+		keySecret     string
+		webhookSecret string
+		wantErr       string
 	}{
-		{name: "youpi with every setting", baseURL: "https://pay.example.com", merchantID: "merchant-1", secret: secret, returnURL: "https://app.example.com/payments/return"},
-		{name: "a missing merchant id", baseURL: "https://pay.example.com", secret: secret, returnURL: "https://app.example.com/return", wantErr: "YOUPI_MERCHANT_ID"},
-		{name: "a short webhook secret", baseURL: "https://pay.example.com", merchantID: "merchant-1", secret: "short", returnURL: "https://app.example.com/return", wantErr: "YOUPI_WEBHOOK_SECRET"},
-		{name: "a relative base url", baseURL: "pay.example.com", merchantID: "merchant-1", secret: secret, returnURL: "https://app.example.com/return", wantErr: "YOUPI_BASE_URL"},
-		{name: "a missing return url", baseURL: "https://pay.example.com", merchantID: "merchant-1", secret: secret, wantErr: "PAYMENT_RETURN_URL"},
+		{name: "test keys in development", environment: "development", keyID: "rzp_test_abc", keySecret: "key-secret", webhookSecret: secret},
+		{name: "live keys in production", environment: "production", keyID: "rzp_live_abc", keySecret: "key-secret", webhookSecret: secret},
+		{name: "live keys are refused outside production", environment: "development", keyID: "rzp_live_abc", keySecret: "key-secret", webhookSecret: secret, wantErr: `"rzp_test_"`},
+		{name: "test keys are refused in production", environment: "production", keyID: "rzp_test_abc", keySecret: "key-secret", webhookSecret: secret, wantErr: `"rzp_live_"`},
+		{name: "a missing key secret", environment: "development", keyID: "rzp_test_abc", webhookSecret: secret, wantErr: "RAZORPAY_KEY_SECRET"},
+		{name: "a missing key id", environment: "development", keySecret: "key-secret", webhookSecret: secret, wantErr: "RAZORPAY_KEY_ID"},
+		{name: "a short webhook secret", environment: "development", keyID: "rzp_test_abc", keySecret: "key-secret", webhookSecret: "short", wantErr: "RAZORPAY_WEBHOOK_SECRET"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("APP_ENV", "production")
+			t.Setenv("APP_ENV", tt.environment)
 			t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
-			t.Setenv("PAYMENT_PROVIDER", "youpi")
-			t.Setenv("YOUPI_BASE_URL", tt.baseURL)
-			t.Setenv("YOUPI_MERCHANT_ID", tt.merchantID)
-			t.Setenv("YOUPI_WEBHOOK_SECRET", tt.secret)
-			t.Setenv("PAYMENT_RETURN_URL", tt.returnURL)
+			t.Setenv("PAYMENT_PROVIDER", "razorpay")
+			t.Setenv("RAZORPAY_KEY_ID", tt.keyID)
+			t.Setenv("RAZORPAY_KEY_SECRET", tt.keySecret)
+			t.Setenv("RAZORPAY_WEBHOOK_SECRET", tt.webhookSecret)
 
 			loaded, err := config.Load()
 			if tt.wantErr != "" {
@@ -82,8 +83,9 @@ func TestLoadYouPIProvider(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load returned error: %v", err)
 			}
-			if loaded.Payment.Provider != "youpi" || loaded.Payment.YouPIWebhookSecret != secret || loaded.Payment.ReturnURL != tt.returnURL {
-				t.Fatalf("Load payment = %+v, want youpi with its settings", loaded.Payment)
+			if loaded.Payment.Provider != "razorpay" || loaded.Payment.RazorpayKeyID != tt.keyID ||
+				loaded.Payment.RazorpayKeySecret != tt.keySecret || loaded.Payment.RazorpayWebhookSecret != tt.webhookSecret {
+				t.Fatalf("Load payment provider = %q key id = %q, want razorpay with its settings", loaded.Payment.Provider, loaded.Payment.RazorpayKeyID)
 			}
 		})
 	}

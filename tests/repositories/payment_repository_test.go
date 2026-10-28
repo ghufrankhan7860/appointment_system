@@ -127,7 +127,7 @@ func TestPaymentRepositoryLivePaymentsAndRefunds(t *testing.T) {
 	}
 }
 
-func TestPaymentRepositoryProviderOrdersAndRefundQueue(t *testing.T) {
+func TestPaymentRepositoryProviderLookupsAndRefunds(t *testing.T) {
 	db := openTestDB(t)
 	fixture := newAppointmentFixture(t, db)
 	ctx := context.Background()
@@ -141,13 +141,13 @@ func TestPaymentRepositoryProviderOrdersAndRefundQueue(t *testing.T) {
 	})
 
 	appointment := newUnpaidAppointment(t, fixture, time.Now().Add(160*time.Hour).Truncate(time.Hour), time.Now().Add(10*time.Minute))
-	orderID := fmt.Sprintf("sess-%d", time.Now().UnixNano())
-	created, err := payments.Create(ctx, &models.Payment{AppointmentID: appointment.ID, PayerUserID: fixture.booker.ID, Amount: 50000, Currency: "INR", Provider: "youpi", ProviderOrderID: orderID, Status: models.PaymentStatusCreated})
+	orderID := fmt.Sprintf("order_%d", time.Now().UnixNano())
+	created, err := payments.Create(ctx, &models.Payment{AppointmentID: appointment.ID, PayerUserID: fixture.booker.ID, Amount: 50000, Currency: "INR", Provider: "razorpay", ProviderOrderID: orderID, Status: models.PaymentStatusCreated})
 	if err != nil {
-		t.Fatalf("Create with the youpi provider returned error: %v", err)
+		t.Fatalf("Create with the razorpay provider returned error: %v", err)
 	}
 
-	found, err := payments.GetByProviderOrderID(ctx, "youpi", orderID)
+	found, err := payments.GetByProviderOrderID(ctx, "razorpay", orderID)
 	if err != nil || found.ID != created.ID {
 		t.Fatalf("GetByProviderOrderID = %+v, %v; want payment %d", found, err, created.ID)
 	}
@@ -156,12 +156,22 @@ func TestPaymentRepositoryProviderOrdersAndRefundQueue(t *testing.T) {
 	}
 
 	capturedAt := time.Now()
-	if err := payments.UpdateStatus(ctx, created.ID, models.PaymentStatusCreated, models.PaymentStatusCaptured, fmt.Sprintf("utr-%d", time.Now().UnixNano()), &capturedAt); err != nil {
+	providerPaymentID := fmt.Sprintf("pay_%d", time.Now().UnixNano())
+	if err := payments.UpdateStatus(ctx, created.ID, models.PaymentStatusCreated, models.PaymentStatusCaptured, providerPaymentID, &capturedAt); err != nil {
 		t.Fatalf("UpdateStatus to captured returned error: %v", err)
+	}
+	if byPayment, err := payments.GetByProviderPaymentID(ctx, "razorpay", providerPaymentID); err != nil || byPayment.ID != created.ID {
+		t.Fatalf("GetByProviderPaymentID = %+v, %v; want payment %d", byPayment, err, created.ID)
+	}
+	if _, err := payments.GetByProviderPaymentID(ctx, "none", providerPaymentID); !errors.Is(err, apperrors.ErrPaymentNotFound) {
+		t.Fatalf("GetByProviderPaymentID for another provider error = %v, want %v", err, apperrors.ErrPaymentNotFound)
 	}
 	refund, err := payments.CreateRefund(ctx, &models.Refund{PaymentID: created.ID, Amount: 50000, Reason: models.RefundReasonDoctorCancelled, Status: models.RefundStatusRequested})
 	if err != nil {
 		t.Fatalf("CreateRefund returned error: %v", err)
+	}
+	if waiting, err := payments.GetRequestedRefundByPayment(ctx, created.ID); err != nil || waiting.ID != refund.ID {
+		t.Fatalf("GetRequestedRefundByPayment = %+v, %v; want refund %d", waiting, err, refund.ID)
 	}
 
 	listsRefund := func(status models.RefundStatus) bool {
@@ -180,12 +190,15 @@ func TestPaymentRepositoryProviderOrdersAndRefundQueue(t *testing.T) {
 		t.Fatalf("ListRefunds does not list refund %d as requested only", refund.ID)
 	}
 
-	if err := payments.FinishRefund(ctx, refund.ID, models.RefundStatusSucceeded, "412345678901"); err != nil {
+	if err := payments.FinishRefund(ctx, refund.ID, models.RefundStatusSucceeded, "rfnd_1"); err != nil {
 		t.Fatalf("FinishRefund returned error: %v", err)
 	}
 	completed, err := payments.GetRefundByID(ctx, refund.ID)
-	if err != nil || completed.Status != models.RefundStatusSucceeded || completed.ProviderRefundID != "412345678901" || completed.ProcessedAt == nil {
-		t.Fatalf("GetRefundByID = %+v, %v; want a succeeded refund with its reference", completed, err)
+	if err != nil || completed.Status != models.RefundStatusSucceeded || completed.ProviderRefundID != "rfnd_1" || completed.ProcessedAt == nil {
+		t.Fatalf("GetRefundByID = %+v, %v; want a succeeded refund with the gateway's id", completed, err)
+	}
+	if _, err := payments.GetRequestedRefundByPayment(ctx, created.ID); !errors.Is(err, apperrors.ErrRefundNotFound) {
+		t.Fatalf("GetRequestedRefundByPayment after it finished error = %v, want %v", err, apperrors.ErrRefundNotFound)
 	}
 	if listsRefund(models.RefundStatusRequested) || !listsRefund(models.RefundStatusSucceeded) {
 		t.Fatalf("ListRefunds does not list refund %d as succeeded only", refund.ID)

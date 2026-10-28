@@ -58,7 +58,7 @@ Before adding code, read these documents:
 
 |   |   |-- provider/               # Placeholder: provider selection and registration
 
-|   |   |-- adapters/               # Provider implementations: payment/none, payment/youpi, storage/local
+|   |   |-- adapters/               # Provider implementations: payment/none, payment/razorpay, storage/local
 
 |   |   |-- cache/                  # Placeholder: appointment cache policy
 
@@ -89,6 +89,8 @@ Before adding code, read these documents:
 |   |-- cron/expire_payments/       # Cancels bookings not paid in time (make expire-payments)
 
 |   |-- cron/expire_proposals/      # Closes unanswered reschedule proposals (make expire-proposals)
+
+|   |-- cron/reconcile_refunds/     # Settles refunds still waiting for the gateway (make reconcile-refunds)
 
 |   `-- backfill/                   # Placeholder: restartable data repair/import jobs
 
@@ -848,7 +850,7 @@ GET  /appointments/:id/payment     any      the appointment's latest payment (pa
 
 POST /payments/:id/verify          patient  confirm a payment with {providerPaymentId, signature?}
 
-POST /webhooks/payment             gateway  YouPI's signed callback; no token, X-Gateway-Signature instead
+POST /webhooks/payment             gateway  Razorpay's signed callback; no token, X-Razorpay-Signature instead
 
 ```
 
@@ -876,6 +878,10 @@ POST /patients/:id/attachments                any      upload a report outside a
 
 GET  /attachments/:id/content                 any      download a file
 
+GET  /doctors/me/patients/:id/records         doctor   a treated patient's finalized records plus own drafts
+
+GET  /doctors/me/patients/:id/attachments     doctor   a treated patient's files
+
 ```
 
 See **Medical records** below for the rules.
@@ -890,7 +896,7 @@ GET  /doctors/me                  doctor   own profile, any status
 
 PUT  /doctors/me                  doctor   replace own profile
 
-GET  /doctors                     any      search verified doctors (?q=&speciality=&tag=&city=&mode=&feeMax=&limit=&offset=)
+GET  /doctors                     any      search verified doctors (?q=&speciality=&tag=&city=&mode=&feeMax=&date=&limit=&offset=)
 
 GET  /doctors/:id                 any      public profile of a verified doctor
 
@@ -911,6 +917,8 @@ POST /doctors/me/appointments/:id/complete   doctor   mark a started appointment
 POST /doctors/me/appointments/:id/no-show    doctor   mark a started appointment a no-show
 
 POST /doctors/me/appointments/:id/reschedule-proposals  doctor  offer a new time ({startsAt, mode?, reason, note?})
+
+GET  /doctors/me/patients        doctor   own patients, next visit first (?q=&limit=&offset=)
 
 ```
 
@@ -936,9 +944,8 @@ POST /admin/specialities                   add a speciality               specia
 
 POST /admin/payments/:id/refund  {note?}   full refund of a captured payment  payment:refund
 
-GET  /admin/refunds?status=      refunds, oldest first; default requested = manual payouts to make  payment:refund
+GET  /admin/refunds?status=      refunds, oldest first; default requested = still with Razorpay  payment:refund
 
-POST /admin/refunds/:id/complete {reference}  record a manual payout's UTR  payment:refund
 
 GET  /admin/records/:id/access-log         who touched a record, never what it says  record:audit
 
@@ -965,7 +972,7 @@ pending ──verify──▶ verified ──suspend──▶ suspended ──re
 
 A verified doctor who changes the registration number or council also goes back to `pending`. A suspended doctor cannot clear the suspension by editing the profile.
 
-Search: `speciality` and `tag` may repeat and match any of the given values; every other filter must match. The `date` filter needs doctor availability and is not supported yet.
+Search: `speciality` and `tag` may repeat and match any of the given values; every other filter must match. `date=YYYY-MM-DD` keeps only doctors with at least one free slot that day (in `mode`, when given), checked exactly against their slots; the date must be from today up to 90 days ahead, otherwise `400`.
 
 ### Availability and slots
 
@@ -1006,8 +1013,9 @@ Background jobs:
 
 - `make consumer` (`scripts/consumer/outbox`) runs until stopped and publishes unpublished outbox events in order, at least once. Each batch locks its rows and skips rows another copy holds, so several copies can run. For now an event is written to the log; email, SMS or push replace that later.
 - `make reminders` (`scripts/cron/reminders`) queues due reminders once and exits; schedule it every few minutes. It queues an `appointment.reminder` event 2 hours before the start (`two_hours`) and, from 18:00 clinic time, for tomorrow's appointments (`day_before`). `appointment_reminders` makes repeated or overlapping runs safe. An appointment just after midnight that the 2-hour reminder covers gets only that one.
-- `make expire-payments` (`scripts/cron/expire_payments`) cancels unpaid bookings past their hold once and exits; schedule it every minute.
+- `make expire-payments` (`scripts/cron/expire_payments`) cancels unpaid bookings past their hold once and exits; schedule it every minute. Before cancelling, it asks the gateway whether the order was paid after all, in case the webhook was lost.
 - `make expire-proposals` (`scripts/cron/expire_proposals`) closes unanswered reschedule proposals once and exits; schedule it every few minutes.
+- `make reconcile-refunds` (`scripts/cron/reconcile_refunds`) settles refunds still `requested` with what the gateway reports, once, and exits; schedule it every 15 minutes. A refund the gateway has no record of after 15 minutes is marked `failed`, so an admin can retry it.
 
 Responses carry `startsAt` / `endsAt` with the clinic UTC offset, plus `date` and `startTime` in clinic time, `doctor {id, name, speciality}`, `patient {id, name}` and `bookedBy {userId, patientRelationship}`. `patientRelationship` is the booker's `user_patient.patient_relationship` (for example `child`), so a doctor's day can show "booked by child" without another call.
 
@@ -1017,43 +1025,45 @@ A fee is paid online before the booking is confirmed.
 
 1. `POST /appointments` books the slot with `paymentStatus: unpaid` and `paymentDueAt` 10 minutes ahead. The slot is held until then. A free consultation (fee 0) is `waived` and needs no payment.
 2. `POST /appointments/:id/payments` opens a gateway order for the fee stored on the appointment (paise, never sent by the client) and returns `clientPayload` for the gateway's payment screen. Anyone with `full` or `appointments_only` access can pay, so a caregiver can pay for a booking someone else made; `payerUserId` records who paid. Asking again returns the same open payment.
-3. The payment is captured and the appointment marked `paid` in one transaction, either by the gateway's webhook (YouPI) or by `POST /payments/:id/verify` with the gateway's `providerPaymentId` and, for `none`, its `signature`. Proof the gateway does not accept, or a `providerPaymentId` that already confirmed another payment, is `422`.
+3. The payment is captured and the appointment marked `paid` in one transaction, either by `POST /payments/:id/verify` with the gateway's `providerPaymentId` and `signature`, or by the gateway's webhook. Proof the gateway does not accept, or a `providerPaymentId` that already confirmed another payment, is `422`.
 
 Rules:
 
-- `make expire-payments` cancels bookings still unpaid after `paymentDueAt` with cancel reason `payment_expired`, which frees the slot. A payment that arrives after that is refunded automatically and verify returns `409` (`details: the booking expired before the payment arrived; the payment is being refunded`). Payment and expiry use conditional updates, so when they race exactly one wins.
-- Cancelling a paid appointment refunds it in full (`patient_cancelled` or `doctor_cancelled`); cancelling an unpaid one expires its open order.
+- `make expire-payments` cancels bookings still unpaid after `paymentDueAt` with cancel reason `payment_expired`, which frees the slot. Lateness is judged on when the payer paid, as the gateway reports it, not on when the server heard of it. A payment made after the hold is refunded automatically and verify returns `409` (`details: the booking expired before the payment arrived; the payment is being refunded`). Payment and expiry use conditional updates, so when they race exactly one wins.
+- Cancelling a paid appointment refunds it in full (`patient_cancelled` or `doctor_cancelled`); cancelling an unpaid one expires its open payment.
 - Rescheduling keeps the payment: the new appointment takes over the payment status, due time and payments.
 - A doctor can complete an appointment only when it is `paid` or `waived` (`422 Payment is pending` otherwise). Reminders are sent only for paid or free appointments.
-- Admins refund a captured payment in full with `POST /admin/payments/:id/refund`. A refund is recorded as `requested` before the gateway is called and finished with its answer, so no gateway call holds a database transaction open.
-- A gateway with no refund API (YouPI) leaves the refund `requested`: the refund route answers `202` with `refundPending: true`, and a `refund.manual_required` event is written. The admin sends the money back by UPI, then records the payout's UTR with `POST /admin/refunds/:id/complete`, which marks the payment and the appointment `refunded`. `GET /admin/refunds` is the queue; it also shows any refund a crash left `requested`.
-- Cancelling or expiring an unpaid booking also cancels its open gateway order. That call is best effort: money that still arrives is reported by webhook, captured and refunded.
-- Outbox events: `payment.captured`, `payment.refunded`, `refund.manual_required`.
+- Admins refund a captured payment in full with `POST /admin/payments/:id/refund`. A refund is recorded as `requested` before the gateway is called and settled with its answer, so no gateway call holds a database transaction open.
+- A refund the gateway is still processing stays `requested`: the refund route answers `202` with `refundPending: true` and the payment stays `captured` until the gateway's refund webhook, or `make reconcile-refunds`, marks the payment and the appointment `refunded`. A gateway error also leaves it `requested`, because the gateway may have received it.
+- A refund the gateway refuses is `failed`, the refund route answers `409`, and a `refund.failed` event is written. Refunding the payment again retries it. `GET /admin/refunds?status=failed` lists them.
+- Outbox events: `payment.captured`, `payment.refunded`, `refund.failed`.
 
 Gateways sit behind the `PaymentGateway` port in `services/`; `PAYMENT_PROVIDER` picks the adapter:
 
 - `none` (`adapters/payment/none`) moves no money: its `clientPayload` includes the `signature` to verify with, so the whole flow can be run from Swagger. It is refused when `APP_ENV` is production.
-- `youpi` (`adapters/payment/youpi`) collects UPI through a self-hosted [YouPI PG](https://github.com/youpi-pg/YouPI-PG) server. See **YouPI PG** below.
+- `razorpay` (`adapters/payment/razorpay`) uses [Razorpay Standard Checkout](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/) through the official `razorpay-go` SDK. See **Razorpay** below.
 
-### YouPI PG
+### Razorpay
 
-YouPI is a separate Node.js service that takes UPI payments straight into your own UPI account and confirms them from bank SMS, email or app alerts. The API talks to it over HTTP:
+1. `POST /appointments/:id/payments` creates a Razorpay order for the fee. `clientPayload` holds `keyId`, `orderId`, `amount` (paise) and `currency`, which the client opens Checkout with. The key secret never leaves the server.
+2. Checkout hands the browser `razorpay_payment_id` and `razorpay_signature`, which the client sends to `POST /payments/:id/verify` as `providerPaymentId` and `signature`. The server checks the signature, HMAC-SHA256 of `<stored order id>|<payment id>` keyed with the key secret, against the order it stored, never one the client names. It then fetches the payment from Razorpay and requires the same order, amount and currency. An `authorized` payment is captured.
+3. Razorpay also calls `POST /api/v1/webhooks/payment`. `X-Razorpay-Signature` (hex HMAC-SHA256 of the raw body, keyed with `RAZORPAY_WEBHOOK_SECRET`) must match or the answer is `401`. A reported capture is fetched from Razorpay again before anything is recorded, so a replayed body changes nothing.
+   - `payment.captured` and `order.paid` capture the payment.
+   - `refund.processed` and `refund.failed` settle the refund.
+   - Every other event, `payment.failed` included (the payer can retry on the same order), repeats, and orders this API did not open get `200` and change nothing. The reason is logged; the body never is.
+4. Refunds are normal speed. Each request carries an `X-Refund-Idempotency` key derived from the refund's id, so a retried request cannot refund twice.
 
-1. `POST /appointments/:id/payments` opens a YouPI session; `clientPayload.checkoutUrl` is the checkout page to send the payer to. YouPI sends them back to `PAYMENT_RETURN_URL`.
-2. YouPI calls `POST /api/v1/webhooks/payment`. The `X-Gateway-Signature` (`sha256=` HMAC-SHA256 of the raw body, keyed with `YOUPI_WEBHOOK_SECRET`) must match, then the API asks YouPI's status API whether the session was paid in full before it records anything. A repeat changes nothing. The bank UTR becomes `providerPaymentId`.
-3. The client can also call `POST /payments/:id/verify` with the UTR and no signature; the server checks with YouPI the same way.
+Razorpay orders cannot be cancelled. Money paid on an order whose booking already expired or was cancelled is captured and refunded.
 
-Setup:
+Setup (test mode first):
 
-- Run YouPI on its own (`npm install`, `npm start`; Node 22.13 or later) and create the merchant. In YouPI, set the merchant's webhook URL to `https://<api host>/api/v1/webhooks/payment` and its webhook secret to the value of `YOUPI_WEBHOOK_SECRET`. For a local API also set `YOUPI_ALLOW_PRIVATE_WEBHOOKS=true` in YouPI.
-- Set `PAYMENT_PROVIDER=youpi`, `YOUPI_BASE_URL` (the public URL of YouPI's checkout portal, which also serves its API), `YOUPI_MERCHANT_ID`, `YOUPI_WEBHOOK_SECRET` (at least 32 characters; YouPI also uses it as the merchant key) and `PAYMENT_RETURN_URL` (the frontend page after checkout). The Docker stack passes these five through from the shell, and a YouPI running on the host is `http://host.docker.internal:<port>` from inside it. Run `make expire-payments` and `make expire-proposals` with the same settings, because they cancel YouPI sessions too.
-
-Read before going live:
-
-- YouPI's own README calls it an experimental project, not certified, bank-approved, NPCI-approved or audited, and suggests at most about 20 payments a day per receiving account. It serves one payer per UPI ID at a time; others queue.
-- The repository has no LICENSE file, so its authors keep all rights by default. Check its terms before you deploy it.
-- YouPI creates sessions without a credential and does not sign its webhook timestamp. Keep `YOUPI_WEBHOOK_SECRET` private; this API never records money a webhook reports without YouPI's status API confirming it.
-- There is no refund API: every refund is a manual UPI payout (see **Payments**).
+- In the Razorpay Dashboard, in test mode, generate API keys (Account & Settings > API Keys). Set `PAYMENT_PROVIDER=razorpay`, `RAZORPAY_KEY_ID` (`rzp_test_...`) and `RAZORPAY_KEY_SECRET`.
+- Set Payment capture to automatic (Account & Settings > Payment capture). The API also captures an `authorized` payment itself.
+- Add a webhook (Accounts & Settings > Webhooks) at `https://<api host>/api/v1/webhooks/payment` with the events `payment.captured`, `order.paid`, `refund.processed` and `refund.failed`. Choose a secret of at least 32 characters and set it as `RAZORPAY_WEBHOOK_SECRET`. Test and live mode each need their own webhook.
+- Razorpay only calls public HTTPS URLs. For a local API, run a tunnel such as `cloudflared tunnel --url http://localhost:8080` and register the `https://<name>.trycloudflare.com/api/v1/webhooks/payment` URL it prints. Razorpay blocks some ngrok domains, so don't use ngrok. A quick tunnel's name changes on every start, so update the webhook URL each time.
+- The Docker stack passes the three `RAZORPAY_*` values through from the shell. Run `make expire-payments` and `make reconcile-refunds` with the same settings, because they ask Razorpay too.
+- Outside production `RAZORPAY_KEY_ID` must start with `rzp_test_`, and in production with `rzp_live_`, so a local run cannot take real money and production cannot take test money. Keep both secrets out of the repository and out of logs.
+- Test payments: UPI `success@razorpay` or `failure@razorpay`, or one of Razorpay's test cards.
 
 ### Medical records
 
@@ -1065,7 +1075,8 @@ A record is the doctor's note for one appointment, with the visit's prescription
 
 Who can read:
 
-- The record's own doctor, in any status. Other doctors get `404`.
+- The record's own doctor, in any status.
+- A doctor treating the patient (`patient:view`): someone with a completed, no-show or paid upcoming booking with them. They read the patient's finalized records from any doctor and download the patient's files, through `GET /doctors/me/patients/:id/records` and `/attachments`, `GET /records/:id` and the download route. Other doctors get `404`.
 - The patient side with **`full`** access, finalized records only. `appointments_only` and `read_only` links get `404`, the same as no link: they can manage appointments but not read diagnoses.
 - Admins see the access log (`record:audit`), never the record itself.
 
@@ -1149,6 +1160,7 @@ make cover                 # coverage of the application code, run from tests/
 | `make reminders` | Queue due appointment reminders once |
 | `make expire-payments` | Cancel bookings not paid within the hold, once |
 | `make expire-proposals` | Close reschedule proposals nobody answered in time, once |
+| `make reconcile-refunds` | Settle refunds still waiting for the gateway, once |
 
 ## Tests
 
@@ -1182,7 +1194,7 @@ go run .
 
 The `migrate` service applies every ordered migration in `migrations/` (`000001` onwards) and skips the ones already applied, so it is safe to run again after pulling new migrations. Schema migrations are explicit and are not run automatically when the application starts.
 
-Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only; `youpi` needs the `YOUPI_*` settings and `PAYMENT_RETURN_URL` (see **YouPI PG**). `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
+Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only; `razorpay` needs the three `RAZORPAY_*` settings (see **Razorpay**). `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 

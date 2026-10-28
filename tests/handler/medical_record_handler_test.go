@@ -280,3 +280,49 @@ func TestAdminRecordAccessLogStatusCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestMedicalRecordHandlerDoctorPatientView(t *testing.T) {
+	otherDoctorsRecord := &models.MedicalRecord{ID: 91, AppointmentID: 51, PatientID: 3, DoctorID: 6, Status: models.MedicalRecordStatusFinalized, Diagnosis: "Asthma"}
+	otherDoctorsDraft := &models.MedicalRecord{ID: 92, AppointmentID: 52, PatientID: 3, DoctorID: 6, Status: models.MedicalRecordStatusDraft, Diagnosis: "Unsure"}
+	report := &models.MedicalAttachment{ID: 95, PatientID: 3, Kind: models.AttachmentKindLabReport, Title: "CBC"}
+
+	tests := []struct {
+		name       string
+		path       string
+		token      string
+		treated    bool
+		record     *models.MedicalRecord
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "treating doctor reads another doctor's finalized record", path: "/api/v1/doctors/me/patients/3/records", token: "doctor-token", treated: true, record: otherDoctorsRecord, wantStatus: http.StatusOK, wantBody: `"diagnosis":"Asthma"`},
+		{name: "treating doctor does not see another doctor's draft", path: "/api/v1/doctors/me/patients/3/records", token: "doctor-token", treated: true, record: otherDoctorsDraft, wantStatus: http.StatusOK, wantBody: `"records":[]`},
+		{name: "doctor who never treated the patient", path: "/api/v1/doctors/me/patients/3/records", token: "doctor-token", record: otherDoctorsRecord, wantStatus: http.StatusNotFound},
+		{name: "patient cannot use the doctor view", path: "/api/v1/doctors/me/patients/3/records", token: "patient-token", wantStatus: http.StatusForbidden},
+		{name: "records with a bad patient id", path: "/api/v1/doctors/me/patients/abc/records", token: "doctor-token", wantStatus: http.StatusBadRequest},
+		{name: "treating doctor lists the patient's files", path: "/api/v1/doctors/me/patients/3/attachments", token: "doctor-token", treated: true, wantStatus: http.StatusOK, wantBody: `"title":"CBC"`},
+		{name: "files of a patient the doctor never treated", path: "/api/v1/doctors/me/patients/3/attachments", token: "doctor-token", wantStatus: http.StatusNotFound},
+		{name: "patient cannot list files through the doctor view", path: "/api/v1/doctors/me/patients/3/attachments", token: "patient-token", wantStatus: http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			records := &fakeMedicalRecordRepo{record: tt.record, attachments: []*models.MedicalAttachment{report}}
+			appointments := &fakeAppointmentRepo{treated: map[uint64]bool{3: tt.treated}}
+			router := newMedicalRecordRouter(t, records, appointments, &fakeUserPatientRepo{getErr: apperrors.ErrUserPatientNotFound})
+
+			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			request.Header.Set("Authorization", "Bearer "+tt.token)
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d, body = %s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+			if tt.wantBody != "" && !strings.Contains(recorder.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %s, want it to contain %s", recorder.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}

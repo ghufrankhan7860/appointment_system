@@ -106,21 +106,6 @@ func (ac *AdminController) ListRefunds(ctx context.Context, request *admin.ListR
 	return &response, nil
 }
 
-func (ac *AdminController) CompleteRefund(ctx context.Context, request *admin.CompleteRefundRequest) (*payment.RefundResponse, error) {
-	userID, err := actingUserID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	completedRefund, err := ac.paymentService.CompleteRefund(ctx, userID, request.ID, request.Reference)
-	if err != nil {
-		return nil, err
-	}
-
-	response := toRefundResponse(completedRefund)
-	return &response, nil
-}
-
 func (ac *AdminController) CreateAdmin(ctx context.Context, request *admin.CreateAdminRequest) (*admin.CreateAdminResponse, error) {
 	user := models.User{
 		Name:     request.Name,

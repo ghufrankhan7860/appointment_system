@@ -91,11 +91,10 @@ func run() error {
 		return fmt.Errorf("initialize transaction manager: %w", err)
 	}
 	paymentGateway, err := appointment.NewPaymentGateway(appointment.PaymentSettings{
-		Provider:           config.Payment.Provider,
-		ReturnURL:          config.Payment.ReturnURL,
-		YouPIBaseURL:       config.Payment.YouPIBaseURL,
-		YouPIMerchantID:    config.Payment.YouPIMerchantID,
-		YouPIWebhookSecret: config.Payment.YouPIWebhookSecret,
+		Provider:              config.Payment.Provider,
+		RazorpayKeyID:         config.Payment.RazorpayKeyID,
+		RazorpayKeySecret:     config.Payment.RazorpayKeySecret,
+		RazorpayWebhookSecret: config.Payment.RazorpayWebhookSecret,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize payment gateway: %w", err)

@@ -3,7 +3,6 @@ package services_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -709,14 +708,35 @@ func (f *fakePaymentRepo) CreateRefund(ctx context.Context, refund *models.Refun
 }
 
 func (f *fakePaymentRepo) FinishRefund(ctx context.Context, id uint64, status models.RefundStatus, providerRefundID string) error {
-	f.finished = append(f.finished, status)
 	for _, refund := range f.refunds {
 		if refund.ID == id {
+			if refund.Status != models.RefundStatusRequested {
+				return apperrors.ErrPaymentNotModifiable
+			}
 			refund.Status = status
 			refund.ProviderRefundID = providerRefundID
 		}
 	}
+	f.finished = append(f.finished, status)
 	return nil
+}
+
+func (f *fakePaymentRepo) GetByProviderPaymentID(ctx context.Context, provider string, providerPaymentID string) (*models.Payment, error) {
+	if f.payment == nil || f.payment.ProviderPaymentID != providerPaymentID {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetRequestedRefundByPayment(ctx context.Context, paymentID uint64) (*models.Refund, error) {
+	for _, refund := range f.refunds {
+		if refund.PaymentID == paymentID && refund.Status == models.RefundStatusRequested {
+			found := *refund
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrRefundNotFound
 }
 
 func (f *fakePaymentRepo) GetByProviderOrderID(ctx context.Context, provider string, providerOrderID string) (*models.Payment, error) {
@@ -752,11 +772,20 @@ func (f *fakePaymentRepo) ListRefunds(ctx context.Context, status models.RefundS
 type fakeGateway struct {
 	orders    int
 	verifyErr error
+	paidAt    time.Time
 	refundErr error
-	refunded  int
-	cancelled int
-	event     *models.GatewayEvent
-	parseErr  error
+	// refundStatus is what Refund answers; empty means succeeded.
+	refundStatus models.RefundStatus
+	refunded     int
+	paidOrder    string
+	findErr      error
+	asked        int
+	// gatewayRefundID and gatewayRefundStatus are what RefundStatus answers.
+	gatewayRefundID     string
+	gatewayRefundStatus models.RefundStatus
+	refundStatusErr     error
+	event               *models.GatewayEvent
+	parseErr            error
 }
 
 func (f *fakeGateway) Provider() string {
@@ -772,21 +801,28 @@ func (f *fakeGateway) ClientPayload(payment *models.Payment) map[string]any {
 	return map[string]any{"orderId": payment.ProviderOrderID}
 }
 
-func (f *fakeGateway) VerifyPayment(ctx context.Context, payment *models.Payment, providerPaymentID string, signature string) error {
-	return f.verifyErr
+func (f *fakeGateway) VerifyPayment(ctx context.Context, payment *models.Payment, providerPaymentID string, signature string) (time.Time, error) {
+	return f.paidAt, f.verifyErr
 }
 
-func (f *fakeGateway) Refund(ctx context.Context, payment *models.Payment, amount int) (string, error) {
+func (f *fakeGateway) FindPaidOrder(ctx context.Context, payment *models.Payment) (string, error) {
+	f.asked++
+	return f.paidOrder, f.findErr
+}
+
+func (f *fakeGateway) Refund(ctx context.Context, payment *models.Payment, refund *models.Refund) (string, models.RefundStatus, error) {
 	if f.refundErr != nil {
-		return "", f.refundErr
+		return "", "", f.refundErr
 	}
-	f.refunded += amount
-	return "refund-1", nil
+	f.refunded += refund.Amount
+	if f.refundStatus == "" {
+		return "refund-1", models.RefundStatusSucceeded, nil
+	}
+	return "refund-1", f.refundStatus, nil
 }
 
-func (f *fakeGateway) CancelOrder(ctx context.Context, payment *models.Payment) error {
-	f.cancelled++
-	return errors.New("gateway unreachable")
+func (f *fakeGateway) RefundStatus(ctx context.Context, payment *models.Payment) (string, models.RefundStatus, error) {
+	return f.gatewayRefundID, f.gatewayRefundStatus, f.refundStatusErr
 }
 
 func (f *fakeGateway) ParseWebhook(body []byte, headers map[string][]string) (*models.GatewayEvent, error) {

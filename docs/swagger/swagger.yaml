@@ -1,13 +1,5 @@
 basePath: /api/v1
 definitions:
-  admin.CompleteRefundRequest:
-    properties:
-      reference:
-        example: "412345678901"
-        type: string
-    required:
-    - reference
-    type: object
   admin.CreateAdminRequest:
     properties:
       email:
@@ -337,6 +329,29 @@ definitions:
         example: Feeling better
         type: string
     type: object
+  appointment.DoctorPatientResponse:
+    properties:
+      age:
+        example: 34
+        type: integer
+      gender:
+        example: Female
+        type: string
+      id:
+        type: integer
+      lastAppointmentAt:
+        example: "2026-10-20T09:00:00+05:30"
+        type: string
+      name:
+        example: Asha Verma
+        type: string
+      nextAppointmentAt:
+        example: "2026-11-02T09:00:00+05:30"
+        type: string
+      visits:
+        example: 3
+        type: integer
+    type: object
   appointment.DoctorSummary:
     properties:
       id:
@@ -367,6 +382,13 @@ definitions:
       timezone:
         example: Asia/Kolkata
         type: string
+    type: object
+  appointment.ListDoctorPatientsResponse:
+    properties:
+      patients:
+        items:
+          $ref: '#/definitions/appointment.DoctorPatientResponse'
+        type: array
     type: object
   appointment.PatientSummary:
     properties:
@@ -519,7 +541,7 @@ definitions:
         type: string
       password:
         maxLength: 72
-        minLength: 6
+        minLength: 8
         type: string
       role:
         enum:
@@ -1198,10 +1220,11 @@ definitions:
         example: pay_29QQoUBi66xm2f
         type: string
       signature:
-        example: none_signature_none_order_12_1761040000000000000
+        example: 9ef4dffbfd84f1318f6739a3ce19f9d85851857ae648f114332d8401e0949a3d
         type: string
     required:
     - providerPaymentId
+    - signature
     type: object
   record.AttachmentResponse:
     properties:
@@ -1720,11 +1743,13 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Refunds a captured payment in full through its gateway. The appointment''s
+      description: Refunds a captured payment in full through its gateway. The appointment's
         payment status becomes refunded. Cancelled paid appointments are refunded
-        automatically; this is for everything else. A gateway with no refund API (YouPI)
-        returns 202 with refundPending true: the refund waits in GET /admin/refunds
-        until an admin pays it back by UPI and completes it.'
+        automatically; this is for everything else. Razorpay refunds at normal speed
+        and finishes later, so it usually returns 202 with refundPending true and
+        the payment still captured; its refund.processed webhook then marks it refunded.
+        A refund Razorpay refuses returns 409 and is listed as failed in GET /admin/refunds;
+        refunding the payment again retries it.
       parameters:
       - description: Payment ID
         in: path
@@ -1845,10 +1870,10 @@ paths:
       - admin
   /admin/refunds:
     get:
-      description: 'Returns refunds in one status, oldest first. The default, requested,
-        is the queue of refunds to pay back by hand: YouPI has no refund API, so every
-        YouPI refund waits here until an admin sends the money by UPI and completes
-        it. Limit defaults to 20 and is capped at 100.'
+      description: Returns refunds in one status, oldest first. The default, requested,
+        lists refunds Razorpay is still processing; its refund webhook or make reconcile-refunds
+        settles them. Failed refunds can be retried with POST /admin/payments/{id}/refund.
+        Limit defaults to 20 and is capped at 100.
       parameters:
       - description: Refund status
         enum:
@@ -1897,66 +1922,6 @@ paths:
       security:
       - BearerAuth: []
       summary: List refunds
-      tags:
-      - admin
-  /admin/refunds/{id}/complete:
-    post:
-      consumes:
-      - application/json
-      description: Records that an admin paid a requested refund back by hand, with
-        the payout's reference such as the UPI UTR (at most 100 characters). The payment
-        and the appointment's payment status become refunded.
-      parameters:
-      - description: Refund ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: Payout reference
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/admin.CompleteRefundRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/dtos.SuccessResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/payment.RefundResponse'
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/dtos.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/dtos.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/dtos.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/dtos.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/dtos.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/dtos.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Complete a manual refund
       tags:
       - admin
   /admin/specialities:
@@ -2833,6 +2798,11 @@ paths:
         in: query
         name: feeMax
         type: integer
+      - description: Only doctors with a free slot that day, in mode when given; YYYY-MM-DD
+          from today up to 90 days ahead
+        in: query
+        name: date
+        type: string
       - description: Page size, default 20, max 100
         in: query
         name: limit
@@ -3520,6 +3490,176 @@ paths:
       summary: Add a leave or an extra session
       tags:
       - doctors
+  /doctors/me/patients:
+    get:
+      description: Patients with a completed, no-show or paid upcoming booking with
+        the caller, the soonest next visit first, then the latest last visit. Unpaid
+        holds, cancelled bookings and pending reschedules don't count. q matches the
+        patient's name. Limit defaults to 20 and is capped at 100.
+      parameters:
+      - description: Part of the patient's name
+        in: query
+        name: q
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Number of patients to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.ListDoctorPatientsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List the caller's patients as a doctor
+      tags:
+      - doctors
+  /doctors/me/patients/{id}/attachments:
+    get:
+      description: 'For a patient with a completed, no-show or paid upcoming booking
+        with the caller: all of the patient''s attachments, newest first, downloadable
+        with GET /attachments/{id}/content. Any other patient gets 404. Each list
+        is written to the access log. Limit defaults to 20 and is capped at 100.'
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Number of files to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/record.ListAttachmentsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List a patient's files as their doctor
+      tags:
+      - doctors
+  /doctors/me/patients/{id}/records:
+    get:
+      description: 'For a patient with a completed, no-show or paid upcoming booking
+        with the caller: every finalized record from any doctor plus the caller''s
+        own drafts, newest first. Any other patient gets 404. Each list is written
+        to the access log. Limit defaults to 20 and is capped at 100.'
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Number of records to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/record.ListRecordsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List a patient's medical records as their doctor
+      tags:
+      - doctors
   /doctors/me/records/{id}:
     put:
       consumes:
@@ -4086,11 +4226,12 @@ paths:
       consumes:
       - application/json
       description: Confirms with the gateway that the order was paid, captures the
-        payment and marks the appointment paid. With none, send the signature from
-        clientPayload; with YouPI, send the UTR as providerPaymentId and no signature,
-        because the server asks YouPI itself. YouPI's webhook usually captures the
-        payment first, and then this returns it. Verifying a captured payment again
-        with the same providerPaymentId returns it. If the booking expired first,
+        payment and marks the appointment paid. With Razorpay, send Checkout's razorpay_payment_id
+        as providerPaymentId and razorpay_signature as signature; the server checks
+        the signature against the stored order and fetches the payment from Razorpay.
+        With none, send any providerPaymentId and the signature from clientPayload.
+        Verifying a captured payment again with the same providerPaymentId returns
+        it, so a webhook that captured it first is fine. If the booking expired first,
         the money is refunded and 409 is returned.
       parameters:
       - description: Payment ID
@@ -4226,16 +4367,18 @@ paths:
     post:
       consumes:
       - application/json
-      description: Called by the configured gateway (YouPI PG), never by clients,
-        so it takes no token. The X-Gateway-Signature HMAC must match the raw body,
-        and a reported payment is confirmed with the gateway again before any money
-        is recorded. Repeats get 200 and change nothing; money for a booking that
-        was already cancelled is recorded and refunded. Any other answer than 2xx
-        makes the gateway retry. The body is limited to 64 KB.
+      description: Called by Razorpay, never by clients, so it takes no token. Subscribe
+        it to payment.captured, order.paid, refund.processed and refund.failed. The
+        X-Razorpay-Signature HMAC must match the raw body, and a reported payment
+        is confirmed with Razorpay's API again before any money is recorded. Repeats,
+        other events and orders this service did not open get 200 and change nothing;
+        money for a booking that was already cancelled is recorded and refunded. Only
+        a bad signature gets 401; a 5xx makes Razorpay retry. The body is limited
+        to 64 KB.
       parameters:
-      - description: sha256=<hex HMAC-SHA256 of the raw body>
+      - description: hex HMAC-SHA256 of the raw body, keyed with the webhook secret
         in: header
-        name: X-Gateway-Signature
+        name: X-Razorpay-Signature
         required: true
         type: string
       produces:

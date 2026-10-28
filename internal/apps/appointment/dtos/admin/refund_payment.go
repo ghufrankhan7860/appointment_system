@@ -7,8 +7,8 @@ type RefundPaymentRequest struct {
 	Note string `json:"note" example:"Doctor unavailable, refunded as goodwill"`
 }
 
-// RefundPaymentResponse adds whether the refund still waits for an admin to
-// pay it back by hand, for a gateway with no refund API.
+// RefundPaymentResponse adds whether the gateway is still processing the
+// refund; the payment stays captured until it finishes.
 type RefundPaymentResponse struct {
 	payment.PaymentResponse
 	RefundPending bool `json:"refundPending"`

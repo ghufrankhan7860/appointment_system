@@ -28,8 +28,8 @@ as the API:
   back to `index.html`, because routing happens in the browser.
 - No server-side rendering.
 
-Settings in this repository that point at the client use its public URL. Today that is
-`PAYMENT_RETURN_URL`, which should be the client's `/appointments/payment` page.
+Settings in this repository that point at the client use its public URL. Today there are none:
+Razorpay Checkout opens over the client's page and returns to it, so nothing redirects back.
 
 ## Alternatives
 

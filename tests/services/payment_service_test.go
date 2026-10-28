@@ -208,7 +208,7 @@ func TestPaymentServiceRefund(t *testing.T) {
 	}{
 		{name: "admin refunds a captured payment in full", payment: payment(models.PaymentStatusCaptured), wantStatus: models.PaymentStatusRefunded, wantRefunds: []models.RefundStatus{models.RefundStatusSucceeded}},
 		{name: "a payment that was never captured", payment: payment(models.PaymentStatusCreated), wantErr: apperrors.ErrPaymentNotModifiable, wantStatus: models.PaymentStatusCreated},
-		{name: "a gateway failure is recorded", payment: payment(models.PaymentStatusCaptured), refundErr: errGatewayDown, wantErr: errGatewayDown, wantStatus: models.PaymentStatusCaptured, wantRefunds: []models.RefundStatus{models.RefundStatusFailed}},
+		{name: "a gateway failure leaves the refund requested for reconciling", payment: payment(models.PaymentStatusCaptured), refundErr: errGatewayDown, wantErr: errGatewayDown, wantStatus: models.PaymentStatusCaptured},
 		{name: "missing payment", wantErr: apperrors.ErrPaymentNotFound},
 	}
 

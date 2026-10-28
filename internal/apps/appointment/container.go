@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"appointment_system/internal/apps/appointment/adapters/payment/none"
-	"appointment_system/internal/apps/appointment/adapters/payment/youpi"
+	"appointment_system/internal/apps/appointment/adapters/payment/razorpay"
 	"appointment_system/internal/apps/appointment/adapters/storage/local"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
@@ -323,14 +323,13 @@ func NewFileStorage(provider string, localDir string) (services.FileStorage, err
 	}
 }
 
-// PaymentSettings are the values the payment gateway adapters need. The YouPI
-// fields are used only when Provider is youpi.
+// PaymentSettings are the values the payment gateway adapters need. The
+// Razorpay fields are used only when Provider is razorpay.
 type PaymentSettings struct {
-	Provider           string
-	ReturnURL          string
-	YouPIBaseURL       string
-	YouPIMerchantID    string
-	YouPIWebhookSecret string
+	Provider              string
+	RazorpayKeyID         string
+	RazorpayKeySecret     string
+	RazorpayWebhookSecret string
 }
 
 // NewPaymentGateway returns the adapter for the configured provider. Config
@@ -340,8 +339,8 @@ func NewPaymentGateway(settings PaymentSettings) (services.PaymentGateway, error
 	switch settings.Provider {
 	case none.ProviderName:
 		return none.New(), nil
-	case youpi.ProviderName:
-		return youpi.New(settings.YouPIBaseURL, settings.YouPIMerchantID, settings.YouPIWebhookSecret, settings.ReturnURL)
+	case razorpay.ProviderName:
+		return razorpay.New(settings.RazorpayKeyID, settings.RazorpayKeySecret, settings.RazorpayWebhookSecret)
 	default:
 		return nil, fmt.Errorf("payment provider %q is not supported", settings.Provider)
 	}

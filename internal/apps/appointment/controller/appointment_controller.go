@@ -277,6 +277,33 @@ func (ac *AppointmentController) DeclineReschedule(ctx context.Context, request 
 	return &response, nil
 }
 
+func (ac *AppointmentController) ListPatients(ctx context.Context, request *appointment.ListDoctorPatientsRequest) (*appointment.ListDoctorPatientsResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	role, err := actingRole(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	patients, err := ac.appointmentService.ListPatients(ctx, userID, role, request.Query, request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	location := ac.appointmentService.Location()
+	now := time.Now()
+	response := appointment.ListDoctorPatientsResponse{
+		Patients: make([]appointment.DoctorPatientResponse, 0, len(patients)),
+	}
+	for _, listedPatient := range patients {
+		response.Patients = append(response.Patients, toDoctorPatientResponse(listedPatient, location, now))
+	}
+
+	return &response, nil
+}
+
 func (ac *AppointmentController) ListForDoctor(ctx context.Context, request *appointment.ListDoctorAppointmentsRequest) (*appointment.ListDoctorAppointmentsResponse, error) {
 	userID, err := actingUserID(ctx)
 	if err != nil {

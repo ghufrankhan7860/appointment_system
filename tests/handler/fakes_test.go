@@ -435,6 +435,24 @@ func (f *fakePaymentRepo) GetByProviderOrderID(ctx context.Context, provider str
 	return &found, nil
 }
 
+func (f *fakePaymentRepo) GetByProviderPaymentID(ctx context.Context, provider string, providerPaymentID string) (*models.Payment, error) {
+	if f.payment == nil || f.payment.ProviderPaymentID != providerPaymentID {
+		return nil, apperrors.ErrPaymentNotFound
+	}
+	found := *f.payment
+	return &found, nil
+}
+
+func (f *fakePaymentRepo) GetRequestedRefundByPayment(ctx context.Context, paymentID uint64) (*models.Refund, error) {
+	for _, refund := range f.refunds {
+		if refund.PaymentID == paymentID && refund.Status == models.RefundStatusRequested {
+			found := *refund
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrRefundNotFound
+}
+
 func (f *fakePaymentRepo) GetRefundByID(ctx context.Context, id uint64) (*models.Refund, error) {
 	for _, refund := range f.refunds {
 		if refund.ID == id {

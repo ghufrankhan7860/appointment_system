@@ -65,6 +65,8 @@ func (ah *AppointmentHandler) RegisterRoutes(router *gin.RouterGroup) {
 	doctorAppointments.POST("/:id/complete", ah.Complete)
 	doctorAppointments.POST("/:id/no-show", ah.MarkNoShow)
 	doctorAppointments.POST("/:id/reschedule-proposals", ah.ProposeReschedule)
+
+	router.GET("/doctors/me/patients", authenticate, authz.RequirePermission(authz.PermPatientView), ah.ListPatients)
 }
 
 // Book godoc
@@ -803,5 +805,55 @@ func (ah *AppointmentHandler) ListForDoctor(ctx *gin.Context) {
 		"success": true,
 		"data":    response,
 		"message": "Appointments retrieved successfully",
+	})
+}
+
+// ListPatients godoc
+// @Summary List the caller's patients as a doctor
+// @Description Patients with a completed, no-show or paid upcoming booking with the caller, the soonest next visit first, then the latest last visit. Unpaid holds, cancelled bookings and pending reschedules don't count. q matches the patient's name. Limit defaults to 20 and is capped at 100.
+// @Tags doctors
+// @Security BearerAuth
+// @Produce json
+// @Param q query string false "Part of the patient's name"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Number of patients to skip"
+// @Success 200 {object} dtos.SuccessResponse{data=appointment.ListDoctorPatientsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /doctors/me/patients [get]
+func (ah *AppointmentHandler) ListPatients(ctx *gin.Context) {
+	var listDoctorPatientsRequest appointment.ListDoctorPatientsRequest
+	if err := ctx.ShouldBindQuery(&listDoctorPatientsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := ah.appointmentController.ListPatients(ctx.Request.Context(), &listDoctorPatientsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrDoctorRoleRequired):
+			ctx.JSON(http.StatusForbidden, gin.H{"success": false, "error": "Only doctor accounts have patients to view"})
+		case errors.Is(err, apperrors.ErrDoctorNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Doctor profile not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list patients"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Patients retrieved successfully",
 	})
 }

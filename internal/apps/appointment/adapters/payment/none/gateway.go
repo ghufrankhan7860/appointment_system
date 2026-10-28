@@ -48,24 +48,32 @@ func (g *Gateway) ClientPayload(payment *models.Payment) map[string]any {
 	}
 }
 
-func (g *Gateway) VerifyPayment(ctx context.Context, payment *models.Payment, providerPaymentID string, signature string) error {
+// VerifyPayment does not know when the payer paid, so it returns the zero time.
+func (g *Gateway) VerifyPayment(ctx context.Context, payment *models.Payment, providerPaymentID string, signature string) (time.Time, error) {
 	if providerPaymentID == "" || signature != signaturePrefix+payment.ProviderOrderID {
-		return apperrors.ErrPaymentVerificationFailed
+		return time.Time{}, apperrors.ErrPaymentVerificationFailed
 	}
 
-	return nil
+	return time.Time{}, nil
 }
 
-func (g *Gateway) Refund(ctx context.Context, payment *models.Payment, amount int) (string, error) {
+// FindPaidOrder finds nothing: an order is paid only by verifying it.
+func (g *Gateway) FindPaidOrder(ctx context.Context, payment *models.Payment) (string, error) {
+	return "", nil
+}
+
+// Refund succeeds at once.
+func (g *Gateway) Refund(ctx context.Context, payment *models.Payment, refund *models.Refund) (string, models.RefundStatus, error) {
 	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("refund none payment context: %w", err)
+		return "", "", fmt.Errorf("refund none payment context: %w", err)
 	}
 
-	return fmt.Sprintf("%s%d", refundPrefix, payment.ID), nil
+	return fmt.Sprintf("%s%d", refundPrefix, payment.ID), models.RefundStatusSucceeded, nil
 }
 
-func (g *Gateway) CancelOrder(ctx context.Context, payment *models.Payment) error {
-	return nil
+// RefundStatus finds nothing, because Refund never leaves one in progress.
+func (g *Gateway) RefundStatus(ctx context.Context, payment *models.Payment) (string, models.RefundStatus, error) {
+	return "", "", nil
 }
 
 // ParseWebhook refuses every callback: nothing calls back for a gateway that

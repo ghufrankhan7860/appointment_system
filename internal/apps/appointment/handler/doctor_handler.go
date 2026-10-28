@@ -229,6 +229,7 @@ func (dh *DoctorHandler) Update(ctx *gin.Context) {
 // @Param city query string false "City, case-insensitive"
 // @Param mode query string false "Consultation mode" Enums(in_person, video, phone)
 // @Param feeMax query int false "Maximum consultation fee in paise"
+// @Param date query string false "Only doctors with a free slot that day, in mode when given; YYYY-MM-DD from today up to 90 days ahead"
 // @Param limit query int false "Page size, default 20, max 100"
 // @Param offset query int false "Number of doctors to skip"
 // @Success 200 {object} dtos.SuccessResponse{data=doctor.ListDoctorsResponse}
@@ -246,15 +247,12 @@ func (dh *DoctorHandler) List(ctx *gin.Context) {
 		})
 		return
 	}
-	if listDoctorsRequest.Date != "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "The date filter is not supported yet"})
-		return
-	}
 
 	response, err := dh.doctorController.List(ctx.Request.Context(), &listDoctorsRequest)
 	if err != nil {
 		switch {
-		case errors.Is(err, apperrors.ErrInvalidDoctorInput):
+		case errors.Is(err, apperrors.ErrInvalidDoctorInput),
+			errors.Is(err, apperrors.ErrInvalidAvailabilityInput):
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
 				"error":   "Invalid query parameters",

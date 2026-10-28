@@ -104,6 +104,14 @@ func (ah *AuthHandler) Register(ctx *gin.Context) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid request payload"})
 			return
 		}
+		if errors.Is(err, apperrors.ErrInvalidRegisterInput) {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request payload",
+				"details": apperrors.Reason(err),
+			})
+			return
+		}
 		if errors.Is(err, apperrors.ErrUserAlreadyExists) {
 			ctx.JSON(http.StatusConflict, gin.H{
 				"success": false,

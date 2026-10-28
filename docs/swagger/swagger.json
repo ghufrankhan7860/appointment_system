@@ -550,7 +550,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Refunds a captured payment in full through its gateway. The appointment's payment status becomes refunded. Cancelled paid appointments are refunded automatically; this is for everything else. A gateway with no refund API (YouPI) returns 202 with refundPending true: the refund waits in GET /admin/refunds until an admin pays it back by UPI and completes it.",
+                "description": "Refunds a captured payment in full through its gateway. The appointment's payment status becomes refunded. Cancelled paid appointments are refunded automatically; this is for everything else. Razorpay refunds at normal speed and finishes later, so it usually returns 202 with refundPending true and the payment still captured; its refund.processed webhook then marks it refunded. A refund Razorpay refuses returns 409 and is listed as failed in GET /admin/refunds; refunding the payment again retries it.",
                 "consumes": [
                     "application/json"
                 ],
@@ -749,7 +749,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns refunds in one status, oldest first. The default, requested, is the queue of refunds to pay back by hand: YouPI has no refund API, so every YouPI refund waits here until an admin sends the money by UPI and completes it. Limit defaults to 20 and is capped at 100.",
+                "description": "Returns refunds in one status, oldest first. The default, requested, lists refunds Razorpay is still processing; its refund webhook or make reconcile-refunds settles them. Failed refunds can be retried with POST /admin/payments/{id}/refund. Limit defaults to 20 and is capped at 100.",
                 "produces": [
                     "application/json"
                 ],
@@ -815,100 +815,6 @@
                     },
                     "403": {
                         "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/dtos.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/dtos.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/refunds/{id}/complete": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Records that an admin paid a requested refund back by hand, with the payout's reference such as the UPI UTR (at most 100 characters). The payment and the appointment's payment status become refunded.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "admin"
-                ],
-                "summary": "Complete a manual refund",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Refund ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Payout reference",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.CompleteRefundRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/dtos.SuccessResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/payment.RefundResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/dtos.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/dtos.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/dtos.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/dtos.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/dtos.ErrorResponse"
                         }
@@ -2303,6 +2209,12 @@
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Only doctors with a free slot that day, in mode when given; YYYY-MM-DD from today up to 90 days ahead",
+                        "name": "date",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Page size, default 20, max 100",
                         "name": "limit",
@@ -3206,6 +3118,269 @@
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/doctor.OverrideResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/doctors/me/patients": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Patients with a completed, no-show or paid upcoming booking with the caller, the soonest next visit first, then the latest last visit. Unpaid holds, cancelled bookings and pending reschedules don't count. q matches the patient's name. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "doctors"
+                ],
+                "summary": "List the caller's patients as a doctor",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Part of the patient's name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of patients to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/appointment.ListDoctorPatientsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/doctors/me/patients/{id}/attachments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "For a patient with a completed, no-show or paid upcoming booking with the caller: all of the patient's attachments, newest first, downloadable with GET /attachments/{id}/content. Any other patient gets 404. Each list is written to the access log. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "doctors"
+                ],
+                "summary": "List a patient's files as their doctor",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Patient ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of files to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.ListAttachmentsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/doctors/me/patients/{id}/records": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "For a patient with a completed, no-show or paid upcoming booking with the caller: every finalized record from any doctor plus the caller's own drafts, newest first. Any other patient gets 404. Each list is written to the access log. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "doctors"
+                ],
+                "summary": "List a patient's medical records as their doctor",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Patient ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of records to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/record.ListRecordsResponse"
                                         }
                                     }
                                 }
@@ -4285,7 +4460,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. With none, send the signature from clientPayload; with YouPI, send the UTR as providerPaymentId and no signature, because the server asks YouPI itself. YouPI's webhook usually captures the payment first, and then this returns it. Verifying a captured payment again with the same providerPaymentId returns it. If the booking expired first, the money is refunded and 409 is returned.",
+                "description": "Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. With Razorpay, send Checkout's razorpay_payment_id as providerPaymentId and razorpay_signature as signature; the server checks the signature against the stored order and fetches the payment from Razorpay. With none, send any providerPaymentId and the signature from clientPayload. Verifying a captured payment again with the same providerPaymentId returns it, so a webhook that captured it first is fine. If the booking expired first, the money is refunded and 409 is returned.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4499,7 +4674,7 @@
         },
         "/webhooks/payment": {
             "post": {
-                "description": "Called by the configured gateway (YouPI PG), never by clients, so it takes no token. The X-Gateway-Signature HMAC must match the raw body, and a reported payment is confirmed with the gateway again before any money is recorded. Repeats get 200 and change nothing; money for a booking that was already cancelled is recorded and refunded. Any other answer than 2xx makes the gateway retry. The body is limited to 64 KB.",
+                "description": "Called by Razorpay, never by clients, so it takes no token. Subscribe it to payment.captured, order.paid, refund.processed and refund.failed. The X-Razorpay-Signature HMAC must match the raw body, and a reported payment is confirmed with Razorpay's API again before any money is recorded. Repeats, other events and orders this service did not open get 200 and change nothing; money for a booking that was already cancelled is recorded and refunded. Only a bad signature gets 401; a 5xx makes Razorpay retry. The body is limited to 64 KB.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4513,8 +4688,8 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "sha256=\u003chex HMAC-SHA256 of the raw body\u003e",
-                        "name": "X-Gateway-Signature",
+                        "description": "hex HMAC-SHA256 of the raw body, keyed with the webhook secret",
+                        "name": "X-Razorpay-Signature",
                         "in": "header",
                         "required": true
                     }
@@ -4561,18 +4736,6 @@
         }
     },
     "definitions": {
-        "admin.CompleteRefundRequest": {
-            "type": "object",
-            "required": [
-                "reference"
-            ],
-            "properties": {
-                "reference": {
-                    "type": "string",
-                    "example": "412345678901"
-                }
-            }
-        },
         "admin.CreateAdminRequest": {
             "type": "object",
             "required": [
@@ -5041,6 +5204,38 @@
                 }
             }
         },
+        "appointment.DoctorPatientResponse": {
+            "type": "object",
+            "properties": {
+                "age": {
+                    "type": "integer",
+                    "example": 34
+                },
+                "gender": {
+                    "type": "string",
+                    "example": "Female"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "lastAppointmentAt": {
+                    "type": "string",
+                    "example": "2026-10-20T09:00:00+05:30"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Asha Verma"
+                },
+                "nextAppointmentAt": {
+                    "type": "string",
+                    "example": "2026-11-02T09:00:00+05:30"
+                },
+                "visits": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
         "appointment.DoctorSummary": {
             "type": "object",
             "properties": {
@@ -5084,6 +5279,17 @@
                 "timezone": {
                     "type": "string",
                     "example": "Asia/Kolkata"
+                }
+            }
+        },
+        "appointment.ListDoctorPatientsResponse": {
+            "type": "object",
+            "properties": {
+                "patients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/appointment.DoctorPatientResponse"
+                    }
                 }
             }
         },
@@ -5309,7 +5515,7 @@
                 "password": {
                     "type": "string",
                     "maxLength": 72,
-                    "minLength": 6
+                    "minLength": 8
                 },
                 "role": {
                     "type": "string",
@@ -6244,7 +6450,8 @@
         "payment.VerifyPaymentRequest": {
             "type": "object",
             "required": [
-                "providerPaymentId"
+                "providerPaymentId",
+                "signature"
             ],
             "properties": {
                 "providerPaymentId": {
@@ -6253,7 +6460,7 @@
                 },
                 "signature": {
                     "type": "string",
-                    "example": "none_signature_none_order_12_1761040000000000000"
+                    "example": "9ef4dffbfd84f1318f6739a3ce19f9d85851857ae648f114332d8401e0949a3d"
                 }
             }
         },

@@ -50,15 +50,11 @@ services:
             # Local stack: the none payment gateway and local file storage are allowed.
             APP_ENV: development
             STORAGE_LOCAL_DIR: /app/var/storage
-            # Set these in the shell to run against a YouPI PG server; on this
-            # machine it is reachable as host.docker.internal.
+            # Set these in the shell to run against Razorpay's test mode.
             PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-none}
-            YOUPI_BASE_URL: ${YOUPI_BASE_URL:-}
-            YOUPI_MERCHANT_ID: ${YOUPI_MERCHANT_ID:-}
-            YOUPI_WEBHOOK_SECRET: ${YOUPI_WEBHOOK_SECRET:-}
-            PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-}
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
+            RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+            RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+            RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
         ports:
             - "8080:8080"
         volumes:

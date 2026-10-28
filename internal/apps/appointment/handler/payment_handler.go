@@ -9,6 +9,7 @@ import (
 	"appointment_system/middleware"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -47,11 +48,11 @@ func (ph *PaymentHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 // HandleWebhook godoc
 // @Summary Receive a payment gateway callback
-// @Description Called by the configured gateway (YouPI PG), never by clients, so it takes no token. The X-Gateway-Signature HMAC must match the raw body, and a reported payment is confirmed with the gateway again before any money is recorded. Repeats get 200 and change nothing; money for a booking that was already cancelled is recorded and refunded. Any other answer than 2xx makes the gateway retry. The body is limited to 64 KB.
+// @Description Called by Razorpay, never by clients, so it takes no token. Subscribe it to payment.captured, order.paid, refund.processed and refund.failed. The X-Razorpay-Signature HMAC must match the raw body, and a reported payment is confirmed with Razorpay's API again before any money is recorded. Repeats, other events and orders this service did not open get 200 and change nothing; money for a booking that was already cancelled is recorded and refunded. Only a bad signature gets 401; a 5xx makes Razorpay retry. The body is limited to 64 KB.
 // @Tags payments
 // @Accept json
 // @Produce json
-// @Param X-Gateway-Signature header string true "sha256=<hex HMAC-SHA256 of the raw body>"
+// @Param X-Razorpay-Signature header string true "hex HMAC-SHA256 of the raw body, keyed with the webhook secret"
 // @Success 200 {object} dtos.SuccessResponse
 // @Failure 400 {object} dtos.ErrorResponse
 // @Failure 401 {object} dtos.ErrorResponse
@@ -74,13 +75,12 @@ func (ph *PaymentHandler) HandleWebhook(ctx *gin.Context) {
 	if err := ph.paymentController.HandleWebhook(ctx.Request.Context(), body, ctx.Request.Header); err != nil {
 		switch {
 		case errors.Is(err, apperrors.ErrPaymentVerificationFailed):
-			ctx.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"error":   "Webhook could not be verified",
-				"details": apperrors.Reason(err),
-			})
-		case errors.Is(err, apperrors.ErrPaymentNotFound):
-			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Payment not found"})
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Webhook could not be verified"})
+		case errors.Is(err, apperrors.ErrWebhookIgnored):
+			// Answered 200 so the gateway does not retry or disable the
+			// webhook. The reason names ids only; the body is never logged.
+			log.Printf("payment webhook ignored: %s", apperrors.Reason(err))
+			ctx.JSON(http.StatusOK, gin.H{"success": true, "received": true, "message": "Webhook ignored"})
 		default:
 			_ = ctx.Error(err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to handle webhook"})
@@ -199,7 +199,7 @@ func (ph *PaymentHandler) GetForAppointment(ctx *gin.Context) {
 
 // Verify godoc
 // @Summary Confirm a payment
-// @Description Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. With none, send the signature from clientPayload; with YouPI, send the UTR as providerPaymentId and no signature, because the server asks YouPI itself. YouPI's webhook usually captures the payment first, and then this returns it. Verifying a captured payment again with the same providerPaymentId returns it. If the booking expired first, the money is refunded and 409 is returned.
+// @Description Confirms with the gateway that the order was paid, captures the payment and marks the appointment paid. With Razorpay, send Checkout's razorpay_payment_id as providerPaymentId and razorpay_signature as signature; the server checks the signature against the stored order and fetches the payment from Razorpay. With none, send any providerPaymentId and the signature from clientPayload. Verifying a captured payment again with the same providerPaymentId returns it, so a webhook that captured it first is fine. If the booking expired first, the money is refunded and 409 is returned.
 // @Tags payments
 // @Security BearerAuth
 // @Accept json

@@ -158,6 +158,32 @@ func (mrc *MedicalRecordController) ListForPatient(ctx context.Context, request 
 	return &response, nil
 }
 
+// ListForDoctor lists what a doctor treating the patient may read.
+func (mrc *MedicalRecordController) ListForDoctor(ctx context.Context, request *record.ListRecordsRequest) (*record.ListRecordsResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	role, err := actingRole(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	records, err := mrc.medicalRecordService.ListForDoctor(ctx, userID, role, request.PatientID, request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	response := record.ListRecordsResponse{
+		Records: make([]record.MedicalRecordResponse, 0, len(records)),
+	}
+	for _, listedRecord := range records {
+		response.Records = append(response.Records, toMedicalRecordResponse(listedRecord, nil))
+	}
+
+	return &response, nil
+}
+
 // UploadForPatient stores a file the patient side adds outside a visit.
 func (mrc *MedicalRecordController) UploadForPatient(ctx context.Context, request *record.UploadAttachmentRequest, file io.Reader) (*record.AttachmentResponse, error) {
 	attachment := models.MedicalAttachment{PatientID: request.ID}
@@ -178,6 +204,31 @@ func (mrc *MedicalRecordController) ListAttachments(ctx context.Context, request
 	}
 
 	attachments, err := mrc.medicalRecordService.ListAttachments(ctx, userID, request.PatientID, request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	response := record.ListAttachmentsResponse{
+		Attachments: make([]record.AttachmentResponse, 0, len(attachments)),
+	}
+	for _, attachment := range attachments {
+		response.Attachments = append(response.Attachments, toAttachmentResponse(attachment))
+	}
+
+	return &response, nil
+}
+
+func (mrc *MedicalRecordController) ListAttachmentsForDoctor(ctx context.Context, request *record.ListAttachmentsRequest) (*record.ListAttachmentsResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	role, err := actingRole(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	attachments, err := mrc.medicalRecordService.ListAttachmentsForDoctor(ctx, userID, role, request.PatientID, request.Limit, request.Offset)
 	if err != nil {
 		return nil, err
 	}

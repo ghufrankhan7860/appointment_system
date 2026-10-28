@@ -169,6 +169,22 @@ func (repo *PaymentRepository) GetByProviderOrderID(ctx context.Context, provide
 	return toPaymentModel(record), nil
 }
 
+// GetByProviderPaymentID finds the payment a gateway payment id confirmed.
+func (repo *PaymentRepository) GetByProviderPaymentID(ctx context.Context, provider string, providerPaymentID string) (*models.Payment, error) {
+	var record paymentRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("provider = ? AND provider_payment_id = ?", provider, providerPaymentID).
+		First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrPaymentNotFound
+		}
+		return nil, fmt.Errorf("get payment by provider payment id: %w", err)
+	}
+
+	return toPaymentModel(record), nil
+}
+
 // UpdateStatus moves a payment from one status to another. It only matches a
 // row still in fromStatus, so two concurrent changes cannot both win. An empty
 // providerPaymentID or a nil capturedAt leaves the stored value. A gateway
@@ -316,8 +332,25 @@ func (repo *PaymentRepository) GetRefundByID(ctx context.Context, id uint64) (*m
 	return toRefundModel(record), nil
 }
 
-// ListRefunds returns refunds in status, oldest first, so the longest waiting
-// manual payout comes first.
+// GetRequestedRefundByPayment returns the payment's refund still waiting for
+// the gateway. A payment has at most one.
+func (repo *PaymentRepository) GetRequestedRefundByPayment(ctx context.Context, paymentID uint64) (*models.Refund, error) {
+	var record refundRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("payment_id = ? AND status = ?", paymentID, string(models.RefundStatusRequested)).
+		First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrRefundNotFound
+		}
+		return nil, fmt.Errorf("get requested refund by payment: %w", err)
+	}
+
+	return toRefundModel(record), nil
+}
+
+// ListRefunds returns refunds in status, oldest first, so the refund waiting
+// longest comes first.
 func (repo *PaymentRepository) ListRefunds(ctx context.Context, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error) {
 	var records []refundRecord
 
