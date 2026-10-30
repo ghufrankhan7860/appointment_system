@@ -1,0 +1,8 @@
+# Keep secrets, uploads and VCS data out of the build context.
+.git
+.vscode
+envs
+var
+bin
+*.ps1
+coverage.out

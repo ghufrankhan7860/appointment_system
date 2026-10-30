@@ -1,0 +1,97 @@
+# Staging on one EC2 host: Postgres, migrations, API, outbox consumer and Caddy
+# (HTTPS). deploy-staging.ps1 builds the image on a PC, loads it here and
+# installs deploy/.env (mode 600), which fills every ${...} below.
+# Only Caddy publishes ports; Postgres and the API stay on the compose network.
+# Caddy also joins appointment-edge, the network the separately deployed web
+# client (appointment_system_frontend/deploy) runs on, to reach it as web:80.
+name: appointment-staging
+
+services:
+    postgres:
+        image: postgres:17
+        environment:
+            POSTGRES_DB: ${DB_NAME:?set DB_NAME in deploy/.env}
+            POSTGRES_USER: ${DB_USER:?set DB_USER in deploy/.env}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+        # Server-local only, for an SSH tunnel (DBeaver); never open 5432 in the security group.
+        ports:
+            - "127.0.0.1:5432:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+            interval: 2s
+            timeout: 2s
+            retries: 30
+        restart: unless-stopped
+
+    migrate:
+        image: migrate/migrate:v4.18.3
+        volumes:
+            - ../migrations:/migrations:ro
+        command:
+            - "-path=/migrations"
+            # DB_PASSWORD must be URL-safe (letters and digits) to sit in this URL.
+            - "-database=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable"
+            - "up"
+        depends_on:
+            postgres:
+                condition: service_healthy
+        restart: "no"
+
+    api:
+        image: appointment-api:staging
+        env_file: .env
+        # The database is the container above whatever deploy/.env says.
+        environment: &database
+            DB_HOST: postgres
+            DB_PORT: "5432"
+            DB_SSLMODE: disable
+            STORAGE_LOCAL_DIR: /app/var/storage
+        volumes:
+            - storage_data:/app/var/storage
+        depends_on: &ready
+            postgres:
+                condition: service_healthy
+            migrate:
+                condition: service_completed_successfully
+        restart: unless-stopped
+
+    consumer:
+        image: appointment-api:staging
+        entrypoint: ["/app/outbox"]
+        env_file: .env
+        environment: *database
+        depends_on: *ready
+        restart: unless-stopped
+
+    caddy:
+        image: caddy:2.8
+        ports:
+            - "80:80"
+            - "443:443"
+            - "443:443/udp"
+        environment:
+            SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in deploy/.env}
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        networks:
+            - default
+            - edge
+        depends_on:
+            - api
+        restart: unless-stopped
+
+networks:
+    # Created by either deploy script if missing; shared with the web client.
+    edge:
+        name: appointment-edge
+        external: true
+
+volumes:
+    postgres_data:
+    storage_data:
+    caddy_data:
+    caddy_config:

@@ -11,6 +11,9 @@ COPY . .
 ARG GO_BUILD_TAGS=
 RUN CGO_ENABLED=0 GOOS=linux go build -tags "${GO_BUILD_TAGS}" -trimpath -ldflags="-s -w" \
     -o /out/appointment-api .
+# The outbox consumer, the cron jobs and the admin bootstrap ship in the same
+# image; compose and cron pick one with --entrypoint (/app/outbox, ...).
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/bin/ ./scripts/...
 
 # Uploaded medical files live here with the local storage provider; it belongs
 # to the nonroot user so the API can write to it and to a volume mounted on it.
@@ -20,6 +23,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 COPY --from=builder /out/appointment-api /app/appointment-api
+COPY --from=builder /out/bin/ /app/
 COPY --from=builder --chown=nonroot:nonroot /out/storage /app/var/storage
 
 EXPOSE 8080
