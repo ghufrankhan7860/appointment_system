@@ -210,6 +210,8 @@ docker load -i "__WORK_DIR__/__TAR__"
 
 step "Starting / updating containers"
 docker compose -f "__COMPOSE__" up -d --no-build --remove-orphans
+# A loaded image has no registry digest, so compose misses the retag; force it.
+docker compose -f "__COMPOSE__" up -d --no-build --no-deps --force-recreate api consumer
 
 step "Container status"
 docker compose -f "__COMPOSE__" ps
