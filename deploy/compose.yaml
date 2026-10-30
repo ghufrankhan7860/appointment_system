@@ -2,16 +2,16 @@ services:
     postgres:
         image: postgres:17
         environment:
-            POSTGRES_DB: appointment_system
-            POSTGRES_USER: appointment
-            POSTGRES_PASSWORD: appointment-local
+            POSTGRES_DB: ${DB_NAME:-appointment_system}
+            POSTGRES_USER: ${DB_USER:-appointment}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-appointment-local}
         ports:
             - "5434:5432"
         volumes:
             - appointment_postgres_data:/var/lib/postgresql/data
         healthcheck:
             test:
-                ["CMD-SHELL", "pg_isready -U appointment -d appointment_system"]
+                ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
             interval: 2s
             timeout: 2s
             retries: 20
@@ -23,7 +23,7 @@ services:
             - ../migrations:/migrations:ro
         command:
             - "-path=/migrations"
-            - "-database=postgres://appointment:appointment-local@postgres:5432/appointment_system?sslmode=disable"
+            - "-database=postgres://${DB_USER:-appointment}:${DB_PASSWORD:-appointment-local}@postgres:5432/${DB_NAME:-appointment_system}?sslmode=disable"
             - "up"
         depends_on:
             postgres:
@@ -41,9 +41,9 @@ services:
             HTTP_ADDRESS: ":8080"
             DB_HOST: postgres
             DB_PORT: "5432"
-            DB_USER: appointment
-            DB_PASSWORD: appointment-local
-            DB_NAME: appointment_system
+            DB_USER: ${DB_USER:-appointment}
+            DB_PASSWORD: ${DB_PASSWORD:-appointment-local}
+            DB_NAME: ${DB_NAME:-appointment_system}
             JWT_SECRET: appointment-local-jwt-secret-change-me
             JWT_ISSUER: appointment-system
             GIN_MODE: release

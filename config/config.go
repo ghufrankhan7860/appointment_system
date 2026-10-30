@@ -24,6 +24,7 @@ const (
 	defaultDBUser         = "appointment"
 	defaultDBPassword     = "appointment-local"
 	defaultDBName         = "appointment_system"
+	defaultDBSSLMode      = "disable"
 	defaultDBMaxOpenConns = 25
 	defaultDBMaxIdleConns = 5
 	defaultJWTSecret      = "appointment-local-jwt-secret-change-me"
@@ -86,6 +87,7 @@ type DatabaseConfig struct {
 	User            string
 	Password        string
 	Name            string
+	SSLMode         string
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
@@ -132,6 +134,7 @@ func Load() (Config, error) {
 			User:            env("DB_USER", defaultDBUser),
 			Password:        env("DB_PASSWORD", defaultDBPassword),
 			Name:            env("DB_NAME", defaultDBName),
+			SSLMode:         env("DB_SSLMODE", defaultDBSSLMode),
 			ConnMaxLifetime: dbConnMaxLifetime,
 			ConnectTimeout:  dbConnectTimeout,
 		},
@@ -184,6 +187,12 @@ func Load() (Config, error) {
 	}
 	if config.Database.Port < 1 || config.Database.Port > maxTCPPort {
 		return Config{}, fmt.Errorf("DB_PORT must be between 1 and %d", maxTCPPort)
+	}
+	// allow and prefer silently fall back to plain text, so they are refused.
+	switch config.Database.SSLMode {
+	case "disable", "require", "verify-ca", "verify-full":
+	default:
+		return Config{}, fmt.Errorf("DB_SSLMODE %q is not supported; use disable, require, verify-ca or verify-full", config.Database.SSLMode)
 	}
 	if config.Database.MaxOpenConns < 1 || config.Database.MaxIdleConns < 0 || config.Database.MaxIdleConns > config.Database.MaxOpenConns {
 		return Config{}, fmt.Errorf("database pool limits are invalid")

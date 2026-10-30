@@ -49,6 +49,7 @@ func run() error {
 		User:            config.Database.User,
 		Password:        config.Database.Password,
 		Database:        config.Database.Name,
+		SSLMode:         config.Database.SSLMode,
 		MaxOpenConns:    config.Database.MaxOpenConns,
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,

@@ -109,3 +109,41 @@ func TestLoadStorageProvider(t *testing.T) {
 		t.Fatalf("Load storage = %+v, want local at /data/uploads", loaded.Storage)
 	}
 }
+
+func TestLoadDatabaseSSLMode(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+
+	tests := []struct {
+		name    string
+		sslMode string
+		want    string
+		wantErr bool
+	}{
+		{name: "defaults to disable", want: "disable"},
+		{name: "require for a hosted database", sslMode: "require", want: "require"},
+		{name: "verify-full", sslMode: "verify-full", want: "verify-full"},
+		{name: "prefer can fall back to plain text", sslMode: "prefer", wantErr: true},
+		{name: "unknown mode", sslMode: "on", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.sslMode != "" {
+				t.Setenv("DB_SSLMODE", tt.sslMode)
+			}
+			loaded, err := config.Load()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "DB_SSLMODE") {
+					t.Fatalf("Load error = %v, want an unsupported DB_SSLMODE", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			if loaded.Database.SSLMode != tt.want {
+				t.Fatalf("Load SSLMode = %q, want %q", loaded.Database.SSLMode, tt.want)
+			}
+		})
+	}
+}

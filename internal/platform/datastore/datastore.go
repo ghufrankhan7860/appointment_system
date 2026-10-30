@@ -20,12 +20,15 @@ import (
 )
 
 // Config contains the PostgreSQL connection and pool policy selected at startup.
+// SSLMode is the libpq sslmode: disable locally, require or verify-full for a
+// hosted database.
 type Config struct {
 	Host            string
 	Port            int
 	User            string
 	Password        string
 	Database        string
+	SSLMode         string
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
@@ -46,7 +49,7 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 		Host:   config.Host + ":" + strconv.Itoa(config.Port),
 		Path:   config.Database,
 		RawQuery: url.Values{
-			"sslmode":  []string{"disable"},
+			"sslmode":  []string{config.SSLMode},
 			"TimeZone": []string{"UTC"},
 		}.Encode(),
 	}).String()
