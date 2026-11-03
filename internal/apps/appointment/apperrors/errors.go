@@ -18,6 +18,7 @@ var (
 	ErrNilPatientRepository     = errors.New("patient repository is nil")
 	ErrNilUserPatientRepository = errors.New("user-patient repository is nil")
 	ErrNilTransactionManager    = errors.New("transaction manager is nil")
+	ErrNilLogger                = errors.New("logger is nil")
 )
 
 var (

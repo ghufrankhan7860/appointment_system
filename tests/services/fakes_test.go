@@ -5,11 +5,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/models"
 )
+
+// discardLogger satisfies the services that log; tests that check a log line
+// build their own JSON logger.
+var discardLogger = slog.New(slog.DiscardHandler)
 
 type fakeAdminUserRepo struct {
 	adminExists bool

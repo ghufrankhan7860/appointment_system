@@ -33,6 +33,7 @@ type MedicalRecordService struct {
 	outbox       OutboxRepository
 	tx           TransactionManager
 	now          func() time.Time
+	logger       Logger
 }
 
 func NewMedicalRecordService(
@@ -44,6 +45,7 @@ func NewMedicalRecordService(
 	outbox OutboxRepository,
 	tx TransactionManager,
 	now func() time.Time,
+	logger Logger,
 ) (*MedicalRecordService, error) {
 	if records == nil {
 		return nil, apperrors.ErrNilMedicalRecordRepository
@@ -69,6 +71,9 @@ func NewMedicalRecordService(
 	if now == nil {
 		return nil, apperrors.ErrNilClock
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &MedicalRecordService{
 		records:      records,
@@ -79,6 +84,7 @@ func NewMedicalRecordService(
 		outbox:       outbox,
 		tx:           tx,
 		now:          now,
+		logger:       logger,
 	}, nil
 }
 
@@ -145,6 +151,7 @@ func (mrs *MedicalRecordService) CreateDraft(
 		}
 		return nil, fmt.Errorf("create medical record: %w", err)
 	}
+	mrs.logger.InfoContext(ctx, "medical record created", "record_id", created.ID, "appointment_id", appointmentID)
 
 	return created, nil
 }
@@ -198,6 +205,8 @@ func (mrs *MedicalRecordService) UpdateDraft(
 	if err != nil {
 		return nil, fmt.Errorf("get updated medical record: %w", err)
 	}
+
+	mrs.logger.InfoContext(ctx, "medical record updated", "record_id", updated.ID, "appointment_id", updated.AppointmentID)
 
 	return updated, nil
 }
@@ -259,6 +268,8 @@ func (mrs *MedicalRecordService) Finalize(
 	if err != nil {
 		return nil, fmt.Errorf("get finalized medical record: %w", err)
 	}
+
+	mrs.logger.InfoContext(ctx, "medical record finalized", "record_id", finalized.ID, "appointment_id", finalized.AppointmentID)
 
 	return finalized, nil
 }
@@ -556,6 +567,8 @@ func (mrs *MedicalRecordService) UploadAttachment(
 		_ = mrs.storage.Delete(ctx, key)
 		return nil, fmt.Errorf("save attachment: %w", err)
 	}
+
+	mrs.logger.InfoContext(ctx, "attachment uploaded", "attachment_id", created.ID, "record_id", created.MedicalRecordID, "size_bytes", created.SizeBytes)
 
 	return created, nil
 }

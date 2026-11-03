@@ -27,15 +27,15 @@ func newAppointmentRouter(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	availabilityService, err := services.NewAvailabilityService(doctors, &fakeAvailabilityRepo{rules: rules}, appointments, &fakeTxManager{}, time.UTC, time.Now)
+	availabilityService, err := services.NewAvailabilityService(doctors, &fakeAvailabilityRepo{rules: rules}, appointments, &fakeTxManager{}, time.UTC, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	paymentService, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, userPatients, doctors, none.New(), &fakeTxManager{}, time.Now)
+	paymentService, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, userPatients, doctors, none.New(), &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	appointmentService, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, userPatients, doctors, availabilityService, paymentService, &fakeTxManager{})
+	appointmentService, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, userPatients, doctors, availabilityService, paymentService, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}

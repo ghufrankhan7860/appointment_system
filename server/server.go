@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -28,15 +29,19 @@ type Config struct {
 type Server struct {
 	httpServer      *http.Server
 	shutdownTimeout time.Duration
+	logger          *slog.Logger
 }
 
 // New constructs a server from validated runtime policy.
-func New(config Config, healthChecker HealthChecker, appRoutes RouteRegistrar) (*Server, error) {
+func New(config Config, logger *slog.Logger, healthChecker HealthChecker, appRoutes RouteRegistrar) (*Server, error) {
 	if config.Address == "" {
 		return nil, errors.New("server address is required")
 	}
 	if config.ReadHeaderTimeout <= 0 || config.ReadTimeout <= 0 || config.WriteTimeout <= 0 || config.IdleTimeout <= 0 || config.ShutdownTimeout <= 0 {
 		return nil, errors.New("server timeouts must be greater than zero")
+	}
+	if logger == nil {
+		return nil, errors.New("logger is required")
 	}
 	if healthChecker == nil {
 		return nil, errors.New("health checker is required")
@@ -48,13 +53,14 @@ func New(config Config, healthChecker HealthChecker, appRoutes RouteRegistrar) (
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              config.Address,
-			Handler:           NewRouter(healthChecker, appRoutes),
+			Handler:           NewRouter(logger, healthChecker, appRoutes),
 			ReadHeaderTimeout: config.ReadHeaderTimeout,
 			ReadTimeout:       config.ReadTimeout,
 			WriteTimeout:      config.WriteTimeout,
 			IdleTimeout:       config.IdleTimeout,
 		},
 		shutdownTimeout: config.ShutdownTimeout,
+		logger:          logger,
 	}, nil
 }
 
@@ -72,6 +78,7 @@ func (server *Server) Run(ctx context.Context) error {
 		}
 		return fmt.Errorf("serve HTTP: %w", err)
 	case <-ctx.Done():
+		server.logger.Info("server stopping", "reason", "shutdown signal")
 		shutdownContext, cancel := context.WithTimeout(context.Background(), server.shutdownTimeout)
 		defer cancel()
 

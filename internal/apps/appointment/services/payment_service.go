@@ -25,6 +25,7 @@ type PaymentService struct {
 	gateway      PaymentGateway
 	tx           TransactionManager
 	now          func() time.Time
+	logger       Logger
 }
 
 func NewPaymentService(
@@ -36,6 +37,7 @@ func NewPaymentService(
 	gateway PaymentGateway,
 	tx TransactionManager,
 	now func() time.Time,
+	logger Logger,
 ) (*PaymentService, error) {
 	if payments == nil {
 		return nil, apperrors.ErrNilPaymentRepository
@@ -61,6 +63,9 @@ func NewPaymentService(
 	if now == nil {
 		return nil, apperrors.ErrNilClock
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &PaymentService{
 		payments:     payments,
@@ -71,6 +76,7 @@ func NewPaymentService(
 		gateway:      gateway,
 		tx:           tx,
 		now:          now,
+		logger:       logger,
 	}, nil
 }
 
@@ -140,6 +146,8 @@ func (ps *PaymentService) Create(
 		}
 		return nil, nil, fmt.Errorf("create payment: %w", err)
 	}
+
+	ps.logger.InfoContext(ctx, "payment order created", "payment_id", created.ID, "appointment_id", appointmentID, "amount", created.Amount)
 
 	return created, ps.gateway.ClientPayload(created), nil
 }
@@ -400,6 +408,7 @@ func (ps *PaymentService) ExpireUnpaid(ctx context.Context, limit int) (int, err
 			return expired, fmt.Errorf("expire unpaid appointment %d: %w", appointment.ID, err)
 		}
 		expired++
+		ps.logger.InfoContext(ctx, "unpaid booking expired", "appointment_id", appointment.ID, "doctor_id", appointment.DoctorID)
 
 		if err := ps.settleCancelled(ctx, appointment.ID, 0, models.RefundReasonLatePayment); err != nil {
 			return expired, err
@@ -476,6 +485,7 @@ func (ps *PaymentService) capturePaidOrder(ctx context.Context, appointmentID ui
 	if providerPaymentID == "" {
 		return nil
 	}
+	ps.logger.WarnContext(ctx, "paid order found on expiry", "payment_id", payment.ID, "appointment_id", appointmentID)
 
 	if err := ps.captureReported(ctx, payment, providerPaymentID); err != nil && !errors.Is(err, apperrors.ErrWebhookIgnored) {
 		return fmt.Errorf("capture paid order of appointment %d: %w", appointmentID, err)
@@ -525,6 +535,9 @@ func (ps *PaymentService) settleCancelled(
 	})
 	if err != nil && !errors.Is(err, apperrors.ErrPaymentNotModifiable) {
 		return fmt.Errorf("expire payment of cancelled appointment %d: %w", appointmentID, err)
+	}
+	if err == nil {
+		ps.logger.InfoContext(ctx, "payment expired", "payment_id", payment.ID, "appointment_id", appointmentID)
 	}
 
 	return nil
@@ -604,8 +617,11 @@ func (ps *PaymentService) capture(
 		if err := ps.refund(ctx, captured, models.RefundReasonLatePayment, 0, ""); err != nil {
 			return nil, fmt.Errorf("refund late payment %d: %w", payment.ID, err)
 		}
+		ps.logger.WarnContext(ctx, "late payment refunded", "payment_id", payment.ID, "appointment_id", appointment.ID)
 		return nil, apperrors.Invalid(apperrors.ErrPaymentWindowClosed, "", "the booking expired before the payment arrived; the payment is being refunded")
 	}
+
+	ps.logger.InfoContext(ctx, "payment captured", "payment_id", payment.ID, "appointment_id", appointment.ID)
 
 	return captured, nil
 }
@@ -698,6 +714,7 @@ func (ps *PaymentService) refund(
 	if err != nil {
 		return err
 	}
+	ps.logger.InfoContext(ctx, "refund requested", "refund_id", requested.ID, "payment_id", payment.ID, "appointment_id", payment.AppointmentID, "reason", reason)
 
 	providerRefundID, status, err := ps.gateway.Refund(ctx, payment, requested)
 	if err != nil {
@@ -742,6 +759,9 @@ func (ps *PaymentService) settleRefund(
 	}
 	if errors.Is(err, apperrors.ErrPaymentNotModifiable) {
 		return nil
+	}
+	if err == nil && status != models.RefundStatusRequested {
+		ps.logger.InfoContext(ctx, "refund settled", "refund_id", refund.ID, "payment_id", payment.ID, "status", status)
 	}
 
 	return err

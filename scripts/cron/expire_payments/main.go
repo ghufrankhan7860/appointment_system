@@ -10,7 +10,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 	_ "time/tzdata"
@@ -20,16 +20,19 @@ import (
 	"appointment_system/internal/apps/appointment/repositories"
 	"appointment_system/internal/apps/appointment/services"
 	"appointment_system/internal/platform/datastore"
+	"appointment_system/internal/platform/logger"
 )
 
 const (
 	expireBatchSize = 100
 	expireTimeout   = time.Minute
+	// jobName tags every log line of this command.
+	jobName = "expire_payments"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("expire unpaid bookings: %v", err)
+		slog.Error("expire unpaid bookings", "error", err)
 		os.Exit(1)
 	}
 }
@@ -39,6 +42,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	logOutput, _, err := logger.Output(config.Log.File)
+	if err != nil {
+		return fmt.Errorf("initialize log output: %w", err)
+	}
+	baseLogger, err := logger.New(logger.Config{Level: config.Log.Level, Format: config.Log.Format, Source: config.Log.Source}, logOutput)
+	if err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
+	slog.SetDefault(baseLogger)
+	logger := baseLogger.With("job", jobName)
+	started := time.Now()
+	logger.Info("run started")
 
 	ctx, cancel := context.WithTimeout(context.Background(), expireTimeout)
 	defer cancel()
@@ -54,13 +70,14 @@ func run() error {
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,
 		ConnectTimeout:  config.Database.ConnectTimeout,
+		Logger:          logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize datastore: %w", err)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			log.Printf("close datastore: %v", err)
+			logger.Error("close datastore", "error", err)
 		}
 	}()
 
@@ -107,6 +124,7 @@ func run() error {
 		paymentGateway,
 		txManager,
 		time.Now,
+		logger,
 	)
 	if err != nil {
 		return fmt.Errorf("initialize payment service: %w", err)
@@ -117,6 +135,6 @@ func run() error {
 		return err
 	}
 
-	log.Printf("cancelled %d unpaid bookings", expired)
+	logger.Info("run finished", "expired", expired, "duration_ms", time.Since(started).Milliseconds())
 	return nil
 }

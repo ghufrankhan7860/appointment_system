@@ -16,15 +16,22 @@ import (
 // registration: the first one comes from the bootstrap script (CreateFirst),
 // the rest from an existing admin (Create).
 type AdminUserService struct {
-	users UserRepository
+	users  UserRepository
+	logger Logger
 }
 
-func NewAdminUserService(users UserRepository) (*AdminUserService, error) {
+func NewAdminUserService(
+	users UserRepository,
+	logger Logger,
+) (*AdminUserService, error) {
 	if users == nil {
 		return nil, apperrors.ErrNilUserRepository
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
-	return &AdminUserService{users: users}, nil
+	return &AdminUserService{users: users, logger: logger}, nil
 }
 
 func (aus *AdminUserService) Create(
@@ -62,6 +69,7 @@ func (aus *AdminUserService) Create(
 		}
 		return nil, fmt.Errorf("create admin user: %w", err)
 	}
+	aus.logger.InfoContext(ctx, "admin user created", "user_id", createdUser.ID)
 
 	return createdUser, nil
 }

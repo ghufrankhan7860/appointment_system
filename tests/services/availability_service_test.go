@@ -34,7 +34,7 @@ func newTestAvailabilityService(t *testing.T, doctor *models.Doctor, repo *fakeA
 	if err != nil {
 		t.Fatalf("LoadLocation returned error: %v", err)
 	}
-	service, err := services.NewAvailabilityService(&fakeDoctorRepo{byID: doctor, byUserID: doctor}, repo, &fakeAppointmentRepo{}, &fakeTxManager{}, location, func() time.Time { return now })
+	service, err := services.NewAvailabilityService(&fakeDoctorRepo{byID: doctor, byUserID: doctor}, repo, &fakeAppointmentRepo{}, &fakeTxManager{}, location, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}

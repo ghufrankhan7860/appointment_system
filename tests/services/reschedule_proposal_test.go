@@ -122,15 +122,15 @@ func TestAppointmentServiceProposalExpiresAfterTTL(t *testing.T) {
 	original := scheduledAt(nineAM, models.AppointmentStatusScheduled)
 	appointments := &fakeAppointmentRepo{byID: original}
 	availability := &fakeAvailabilityRepo{rules: []*models.AvailabilityRule{{DayOfWeek: time.Friday, StartMinute: 9 * 60, EndMinute: 11 * 60, Mode: models.ConsultationModeInPerson}}}
-	availabilityService, err := services.NewAvailabilityService(&fakeDoctorRepo{byID: doctor, byUserID: doctor}, availability, appointments, &fakeTxManager{}, location, func() time.Time { return now })
+	availabilityService, err := services.NewAvailabilityService(&fakeDoctorRepo{byID: doctor, byUserID: doctor}, availability, appointments, &fakeTxManager{}, location, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, func() time.Time { return now })
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound}, &fakeDoctorRepo{byID: doctor, byUserID: doctor}, availabilityService, payments, &fakeTxManager{})
+	service, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound}, &fakeDoctorRepo{byID: doctor, byUserID: doctor}, availabilityService, payments, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}
@@ -303,6 +303,7 @@ func TestAppointmentServiceHeldByProposal(t *testing.T) {
 			&fakeTxManager{},
 			location,
 			func() time.Time { return dayBefore },
+			discardLogger,
 		)
 		if err != nil {
 			t.Fatalf("NewAvailabilityService returned error: %v", err)

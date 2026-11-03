@@ -16,11 +16,11 @@ import (
 func newTestDoctorSearch(t *testing.T, doctors *fakeDoctorRepo, rules []*models.AvailabilityRule, booked []*models.AppointmentDetails, now time.Time) *services.DoctorService {
 	t.Helper()
 
-	availability, err := services.NewAvailabilityService(doctors, &fakeAvailabilityRepo{rules: rules}, &fakeAppointmentRepo{booked: booked}, &fakeTxManager{}, clinicLocation(t), func() time.Time { return now })
+	availability, err := services.NewAvailabilityService(doctors, &fakeAvailabilityRepo{rules: rules}, &fakeAppointmentRepo{booked: booked}, &fakeTxManager{}, clinicLocation(t), func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	service, err := services.NewDoctorService(doctors, knownSpecialities(), &fakeDoctorVerificationRepo{}, availability, &fakeTxManager{})
+	service, err := services.NewDoctorService(doctors, knownSpecialities(), &fakeDoctorVerificationRepo{}, availability, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewDoctorService returned error: %v", err)
 	}

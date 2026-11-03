@@ -32,7 +32,7 @@ func newMedicalRecordRouter(t *testing.T, records *fakeMedicalRecordRepo, appoin
 		t.Fatalf("local.New returned error: %v", err)
 	}
 	doctor := doctorWithStatus(models.VerificationStatusVerified)
-	medicalRecordService, err := services.NewMedicalRecordService(records, appointments, userPatients, &fakeDoctorRepo{doctor: doctor}, storage, &fakeOutboxRepo{}, &fakeTxManager{}, time.Now)
+	medicalRecordService, err := services.NewMedicalRecordService(records, appointments, userPatients, &fakeDoctorRepo{doctor: doctor}, storage, &fakeOutboxRepo{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewMedicalRecordService returned error: %v", err)
 	}

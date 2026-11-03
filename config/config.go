@@ -43,6 +43,12 @@ const (
 	// storageProviderLocal keeps uploads on the local disk under StorageConfig.LocalDir.
 	storageProviderLocal = "local"
 	defaultStorageDir    = "var/storage"
+	// defaultLogLevel keeps debug lines out of production unless LOG_LEVEL asks.
+	defaultLogLevel = "info"
+	// logFormatJSON is for production, where a collector parses each line;
+	// logFormatText is easier to read locally.
+	logFormatJSON = "json"
+	logFormatText = "text"
 )
 
 const (
@@ -64,10 +70,14 @@ type Config struct {
 	Auth     AuthConfig
 	Payment  PaymentConfig
 	Storage  StorageConfig
+	Log      LogConfig
 }
 
 type AppConfig struct {
 	Name string
+	// Environment is APP_ENV, else GIN_MODE, else development. It is logged at
+	// startup and selects production-only rules.
+	Environment string
 	// Location is the clinic timezone. Doctor availability times are local to it.
 	Location *time.Location
 }
@@ -111,6 +121,18 @@ type StorageConfig struct {
 	LocalDir string
 }
 
+type LogConfig struct {
+	// Level is debug, info, warn or error.
+	Level string
+	// Format is json or text.
+	Format string
+	// Source adds the file and line of each log call.
+	Source bool
+	// File, when set, is a path that receives every log line too; logs always
+	// go to the terminal. Empty writes no file.
+	File string
+}
+
 type AuthConfig struct {
 	JWTSecret string
 	JWTIssuer string
@@ -120,7 +142,7 @@ type AuthConfig struct {
 // Load reads environment variables once and returns typed configuration.
 func Load() (Config, error) {
 	config := Config{
-		App: AppConfig{Name: env("APP_NAME", defaultAppName)},
+		App: AppConfig{Name: env("APP_NAME", defaultAppName), Environment: environment()},
 		HTTP: HTTPConfig{
 			Address:           env("HTTP_ADDRESS", defaultHTTPAddress),
 			ReadHeaderTimeout: readHeaderTimeout,
@@ -153,6 +175,11 @@ func Load() (Config, error) {
 			Provider: env("STORAGE_PROVIDER", storageProviderLocal),
 			LocalDir: env("STORAGE_LOCAL_DIR", defaultStorageDir),
 		},
+		Log: LogConfig{
+			Level:  env("LOG_LEVEL", defaultLogLevel),
+			Format: env("LOG_FORMAT", logFormatJSON),
+			File:   strings.TrimSpace(env("LOG_FILE", "")),
+		},
 	}
 
 	integerValues := []struct {
@@ -178,6 +205,22 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("APP_TIMEZONE is invalid: %w", err)
 	}
 	config.App.Location = location
+
+	switch config.Log.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		return Config{}, fmt.Errorf("LOG_LEVEL %q is not supported; use debug, info, warn or error", config.Log.Level)
+	}
+	if config.Log.Format != logFormatJSON && config.Log.Format != logFormatText {
+		return Config{}, fmt.Errorf("LOG_FORMAT %q is not supported; use %q or %q", config.Log.Format, logFormatJSON, logFormatText)
+	}
+	if value, ok := os.LookupEnv("LOG_SOURCE"); ok {
+		source, err := strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("LOG_SOURCE must be true or false: %w", err)
+		}
+		config.Log.Source = source
+	}
 
 	if config.App.Name == "" || config.HTTP.Address == "" {
 		return Config{}, fmt.Errorf("APP_NAME and HTTP_ADDRESS are required")
@@ -260,8 +303,12 @@ func envInt(name string, fallback int) (int, error) {
 	return parsed, nil
 }
 
+func environment() string {
+	return env("APP_ENV", env("GIN_MODE", defaultEnvironment))
+}
+
 func isProductionEnvironment() bool {
-	switch env("APP_ENV", env("GIN_MODE", defaultEnvironment)) {
+	switch environment() {
 	case "production", "prod", "release":
 		return true
 	default:

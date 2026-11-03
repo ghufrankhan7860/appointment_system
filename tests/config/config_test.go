@@ -147,3 +147,42 @@ func TestLoadDatabaseSSLMode(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadLogging(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+
+	tests := []struct {
+		name       string
+		env        map[string]string
+		want       config.LogConfig
+		wantErrKey string
+	}{
+		{name: "defaults to json at info", want: config.LogConfig{Level: "info", Format: "json"}},
+		{name: "local text with source", env: map[string]string{"LOG_LEVEL": "debug", "LOG_FORMAT": "text", "LOG_SOURCE": "true"}, want: config.LogConfig{Level: "debug", Format: "text", Source: true}},
+		{name: "log file path", env: map[string]string{"LOG_FILE": " var/log/appointment.log "}, want: config.LogConfig{Level: "info", Format: "json", File: "var/log/appointment.log"}},
+		{name: "unknown level", env: map[string]string{"LOG_LEVEL": "verbose"}, wantErrKey: "LOG_LEVEL"},
+		{name: "unknown format", env: map[string]string{"LOG_FORMAT": "xml"}, wantErrKey: "LOG_FORMAT"},
+		{name: "source not a boolean", env: map[string]string{"LOG_SOURCE": "sometimes"}, wantErrKey: "LOG_SOURCE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for name, value := range tt.env {
+				t.Setenv(name, value)
+			}
+			loaded, err := config.Load()
+			if tt.wantErrKey != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrKey) {
+					t.Fatalf("Load error = %v, want an invalid %s", err, tt.wantErrKey)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			if loaded.Log != tt.want {
+				t.Fatalf("Load log = %+v, want %+v", loaded.Log, tt.want)
+			}
+		})
+	}
+}

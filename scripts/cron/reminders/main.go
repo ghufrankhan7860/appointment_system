@@ -9,7 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 	_ "time/tzdata"
@@ -18,16 +18,19 @@ import (
 	"appointment_system/internal/apps/appointment/repositories"
 	"appointment_system/internal/apps/appointment/services"
 	"appointment_system/internal/platform/datastore"
+	"appointment_system/internal/platform/logger"
 )
 
 const (
 	reminderBatchSize = 100
 	reminderTimeout   = time.Minute
+	// jobName tags every log line of this command.
+	jobName = "reminders"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("queue reminders: %v", err)
+		slog.Error("queue reminders", "error", err)
 		os.Exit(1)
 	}
 }
@@ -37,6 +40,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	logOutput, _, err := logger.Output(config.Log.File)
+	if err != nil {
+		return fmt.Errorf("initialize log output: %w", err)
+	}
+	baseLogger, err := logger.New(logger.Config{Level: config.Log.Level, Format: config.Log.Format, Source: config.Log.Source}, logOutput)
+	if err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
+	slog.SetDefault(baseLogger)
+	logger := baseLogger.With("job", jobName)
+	started := time.Now()
+	logger.Info("run started")
 
 	ctx, cancel := context.WithTimeout(context.Background(), reminderTimeout)
 	defer cancel()
@@ -52,13 +68,14 @@ func run() error {
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,
 		ConnectTimeout:  config.Database.ConnectTimeout,
+		Logger:          logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize datastore: %w", err)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			log.Printf("close datastore: %v", err)
+			logger.Error("close datastore", "error", err)
 		}
 	}()
 
@@ -74,7 +91,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize transaction manager: %w", err)
 	}
-	reminderService, err := services.NewReminderService(appointmentRepository, outboxRepository, txManager, config.App.Location, time.Now)
+	reminderService, err := services.NewReminderService(appointmentRepository, outboxRepository, txManager, config.App.Location, time.Now, logger)
 	if err != nil {
 		return fmt.Errorf("initialize reminder service: %w", err)
 	}
@@ -84,6 +101,6 @@ func run() error {
 		return err
 	}
 
-	log.Printf("queued %d reminders", queued)
+	logger.Info("run finished", "queued", queued, "duration_ms", time.Since(started).Milliseconds())
 	return nil
 }

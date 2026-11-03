@@ -51,27 +51,27 @@ func newDoctorAdminRouterWithGateway(t *testing.T, doctors *fakeDoctorRepo, avai
 	gin.SetMode(gin.TestMode)
 
 	appointments := &fakeAppointmentRepo{}
-	availabilityService, err := services.NewAvailabilityService(doctors, availability, appointments, &fakeTxManager{}, time.UTC, time.Now)
+	availabilityService, err := services.NewAvailabilityService(doctors, availability, appointments, &fakeTxManager{}, time.UTC, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	doctorService, err := services.NewDoctorService(doctors, &fakeSpecialityRepo{}, &fakeDoctorVerificationRepo{}, availabilityService, &fakeTxManager{})
+	doctorService, err := services.NewDoctorService(doctors, &fakeSpecialityRepo{}, &fakeDoctorVerificationRepo{}, availabilityService, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewDoctorService returned error: %v", err)
 	}
-	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, &fakeTxManager{}, time.Now)
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	appointmentService, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, availabilityService, paymentService, &fakeTxManager{})
+	appointmentService, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, availabilityService, paymentService, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}
-	doctorVerificationService, err := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, appointmentService, &fakeTxManager{})
+	doctorVerificationService, err := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, appointmentService, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewDoctorVerificationService returned error: %v", err)
 	}
-	adminUserService, err := services.NewAdminUserService(&fakeUserRepo{})
+	adminUserService, err := services.NewAdminUserService(&fakeUserRepo{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAdminUserService returned error: %v", err)
 	}
@@ -83,7 +83,7 @@ func newDoctorAdminRouterWithGateway(t *testing.T, doctors *fakeDoctorRepo, avai
 	if err != nil {
 		t.Fatalf("local.New returned error: %v", err)
 	}
-	medicalRecordService, err := services.NewMedicalRecordService(records, &fakeAppointmentRepo{}, &fakeUserPatientRepo{}, doctors, storage, &fakeOutboxRepo{}, &fakeTxManager{}, time.Now)
+	medicalRecordService, err := services.NewMedicalRecordService(records, &fakeAppointmentRepo{}, &fakeUserPatientRepo{}, doctors, storage, &fakeOutboxRepo{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewMedicalRecordService returned error: %v", err)
 	}
@@ -95,7 +95,7 @@ func newDoctorAdminRouterWithGateway(t *testing.T, doctors *fakeDoctorRepo, avai
 	if err != nil {
 		t.Fatalf("NewDoctorHandler returned error: %v", err)
 	}
-	adminHandler, err := handler.NewAdminHandler(adminController, &fakeRoleTokenVerifier{})
+	adminHandler, err := handler.NewAdminHandler(adminController, &fakeRoleTokenVerifier{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAdminHandler returned error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestNewDoctorAndAdminHandlerValidation(t *testing.T) {
 	if _, err := handler.NewDoctorHandler(nil, &fakeRoleTokenVerifier{}); !errors.Is(err, apperrors.ErrNilDoctorController) {
 		t.Fatalf("nil doctor controller error = %v, want %v", err, apperrors.ErrNilDoctorController)
 	}
-	if _, err := handler.NewAdminHandler(nil, &fakeRoleTokenVerifier{}); !errors.Is(err, apperrors.ErrNilAdminController) {
+	if _, err := handler.NewAdminHandler(nil, &fakeRoleTokenVerifier{}, discardLogger); !errors.Is(err, apperrors.ErrNilAdminController) {
 		t.Fatalf("nil admin controller error = %v, want %v", err, apperrors.ErrNilAdminController)
 	}
 }

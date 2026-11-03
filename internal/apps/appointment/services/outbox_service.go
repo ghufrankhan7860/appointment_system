@@ -15,19 +15,28 @@ import (
 type OutboxService struct {
 	outbox OutboxRepository
 	tx     TransactionManager
+	logger Logger
 }
 
-func NewOutboxService(outbox OutboxRepository, tx TransactionManager) (*OutboxService, error) {
+func NewOutboxService(
+	outbox OutboxRepository,
+	tx TransactionManager,
+	logger Logger,
+) (*OutboxService, error) {
 	if outbox == nil {
 		return nil, apperrors.ErrNilOutboxRepository
 	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &OutboxService{
 		outbox: outbox,
 		tx:     tx,
+		logger: logger,
 	}, nil
 }
 
@@ -76,6 +85,9 @@ func (obs *OutboxService) Publish(
 	}
 	if publishErr != nil {
 		return published, fmt.Errorf("publish outbox event: %w", publishErr)
+	}
+	if published > 0 {
+		obs.logger.InfoContext(ctx, "outbox events published", "count", published)
 	}
 
 	return published, nil

@@ -36,7 +36,7 @@ func TestDoctorVerificationServiceSuspendCascade(t *testing.T) {
 	newSuspension := func(appointments *fakeAppointmentRepo, payments *fakePaymentRepo, gateway *fakeGateway, outbox *fakeOutboxRepo) (*services.DoctorVerificationService, *fakeDoctorRepo) {
 		doctors := &fakeDoctorRepo{byID: clinicDoctor(models.VerificationStatusVerified)}
 		appointmentService, _ := newTestAppointmentAndPaymentServices(t, doctors, appointments, outbox, &fakeUserPatientRepo{}, payments, gateway, now)
-		service, err := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, appointmentService, &fakeTxManager{})
+		service, err := services.NewDoctorVerificationService(doctors, &fakeDoctorVerificationRepo{}, appointmentService, &fakeTxManager{}, discardLogger)
 		if err != nil {
 			t.Fatalf("NewDoctorVerificationService returned error: %v", err)
 		}

@@ -9,7 +9,7 @@ import (
 	"appointment_system/middleware"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -18,11 +18,13 @@ import (
 type PaymentHandler struct {
 	paymentController *controller.PaymentController
 	tokenVerifier     middleware.TokenVerifier
+	logger            *slog.Logger
 }
 
 func NewPaymentHandler(
 	paymentController *controller.PaymentController,
 	tokenVerifier middleware.TokenVerifier,
+	logger *slog.Logger,
 ) (*PaymentHandler, error) {
 	if paymentController == nil {
 		return nil, apperrors.ErrNilPaymentController
@@ -30,9 +32,13 @@ func NewPaymentHandler(
 	if tokenVerifier == nil {
 		return nil, apperrors.ErrNilTokenVerifier
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 	return &PaymentHandler{
 		paymentController: paymentController,
 		tokenVerifier:     tokenVerifier,
+		logger:            logger,
 	}, nil
 }
 
@@ -79,7 +85,7 @@ func (ph *PaymentHandler) HandleWebhook(ctx *gin.Context) {
 		case errors.Is(err, apperrors.ErrWebhookIgnored):
 			// Answered 200 so the gateway does not retry or disable the
 			// webhook. The reason names ids only; the body is never logged.
-			log.Printf("payment webhook ignored: %s", apperrors.Reason(err))
+			ph.logger.WarnContext(ctx.Request.Context(), "payment webhook ignored", "reason", apperrors.Reason(err))
 			ctx.JSON(http.StatusOK, gin.H{"success": true, "received": true, "message": "Webhook ignored"})
 		default:
 			_ = ctx.Error(err)

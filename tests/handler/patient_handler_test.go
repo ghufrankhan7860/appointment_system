@@ -23,7 +23,7 @@ func newPatientRouter(t *testing.T, patients *fakePatientRepo, userPatients *fak
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	service, err := services.NewPatientService(patients, userPatients, &fakeTxManager{})
+	service, err := services.NewPatientService(patients, userPatients, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPatientService returned error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestNewPatientHandlerValidation(t *testing.T) {
 		t.Fatalf("nil controller error = %v, want %v", err, apperrors.ErrNilPatientController)
 	}
 
-	service, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{})
+	service, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPatientService returned error: %v", err)
 	}

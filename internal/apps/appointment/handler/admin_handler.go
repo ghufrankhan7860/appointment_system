@@ -7,6 +7,7 @@ import (
 	"appointment_system/internal/apps/appointment/dtos/admin"
 	"appointment_system/middleware"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,11 +16,13 @@ import (
 type AdminHandler struct {
 	adminController *controller.AdminController
 	tokenVerifier   middleware.TokenVerifier
+	logger          *slog.Logger
 }
 
 func NewAdminHandler(
 	adminController *controller.AdminController,
 	tokenVerifier middleware.TokenVerifier,
+	logger *slog.Logger,
 ) (*AdminHandler, error) {
 	if adminController == nil {
 		return nil, apperrors.ErrNilAdminController
@@ -27,9 +30,13 @@ func NewAdminHandler(
 	if tokenVerifier == nil {
 		return nil, apperrors.ErrNilTokenVerifier
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 	return &AdminHandler{
 		adminController: adminController,
 		tokenVerifier:   tokenVerifier,
+		logger:          logger,
 	}, nil
 }
 
@@ -37,7 +44,7 @@ func (ah *AdminHandler) RegisterRoutes(router *gin.RouterGroup) {
 	adminRoutes := router.Group(
 		"/admin",
 		middleware.Authenticate(ah.tokenVerifier),
-		middleware.LogAdminRequest(),
+		middleware.LogAdminRequest(ah.logger),
 		authz.RequirePermission(authz.PermAdminAccess),
 	)
 

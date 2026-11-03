@@ -3,6 +3,7 @@ package server_test
 import (
 	"appointment_system/server"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,7 +25,7 @@ func TestHealthRoute(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 
-	server.NewRouter(healthyChecker{}, noRoutes{}).ServeHTTP(recorder, request)
+	server.NewRouter(slog.New(slog.DiscardHandler), healthyChecker{}, noRoutes{}).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)

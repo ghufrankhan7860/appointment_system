@@ -9,11 +9,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
 )
+
+// discardLogger satisfies the datastore and services the database tests build.
+var discardLogger = slog.New(slog.DiscardHandler)
 
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -37,6 +41,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,
 		ConnectTimeout:  2 * time.Second,
+		Logger:          discardLogger,
 	})
 	if err != nil {
 		t.Skipf("database not reachable, skipping database test (run make db): %v", err)

@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"time"
@@ -33,6 +34,8 @@ type Config struct {
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
 	ConnectTimeout  time.Duration
+	// Logger receives query errors and slow queries; see GORMLogger.
+	Logger *slog.Logger
 }
 
 // Store owns the GORM and underlying SQL database handles.
@@ -43,6 +46,10 @@ type Store struct {
 
 // Open connects to PostgreSQL, configures the pool, and verifies readiness.
 func Open(ctx context.Context, config Config) (*Store, error) {
+	if config.Logger == nil {
+		return nil, errors.New("datastore logger is required")
+	}
+
 	dsn := (&url.URL{
 		Scheme: "postgres",
 		User:   url.UserPassword(config.User, config.Password),
@@ -54,7 +61,7 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 		}.Encode(),
 	}).String()
 
-	database, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	database, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: NewGORMLogger(config.Logger)})
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL: %w", err)
 	}

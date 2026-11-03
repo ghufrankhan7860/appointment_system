@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -22,15 +23,17 @@ type RouteRegistrar interface {
 	RegisterRoutes(router *gin.RouterGroup)
 }
 
-// NewRouter constructs the HTTP transport and registers global middleware and routes.
-func NewRouter(healthChecker HealthChecker, appRoutes RouteRegistrar) *gin.Engine {
+// NewRouter constructs the HTTP transport and registers global middleware and
+// routes. AppContext runs before LogRequest so request lines carry the
+// correlation ID; Recovery stays outermost so a panic is logged as a 500.
+func NewRouter(logger *slog.Logger, healthChecker HealthChecker, appRoutes RouteRegistrar) *gin.Engine {
 	registerJSONFieldNames()
 
 	router := gin.New()
 	router.Use(
-		gin.Logger(),
 		gin.Recovery(),
 		middleware.AppContext(),
+		middleware.LogRequest(logger),
 	)
 
 	registerHealthRoute(router, healthChecker)

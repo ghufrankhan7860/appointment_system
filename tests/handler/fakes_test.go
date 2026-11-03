@@ -3,11 +3,15 @@ package handler_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/models"
 )
+
+// discardLogger satisfies the services and handlers that log.
+var discardLogger = slog.New(slog.DiscardHandler)
 
 
 type fakePatientRepo struct {

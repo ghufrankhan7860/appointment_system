@@ -156,6 +156,8 @@ func (as *AppointmentService) ProposeReschedule(
 		return nil, fmt.Errorf("get created reschedule proposal: %w", err)
 	}
 
+	as.logger.InfoContext(ctx, "reschedule proposed", "appointment_id", original.ID, "proposal_id", proposal.ID, "placeholder_appointment_id", proposal.PlaceholderAppointmentID, "reason", reason)
+
 	return proposal, nil
 }
 
@@ -250,6 +252,7 @@ func (as *AppointmentService) AcceptReschedule(
 		}
 		return nil, fmt.Errorf("accept reschedule of appointment %d: %w", appointmentID, err)
 	}
+	as.logger.InfoContext(ctx, "reschedule accepted", "appointment_id", appointmentID, "proposal_id", proposal.ID, "placeholder_appointment_id", proposal.PlaceholderAppointmentID)
 
 	accepted, err := as.appointments.GetByID(ctx, proposal.PlaceholderAppointmentID)
 	if err != nil {
@@ -278,6 +281,7 @@ func (as *AppointmentService) DeclineReschedule(
 		}
 		return nil, fmt.Errorf("decline reschedule of appointment %d: %w", appointmentID, err)
 	}
+	as.logger.InfoContext(ctx, "reschedule declined", "appointment_id", appointmentID, "proposal_id", proposal.ID, "placeholder_appointment_id", proposal.PlaceholderAppointmentID)
 
 	declined, err := as.appointments.GetByID(ctx, original.ID)
 	if err != nil {
@@ -315,6 +319,7 @@ func (as *AppointmentService) ExpireProposals(ctx context.Context, limit int) (i
 		if err != nil {
 			return expired, fmt.Errorf("expire reschedule proposal %d: %w", proposal.ID, err)
 		}
+		as.logger.InfoContext(ctx, "reschedule proposal expired", "appointment_id", proposal.AppointmentID, "proposal_id", proposal.ID, "placeholder_appointment_id", proposal.PlaceholderAppointmentID)
 		expired++
 	}
 

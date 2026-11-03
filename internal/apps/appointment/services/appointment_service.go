@@ -32,6 +32,7 @@ type AppointmentService struct {
 	availability *AvailabilityService
 	payments     *PaymentService
 	tx           TransactionManager
+	logger       Logger
 }
 
 func NewAppointmentService(
@@ -42,6 +43,7 @@ func NewAppointmentService(
 	availability *AvailabilityService,
 	payments *PaymentService,
 	tx TransactionManager,
+	logger Logger,
 ) (*AppointmentService, error) {
 	if appointments == nil {
 		return nil, apperrors.ErrNilAppointmentRepository
@@ -64,6 +66,9 @@ func NewAppointmentService(
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &AppointmentService{
 		appointments: appointments,
@@ -73,6 +78,7 @@ func NewAppointmentService(
 		availability: availability,
 		payments:     payments,
 		tx:           tx,
+		logger:       logger,
 	}, nil
 }
 
@@ -103,6 +109,9 @@ func (as *AppointmentService) Book(
 		return nil, err
 	}
 	if replayed, err := as.replay(ctx, actingUserID, appointment); replayed != nil || err != nil {
+		if replayed != nil {
+			as.logger.DebugContext(ctx, "booking replayed", "appointment_id", replayed.ID)
+		}
 		return replayed, err
 	}
 	if err := as.validateBooking(appointment); err != nil {
@@ -160,6 +169,7 @@ func (as *AppointmentService) Book(
 			return replayed, replayErr
 		}
 		if errors.Is(err, apperrors.ErrSlotTaken) {
+			as.logger.WarnContext(ctx, "slot taken", "doctor_id", doctor.ID, "error", err)
 			return nil, err
 		}
 		return nil, fmt.Errorf("book appointment: %w", err)
@@ -169,6 +179,14 @@ func (as *AppointmentService) Book(
 	if err != nil {
 		return nil, fmt.Errorf("get booked appointment: %w", err)
 	}
+
+	as.logger.InfoContext(ctx, "appointment booked",
+		"appointment_id", booked.ID,
+		"doctor_id", booked.DoctorID,
+		"patient_id", booked.PatientID,
+		"payment_status", booked.PaymentStatus,
+		"payment_due_at", booked.PaymentDueAt,
+	)
 
 	return booked, nil
 }
@@ -253,6 +271,7 @@ func (as *AppointmentService) Cancel(
 		}
 		return nil, fmt.Errorf("cancel appointment %d: %w", appointmentID, err)
 	}
+	as.logger.InfoContext(ctx, "appointment cancelled", "appointment_id", appointmentID, "cancel_reason", cancelReason)
 	if err := as.payments.settleCancelled(ctx, appointmentID, actingUserID, refundReason); err != nil {
 		return nil, fmt.Errorf("settle payment of cancelled appointment %d: %w", appointmentID, err)
 	}
@@ -362,10 +381,12 @@ func (as *AppointmentService) Reschedule(
 			return replayed, replayErr
 		}
 		if errors.Is(err, apperrors.ErrSlotTaken) || errors.Is(err, apperrors.ErrAppointmentNotModifiable) {
+			as.logger.WarnContext(ctx, "reschedule refused", "appointment_id", appointmentID, "error", err)
 			return nil, err
 		}
 		return nil, fmt.Errorf("reschedule appointment %d: %w", appointmentID, err)
 	}
+	as.logger.InfoContext(ctx, "appointment rescheduled", "from_appointment_id", appointmentID, "appointment_id", created.ID)
 
 	rescheduled, err := as.appointments.GetByID(ctx, created.ID)
 	if err != nil {
@@ -591,6 +612,7 @@ func (as *AppointmentService) close(
 		}
 		return nil, fmt.Errorf("mark appointment %d %s: %w", appointmentID, toStatus, err)
 	}
+	as.logger.InfoContext(ctx, "appointment closed", "appointment_id", appointmentID, "status", toStatus)
 
 	closed, err := as.appointments.GetByID(ctx, appointmentID)
 	if err != nil {

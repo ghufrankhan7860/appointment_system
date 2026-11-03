@@ -9,10 +9,11 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,6 +25,9 @@ const (
 	authorizationHeader = "Authorization"
 	bearerScheme        = "Bearer"
 	correlationIDBytes = 16
+	// unmatchedRoute names requests no route matched, so their raw paths stay
+	// out of the log.
+	unmatchedRoute = "unmatched"
 )
 
 // AppContext creates and propagates narrow request-scoped application context.
@@ -87,22 +91,63 @@ func newCorrelationID() (string, error) {
 	return hex.EncodeToString(value), nil
 }
 
-// LogAdminRequest logs who called an admin route and the response status. It
-// runs before the permission check so refused attempts are logged too.
-func LogAdminRequest() gin.HandlerFunc {
+// LogRequest writes one line per request after it is served: the route
+// pattern (never the raw path, which carries IDs), status, duration and size.
+// 5xx lines are errors and carry every error a handler attached with
+// ctx.Error, so the cause of a 500 is logged here once. 4xx lines are
+// warnings. The logger adds the correlation ID and principal from the request
+// context, so AppContext must run first.
+func LogRequest(logger *slog.Logger) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		started := time.Now()
+		ctx.Next()
+
+		status := ctx.Writer.Status()
+		level := slog.LevelInfo
+		switch {
+		case status >= http.StatusInternalServerError:
+			level = slog.LevelError
+		case status >= http.StatusBadRequest:
+			level = slog.LevelWarn
+		}
+
+		attrs := []any{
+			"method", ctx.Request.Method,
+			"route", routePattern(ctx),
+			"status", status,
+			"duration_ms", time.Since(started).Milliseconds(),
+			"bytes", ctx.Writer.Size(),
+			"client_ip", ctx.ClientIP(),
+		}
+		if len(ctx.Errors) > 0 {
+			attrs = append(attrs, "error", strings.Join(ctx.Errors.Errors(), "; "))
+		}
+		logger.Log(ctx.Request.Context(), level, "request served", attrs...)
+	}
+}
+
+// LogAdminRequest writes an audit line for who called an admin route and the
+// response status. It runs before the permission check so refused attempts
+// are logged too.
+func LogAdminRequest(logger *slog.Logger) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		ctx.Next()
 
-		userID := ""
-		if applicationContext, ok := appcontext.From(ctx.Request.Context()); ok {
-			userID = applicationContext.PrincipalID
-		}
-		log.Printf(
-			"admin request user_id=%s method=%s route=%s status=%d",
-			userID,
-			ctx.Request.Method,
-			ctx.FullPath(),
-			ctx.Writer.Status(),
+		logger.InfoContext(
+			ctx.Request.Context(),
+			"admin request",
+			"audit", true,
+			"method", ctx.Request.Method,
+			"route", routePattern(ctx),
+			"status", ctx.Writer.Status(),
 		)
 	}
+}
+
+func routePattern(ctx *gin.Context) string {
+	if route := ctx.FullPath(); route != "" {
+		return route
+	}
+
+	return unmatchedRoute
 }

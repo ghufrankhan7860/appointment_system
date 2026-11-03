@@ -24,6 +24,7 @@ type AvailabilityService struct {
 	tx           TransactionManager
 	location     *time.Location
 	now          func() time.Time
+	logger       Logger
 }
 
 func NewAvailabilityService(
@@ -33,6 +34,7 @@ func NewAvailabilityService(
 	tx TransactionManager,
 	location *time.Location,
 	now func() time.Time,
+	logger Logger,
 ) (*AvailabilityService, error) {
 	if doctors == nil {
 		return nil, apperrors.ErrNilDoctorRepository
@@ -52,6 +54,9 @@ func NewAvailabilityService(
 	if now == nil {
 		return nil, apperrors.ErrNilClock
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &AvailabilityService{
 		doctors:      doctors,
@@ -60,6 +65,7 @@ func NewAvailabilityService(
 		tx:           tx,
 		location:     location,
 		now:          now,
+		logger:       logger,
 	}, nil
 }
 
@@ -147,6 +153,8 @@ func (avs *AvailabilityService) Replace(
 		return nil, fmt.Errorf("replace availability rules: %w", err)
 	}
 
+	avs.logger.InfoContext(ctx, "availability replaced", "doctor_id", doctor.ID, "rules", len(replaced))
+
 	return replaced, nil
 }
 
@@ -212,6 +220,8 @@ func (avs *AvailabilityService) AddOverride(
 	if err != nil {
 		return nil, fmt.Errorf("create availability override: %w", err)
 	}
+
+	avs.logger.InfoContext(ctx, "availability override added", "override_id", created.ID, "doctor_id", doctor.ID, "is_available", created.IsAvailable)
 
 	return created, nil
 }

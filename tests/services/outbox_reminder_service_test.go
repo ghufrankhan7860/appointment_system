@@ -31,7 +31,7 @@ func TestOutboxServicePublish(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			outbox := &fakeOutboxRepo{unpublished: events()}
-			service, err := services.NewOutboxService(outbox, &fakeTxManager{})
+			service, err := services.NewOutboxService(outbox, &fakeTxManager{}, discardLogger)
 			if err != nil {
 				t.Fatalf("NewOutboxService returned error: %v", err)
 			}
@@ -61,10 +61,10 @@ func TestOutboxServicePublish(t *testing.T) {
 }
 
 func TestNewOutboxServiceValidation(t *testing.T) {
-	if _, err := services.NewOutboxService(nil, &fakeTxManager{}); !errors.Is(err, apperrors.ErrNilOutboxRepository) {
+	if _, err := services.NewOutboxService(nil, &fakeTxManager{}, discardLogger); !errors.Is(err, apperrors.ErrNilOutboxRepository) {
 		t.Fatalf("NewOutboxService error = %v, want %v", err, apperrors.ErrNilOutboxRepository)
 	}
-	if _, err := services.NewOutboxService(&fakeOutboxRepo{}, nil); !errors.Is(err, apperrors.ErrNilTransactionManager) {
+	if _, err := services.NewOutboxService(&fakeOutboxRepo{}, nil, discardLogger); !errors.Is(err, apperrors.ErrNilTransactionManager) {
 		t.Fatalf("NewOutboxService error = %v, want %v", err, apperrors.ErrNilTransactionManager)
 	}
 }
@@ -95,7 +95,7 @@ func TestReminderServiceQueueDue(t *testing.T) {
 				models.ReminderWindowDayBefore: {tomorrow},
 			}}
 			outbox := &fakeOutboxRepo{}
-			service, err := services.NewReminderService(appointments, outbox, &fakeTxManager{}, location, func() time.Time { return tt.now })
+			service, err := services.NewReminderService(appointments, outbox, &fakeTxManager{}, location, func() time.Time { return tt.now }, discardLogger)
 			if err != nil {
 				t.Fatalf("NewReminderService returned error: %v", err)
 			}
@@ -130,7 +130,7 @@ func TestReminderServiceQueueDue(t *testing.T) {
 
 func TestOutboxServicePublishGivesEachSendADeadline(t *testing.T) {
 	outbox := &fakeOutboxRepo{unpublished: []*models.OutboxEvent{{ID: 1}, {ID: 2}}}
-	service, err := services.NewOutboxService(outbox, &fakeTxManager{})
+	service, err := services.NewOutboxService(outbox, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewOutboxService returned error: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestOutboxServicePublishGivesEachSendADeadline(t *testing.T) {
 	}
 
 	stuck := &fakeOutboxRepo{unpublished: []*models.OutboxEvent{{ID: 3}}}
-	service, _ = services.NewOutboxService(stuck, &fakeTxManager{})
+	service, _ = services.NewOutboxService(stuck, &fakeTxManager{}, discardLogger)
 	_, err = service.Publish(context.Background(), 10, func(ctx context.Context, event *models.OutboxEvent) error {
 		return context.DeadlineExceeded
 	})

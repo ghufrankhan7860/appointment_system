@@ -30,7 +30,7 @@ func newTestMedicalRecordService(
 ) *services.MedicalRecordService {
 	t.Helper()
 
-	service, err := services.NewMedicalRecordService(records, appointments, userPatients, &fakeDoctorRepo{byUserID: doctor}, storage, outbox, &fakeTxManager{}, func() time.Time { return now })
+	service, err := services.NewMedicalRecordService(records, appointments, userPatients, &fakeDoctorRepo{byUserID: doctor}, storage, outbox, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewMedicalRecordService returned error: %v", err)
 	}

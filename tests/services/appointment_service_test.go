@@ -57,16 +57,17 @@ func newTestAppointmentAndPaymentServices(
 		&fakeTxManager{},
 		clinicLocation(t),
 		func() time.Time { return now },
+		discardLogger,
 	)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
 
-	paymentService, err := services.NewPaymentService(payments, appointments, outbox, userPatients, doctors, gateway, &fakeTxManager{}, func() time.Time { return now })
+	paymentService, err := services.NewPaymentService(payments, appointments, outbox, userPatients, doctors, gateway, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, paymentService, &fakeTxManager{})
+	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, paymentService, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}
@@ -85,11 +86,11 @@ func patientLink(accessLevel models.AccessLevel) *models.UserPatient {
 }
 
 func TestNewAppointmentServiceValidation(t *testing.T) {
-	availability, err := services.NewAvailabilityService(&fakeDoctorRepo{}, &fakeAvailabilityRepo{}, &fakeAppointmentRepo{}, &fakeTxManager{}, time.UTC, time.Now)
+	availability, err := services.NewAvailabilityService(&fakeDoctorRepo{}, &fakeAvailabilityRepo{}, &fakeAppointmentRepo{}, &fakeTxManager{}, time.UTC, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, time.Now)
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestNewAppointmentServiceValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := services.NewAppointmentService(tt.appointments, tt.outbox, tt.userPatients, tt.doctors, tt.availability, tt.payments, tt.tx); !errors.Is(err, tt.wantErr) {
+			if _, err := services.NewAppointmentService(tt.appointments, tt.outbox, tt.userPatients, tt.doctors, tt.availability, tt.payments, tt.tx, discardLogger); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("NewAppointmentService error = %v, want %v", err, tt.wantErr)
 			}
 		})
@@ -382,6 +383,7 @@ func TestAvailabilityServiceListSlotsSkipsBookedTimes(t *testing.T) {
 		&fakeTxManager{},
 		location,
 		func() time.Time { return nineAM.Add(-24 * time.Hour) },
+		discardLogger,
 	)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)

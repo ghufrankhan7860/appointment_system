@@ -10,9 +10,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,16 +23,19 @@ import (
 	"appointment_system/internal/apps/appointment/repositories"
 	"appointment_system/internal/apps/appointment/services"
 	"appointment_system/internal/platform/datastore"
+	"appointment_system/internal/platform/logger"
 )
 
 const (
 	outboxBatchSize    = 100
 	outboxPollInterval = 5 * time.Second
+	// jobName tags every log line of this command.
+	jobName = "outbox_consumer"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("outbox consumer: %v", err)
+		slog.Error("outbox consumer", "error", err)
 		os.Exit(1)
 	}
 }
@@ -43,6 +45,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	logOutput, _, err := logger.Output(config.Log.File)
+	if err != nil {
+		return fmt.Errorf("initialize log output: %w", err)
+	}
+	baseLogger, err := logger.New(logger.Config{Level: config.Log.Level, Format: config.Log.Format, Source: config.Log.Source}, logOutput)
+	if err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
+	slog.SetDefault(baseLogger)
+	logger := baseLogger.With("job", jobName)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -58,13 +71,14 @@ func run() error {
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,
 		ConnectTimeout:  config.Database.ConnectTimeout,
+		Logger:          logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize datastore: %w", err)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			log.Printf("close datastore: %v", err)
+			logger.Error("close datastore", "error", err)
 		}
 	}()
 
@@ -76,19 +90,16 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize transaction manager: %w", err)
 	}
-	outboxService, err := services.NewOutboxService(outboxRepository, txManager)
+	outboxService, err := services.NewOutboxService(outboxRepository, txManager, logger)
 	if err != nil {
 		return fmt.Errorf("initialize outbox service: %w", err)
 	}
 
-	log.Printf("outbox consumer started, polling every %s", outboxPollInterval)
+	logger.Info("consumer started", "poll_interval", outboxPollInterval.String())
 	for {
-		published, err := outboxService.Publish(ctx, outboxBatchSize, logEvent)
+		published, err := outboxService.Publish(ctx, outboxBatchSize, logEvent(logger))
 		if err != nil && ctx.Err() == nil {
-			log.Printf("publish outbox: %v", err)
-		}
-		if published > 0 {
-			log.Printf("published %d events", published)
+			logger.Error("publish outbox", "error", err)
 		}
 		if published == outboxBatchSize {
 			continue
@@ -96,7 +107,7 @@ func run() error {
 
 		select {
 		case <-ctx.Done():
-			log.Printf("outbox consumer stopped")
+			logger.Info("consumer stopped")
 			return nil
 		case <-time.After(outboxPollInterval):
 		}
@@ -105,12 +116,16 @@ func run() error {
 
 // ponytail: the log is the only publisher; add a notifier port with one adapter
 // per channel when the first real channel (email, SMS) is built.
-func logEvent(ctx context.Context, event *models.OutboxEvent) error {
-	payload, err := json.Marshal(event.Payload)
-	if err != nil {
-		return fmt.Errorf("encode event %d: %w", event.ID, err)
-	}
+// The payload is never logged: it can carry personal data.
+func logEvent(logger *slog.Logger) func(context.Context, *models.OutboxEvent) error {
+	return func(ctx context.Context, event *models.OutboxEvent) error {
+		logger.InfoContext(ctx, "event published",
+			"event_id", event.ID,
+			"event_type", event.EventType,
+			"aggregate_type", event.AggregateType,
+			"aggregate_id", event.AggregateID,
+		)
 
-	log.Printf("event id=%d type=%s %s=%d payload=%s", event.ID, event.EventType, event.AggregateType, event.AggregateID, payload)
-	return nil
+		return nil
+	}
 }

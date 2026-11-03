@@ -9,6 +9,7 @@ package appointment
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +47,7 @@ func NewContainer(
 	paymentSettings PaymentSettings,
 	storageProvider string,
 	storageLocalDir string,
+	logger *slog.Logger,
 ) (*Container, error) {
 	userRepository, err := repositories.NewUserRepository(db)
 	if err != nil {
@@ -72,6 +74,7 @@ func NewContainer(
 		sessionRepository,
 		tokenGenerator,
 		txManager,
+		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize auth service: %w", err)
@@ -97,7 +100,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize user-patient repository: %w", err)
 	}
 
-	patientService, err := services.NewPatientService(patientRepository, userPatientRepository, txManager)
+	patientService, err := services.NewPatientService(patientRepository, userPatientRepository, txManager, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize patient service: %w", err)
 	}
@@ -127,7 +130,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize doctor verification repository: %w", err)
 	}
 
-	adminUserService, err := services.NewAdminUserService(userRepository)
+	adminUserService, err := services.NewAdminUserService(userRepository, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize admin user service: %w", err)
 	}
@@ -149,6 +152,7 @@ func NewContainer(
 		txManager,
 		clinicLocation,
 		time.Now,
+		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize availability service: %w", err)
@@ -160,6 +164,7 @@ func NewContainer(
 		doctorVerificationRepository,
 		availabilityService,
 		txManager,
+		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize doctor service: %w", err)
@@ -189,6 +194,7 @@ func NewContainer(
 		paymentGateway,
 		txManager,
 		time.Now,
+		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize payment service: %w", err)
@@ -202,6 +208,7 @@ func NewContainer(
 		availabilityService,
 		paymentService,
 		txManager,
+		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize appointment service: %w", err)
@@ -212,6 +219,7 @@ func NewContainer(
 		doctorVerificationRepository,
 		appointmentService,
 		txManager,
+		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize doctor verification service: %w", err)
@@ -251,6 +259,7 @@ func NewContainer(
 		outboxRepository,
 		txManager,
 		time.Now,
+		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize medical record service: %w", err)
@@ -271,7 +280,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize payment controller: %w", err)
 	}
 
-	paymentHandler, err := handler.NewPaymentHandler(paymentController, tokenGenerator)
+	paymentHandler, err := handler.NewPaymentHandler(paymentController, tokenGenerator, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize payment handler: %w", err)
 	}
@@ -286,7 +295,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize doctor handler: %w", err)
 	}
 
-	adminHandler, err := handler.NewAdminHandler(adminController, tokenGenerator)
+	adminHandler, err := handler.NewAdminHandler(adminController, tokenGenerator, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize admin handler: %w", err)
 	}

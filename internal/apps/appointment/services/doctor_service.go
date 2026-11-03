@@ -27,6 +27,7 @@ type DoctorService struct {
 	verifications DoctorVerificationRepository
 	availability  *AvailabilityService
 	tx            TransactionManager
+	logger        Logger
 }
 
 func NewDoctorService(
@@ -35,6 +36,7 @@ func NewDoctorService(
 	verifications DoctorVerificationRepository,
 	availability *AvailabilityService,
 	tx TransactionManager,
+	logger Logger,
 ) (*DoctorService, error) {
 	if doctors == nil {
 		return nil, apperrors.ErrNilDoctorRepository
@@ -51,6 +53,9 @@ func NewDoctorService(
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &DoctorService{
 		doctors:       doctors,
@@ -58,6 +63,7 @@ func NewDoctorService(
 		verifications: verifications,
 		availability:  availability,
 		tx:            tx,
+		logger:        logger,
 	}, nil
 }
 
@@ -114,6 +120,8 @@ func (ds *DoctorService) Create(
 	}); err != nil {
 		return nil, fmt.Errorf("create doctor profile: %w", err)
 	}
+
+	ds.logger.InfoContext(ctx, "doctor profile created", "doctor_id", created.ID)
 
 	return created, nil
 }
@@ -219,6 +227,8 @@ func (ds *DoctorService) Update(
 		return nil, fmt.Errorf("update doctor profile: %w", err)
 	}
 
+	ds.logger.InfoContext(ctx, "doctor profile updated", "doctor_id", updated.ID, "resubmitted", resubmit)
+
 	return updated, nil
 }
 
@@ -306,6 +316,8 @@ func (ds *DoctorService) CreateSpeciality(
 		}
 		return nil, fmt.Errorf("create speciality: %w", err)
 	}
+
+	ds.logger.InfoContext(ctx, "speciality created", "speciality_id", created.ID)
 
 	return created, nil
 }

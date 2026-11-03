@@ -18,6 +18,7 @@ type AuthService struct {
 	sessions SessionRepository
 	tokens   TokenGenerator
 	tx       TransactionManager
+	logger   Logger
 }
 
 type TokenGenerator interface {
@@ -29,6 +30,7 @@ func NewAuthService(
 	sessions SessionRepository,
 	tokens TokenGenerator,
 	tx TransactionManager,
+	logger Logger,
 ) (*AuthService, error) {
 	if users == nil {
 		return nil, apperrors.ErrNilUserRepository
@@ -42,12 +44,16 @@ func NewAuthService(
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &AuthService{
 		users:    users,
 		sessions: sessions,
 		tokens:   tokens,
 		tx:       tx,
+		logger:   logger,
 	}, nil
 }
 
@@ -71,6 +77,7 @@ func (as *AuthService) Register(
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", duplicateUserReason(err))
 	}
+	as.logger.InfoContext(ctx, "user registered", "user_id", createdUser.ID)
 
 	return createdUser, nil
 }
@@ -101,6 +108,7 @@ func (as *AuthService) Login(
 	}
 
 	if err := utils.CheckPassword(user.PasswordHash, password); err != nil {
+		as.logger.WarnContext(ctx, "login failed", "user_id", user.ID)
 		return nil, "", "", apperrors.ErrInvalidCredentials
 	}
 
@@ -120,6 +128,7 @@ func (as *AuthService) Login(
 	)); err != nil {
 		return nil, "", "", fmt.Errorf("create session: %w", err)
 	}
+	as.logger.InfoContext(ctx, "user logged in", "user_id", user.ID, "role", user.Role)
 
 	return user, accessToken, refreshToken, nil
 }
@@ -178,6 +187,7 @@ func (as *AuthService) Refresh(
 	}); err != nil {
 		return "", "", fmt.Errorf("rotate session: %w", err)
 	}
+	as.logger.InfoContext(ctx, "session refreshed", "session_id", session.ID, "user_id", user.ID)
 
 	return accessToken, nextRefreshToken, nil
 }
@@ -202,6 +212,7 @@ func (as *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	if err := as.sessions.RevokeByID(ctx, session.ID); err != nil {
 		return fmt.Errorf("revoke session: %w", err)
 	}
+	as.logger.InfoContext(ctx, "session revoked", "session_id", session.ID, "user_id", session.UserID)
 
 	return nil
 }

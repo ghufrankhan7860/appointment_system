@@ -190,7 +190,7 @@ func TestAppointmentServiceRescheduleRollsBackWhenTheNewBookingFails(t *testing.
 	if err != nil {
 		t.Fatalf("NewGORMTransactionManager returned error: %v", err)
 	}
-	availability, err := services.NewAvailabilityService(doctors, availabilityRepository, fixture.appointments, txManager, location, time.Now)
+	availability, err := services.NewAvailabilityService(doctors, availabilityRepository, fixture.appointments, txManager, location, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
@@ -199,11 +199,11 @@ func TestAppointmentServiceRescheduleRollsBackWhenTheNewBookingFails(t *testing.
 		t.Fatalf("NewPaymentRepository returned error: %v", err)
 	}
 	newService := func(appointments services.AppointmentRepository) *services.AppointmentService {
-		payments, err := services.NewPaymentService(paymentRepository, appointments, outbox, userPatients, doctors, none.New(), txManager, time.Now)
+		payments, err := services.NewPaymentService(paymentRepository, appointments, outbox, userPatients, doctors, none.New(), txManager, time.Now, discardLogger)
 		if err != nil {
 			t.Fatalf("NewPaymentService returned error: %v", err)
 		}
-		service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, payments, txManager)
+		service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, payments, txManager, discardLogger)
 		if err != nil {
 			t.Fatalf("NewAppointmentService returned error: %v", err)
 		}

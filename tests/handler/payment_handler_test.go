@@ -38,7 +38,7 @@ func newPaymentRouterWithGateway(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, &fakeDoctorRepo{}, gateway, &fakeTxManager{}, time.Now)
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, &fakeDoctorRepo{}, gateway, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
@@ -46,7 +46,7 @@ func newPaymentRouterWithGateway(
 	if err != nil {
 		t.Fatalf("NewPaymentController returned error: %v", err)
 	}
-	paymentHandler, err := handler.NewPaymentHandler(paymentController, &fakeRoleTokenVerifier{})
+	paymentHandler, err := handler.NewPaymentHandler(paymentController, &fakeRoleTokenVerifier{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentHandler returned error: %v", err)
 	}

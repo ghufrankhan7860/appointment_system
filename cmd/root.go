@@ -15,13 +15,15 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	"appointment_system/config"
 	"appointment_system/internal/apps/appointment"
 	"appointment_system/internal/platform/datastore"
+	"appointment_system/internal/platform/logger"
 	"appointment_system/server"
 )
 
@@ -35,6 +37,16 @@ func Execute() error {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
+	logOutput, _, err := logger.Output(config.Log.File)
+	if err != nil {
+		return fmt.Errorf("initialize log output: %w", err)
+	}
+	logger, err := logger.New(logger.Config{Level: config.Log.Level, Format: config.Log.Format, Source: config.Log.Source}, logOutput)
+	if err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
+	slog.SetDefault(logger)
+
 	store, err := datastore.Open(ctx, datastore.Config{
 		Host:            config.Database.Host,
 		Port:            config.Database.Port,
@@ -46,13 +58,14 @@ func Execute() error {
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,
 		ConnectTimeout:  config.Database.ConnectTimeout,
+		Logger:          logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize datastore: %w", err)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			log.Printf("close datastore: %v", err)
+			logger.Error("close datastore", "error", err)
 		}
 	}()
 
@@ -70,6 +83,7 @@ func Execute() error {
 		},
 		config.Storage.Provider,
 		config.Storage.LocalDir,
+		logger,
 	)
 	if err != nil {
 		return fmt.Errorf("initialize appointment application: %w", err)
@@ -82,11 +96,32 @@ func Execute() error {
 		WriteTimeout:      config.HTTP.WriteTimeout,
 		IdleTimeout:       config.HTTP.IdleTimeout,
 		ShutdownTimeout:   config.HTTP.ShutdownTimeout,
-	}, store, app)
+	}, logger, store, app)
 	if err != nil {
 		return fmt.Errorf("initialize HTTP server: %w", err)
 	}
 
-	log.Printf("starting %s HTTP server on %s", config.App.Name, config.HTTP.Address)
+	logger.Info("server started",
+		"app", config.App.Name,
+		"address", config.HTTP.Address,
+		"env", config.App.Environment,
+		"log_level", config.Log.Level,
+		"log_file", config.Log.File,
+		"version", buildRevision(),
+	)
 	return httpServer.Run(ctx)
+}
+
+// buildRevision returns the VCS revision the binary was built from, or
+// "unknown" when the build did not record one (go run, or a build without .git).
+func buildRevision() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				return setting.Value
+			}
+		}
+	}
+
+	return "unknown"
 }

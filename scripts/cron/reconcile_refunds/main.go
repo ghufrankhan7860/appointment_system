@@ -9,7 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 	_ "time/tzdata"
@@ -19,16 +19,19 @@ import (
 	"appointment_system/internal/apps/appointment/repositories"
 	"appointment_system/internal/apps/appointment/services"
 	"appointment_system/internal/platform/datastore"
+	"appointment_system/internal/platform/logger"
 )
 
 const (
 	reconcileBatchSize = 100
 	reconcileTimeout   = 5 * time.Minute
+	// jobName tags every log line of this command.
+	jobName = "reconcile_refunds"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("reconcile refunds: %v", err)
+		slog.Error("reconcile refunds", "error", err)
 		os.Exit(1)
 	}
 }
@@ -38,6 +41,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	logOutput, _, err := logger.Output(config.Log.File)
+	if err != nil {
+		return fmt.Errorf("initialize log output: %w", err)
+	}
+	baseLogger, err := logger.New(logger.Config{Level: config.Log.Level, Format: config.Log.Format, Source: config.Log.Source}, logOutput)
+	if err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
+	slog.SetDefault(baseLogger)
+	logger := baseLogger.With("job", jobName)
+	started := time.Now()
+	logger.Info("run started")
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
@@ -53,13 +69,14 @@ func run() error {
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,
 		ConnectTimeout:  config.Database.ConnectTimeout,
+		Logger:          logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize datastore: %w", err)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			log.Printf("close datastore: %v", err)
+			logger.Error("close datastore", "error", err)
 		}
 	}()
 
@@ -106,6 +123,7 @@ func run() error {
 		paymentGateway,
 		txManager,
 		time.Now,
+		logger,
 	)
 	if err != nil {
 		return fmt.Errorf("initialize payment service: %w", err)
@@ -116,6 +134,6 @@ func run() error {
 		return err
 	}
 
-	log.Printf("settled %d requested refunds", settled)
+	logger.Info("run finished", "settled", settled, "duration_ms", time.Since(started).Milliseconds())
 	return nil
 }

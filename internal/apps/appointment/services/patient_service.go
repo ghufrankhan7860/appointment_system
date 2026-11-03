@@ -16,12 +16,14 @@ type PatientService struct {
 	patients     PatientRepository
 	userPatients UserPatientRepository
 	tx           TransactionManager
+	logger       Logger
 }
 
 func NewPatientService(
 	patients PatientRepository,
 	userPatients UserPatientRepository,
 	tx TransactionManager,
+	logger Logger,
 ) (*PatientService, error) {
 	if patients == nil {
 		return nil, apperrors.ErrNilPatientRepository
@@ -32,7 +34,10 @@ func NewPatientService(
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
-	return &PatientService{patients: patients, userPatients: userPatients, tx: tx}, nil
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
+	return &PatientService{patients: patients, userPatients: userPatients, tx: tx, logger: logger}, nil
 }
 
 func (s *PatientService) Create(
@@ -89,6 +94,8 @@ func (s *PatientService) Create(
 		}
 		return nil, err
 	}
+
+	s.logger.InfoContext(ctx, "patient created", "patient_id", created.ID, "relationship", relationship)
 
 	return created, nil
 }
@@ -220,6 +227,8 @@ func (s *PatientService) Update(
 		}
 		return nil, fmt.Errorf("update patient record: %w", err)
 	}
+
+	s.logger.InfoContext(ctx, "patient updated", "patient_id", updated.ID)
 
 	return updated, nil
 }

@@ -28,7 +28,7 @@ func TestAdminUserServiceCreateFirst(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, err := services.NewAdminUserService(tt.repo)
+			service, err := services.NewAdminUserService(tt.repo, discardLogger)
 			if err != nil {
 				t.Fatalf("NewAdminUserService returned error: %v", err)
 			}
@@ -53,7 +53,7 @@ func TestAdminUserServiceCreateFirst(t *testing.T) {
 
 func TestAdminUserServiceCreateForcesAdminRole(t *testing.T) {
 	repo := &fakeAdminUserRepo{adminExists: true}
-	service, _ := services.NewAdminUserService(repo)
+	service, _ := services.NewAdminUserService(repo, discardLogger)
 
 	created, err := service.Create(context.Background(), &models.User{Name: "Ops", Email: "ops2@example.com", MobileNo: "999", Role: models.RolePatient}, "a-long-password")
 	if err != nil {

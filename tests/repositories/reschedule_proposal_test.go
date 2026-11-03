@@ -143,15 +143,15 @@ func TestAppointmentServiceProposalFlowsOnPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGORMTransactionManager returned error: %v", err)
 	}
-	availability, err := services.NewAvailabilityService(doctors, availabilityRepository, fixture.appointments, txManager, location, time.Now)
+	availability, err := services.NewAvailabilityService(doctors, availabilityRepository, fixture.appointments, txManager, location, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(paymentRepository, fixture.appointments, outbox, userPatients, doctors, none.New(), txManager, time.Now)
+	payments, err := services.NewPaymentService(paymentRepository, fixture.appointments, outbox, userPatients, doctors, none.New(), txManager, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(fixture.appointments, outbox, userPatients, doctors, availability, payments, txManager)
+	service, err := services.NewAppointmentService(fixture.appointments, outbox, userPatients, doctors, availability, payments, txManager, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}

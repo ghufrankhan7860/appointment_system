@@ -22,6 +22,7 @@ type ReminderService struct {
 	tx           TransactionManager
 	location     *time.Location
 	now          func() time.Time
+	logger       Logger
 }
 
 func NewReminderService(
@@ -30,6 +31,7 @@ func NewReminderService(
 	tx TransactionManager,
 	location *time.Location,
 	now func() time.Time,
+	logger Logger,
 ) (*ReminderService, error) {
 	if appointments == nil {
 		return nil, apperrors.ErrNilAppointmentRepository
@@ -46,6 +48,9 @@ func NewReminderService(
 	if now == nil {
 		return nil, apperrors.ErrNilClock
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &ReminderService{
 		appointments: appointments,
@@ -53,6 +58,7 @@ func NewReminderService(
 		tx:           tx,
 		location:     location,
 		now:          now,
+		logger:       logger,
 	}, nil
 }
 
@@ -95,7 +101,7 @@ func (rs *ReminderService) queue(
 	to time.Time,
 	limit int,
 ) (int, error) {
-	queued := 0
+	var queuedIDs []uint64
 	err := rs.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
 		due, err := rs.appointments.ListDueForReminder(txCtx, window, from, to, limit)
 		if err != nil {
@@ -117,7 +123,7 @@ func (rs *ReminderService) queue(
 			if err := rs.outbox.Create(txCtx, event); err != nil {
 				return err
 			}
-			queued++
+			queuedIDs = append(queuedIDs, appointment.ID)
 		}
 
 		return nil
@@ -125,6 +131,9 @@ func (rs *ReminderService) queue(
 	if err != nil {
 		return 0, fmt.Errorf("queue %s reminders: %w", window, err)
 	}
+	for _, appointmentID := range queuedIDs {
+		rs.logger.InfoContext(ctx, "reminder queued", "appointment_id", appointmentID, "window", window)
+	}
 
-	return queued, nil
+	return len(queuedIDs), nil
 }

@@ -54,6 +54,7 @@ func TestAuthServiceRefreshSessionState(t *testing.T) {
 				sessions,
 				&fakeTokenGen{token: "access-token"},
 				&fakeTxManager{},
+				discardLogger,
 			)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
@@ -83,6 +84,7 @@ func TestAuthServiceRefreshActiveSessionRotatesAtomically(t *testing.T) {
 		sessions,
 		&fakeTokenGen{token: "access-token"},
 		tx,
+		discardLogger,
 	)
 	if err != nil {
 		t.Fatalf("NewAuthService returned error: %v", err)
@@ -122,6 +124,7 @@ func TestAuthServiceLogoutRevokedSessionIsIdempotent(t *testing.T) {
 		sessions,
 		&fakeTokenGen{},
 		&fakeTxManager{},
+		discardLogger,
 	)
 	if err != nil {
 		t.Fatalf("NewAuthService returned error: %v", err)
@@ -137,16 +140,16 @@ func TestAuthServiceLogoutRevokedSessionIsIdempotent(t *testing.T) {
 
 func TestNewAuthServiceValidation(t *testing.T) {
 	tx := &fakeTxManager{}
-	if _, err := services.NewAuthService(nil, &fakeSessionRepo{}, &fakeTokenGen{}, tx); !errors.Is(err, apperrors.ErrNilUserRepository) {
+	if _, err := services.NewAuthService(nil, &fakeSessionRepo{}, &fakeTokenGen{}, tx, discardLogger); !errors.Is(err, apperrors.ErrNilUserRepository) {
 		t.Fatalf("nil users error = %v", err)
 	}
-	if _, err := services.NewAuthService(&fakeUserRepo{}, nil, &fakeTokenGen{}, tx); !errors.Is(err, apperrors.ErrNilSessionRepository) {
+	if _, err := services.NewAuthService(&fakeUserRepo{}, nil, &fakeTokenGen{}, tx, discardLogger); !errors.Is(err, apperrors.ErrNilSessionRepository) {
 		t.Fatalf("nil sessions error = %v", err)
 	}
-	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, nil, tx); !errors.Is(err, apperrors.ErrNilTokenGenerator) {
+	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, nil, tx, discardLogger); !errors.Is(err, apperrors.ErrNilTokenGenerator) {
 		t.Fatalf("nil tokens error = %v", err)
 	}
-	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, &fakeTokenGen{}, nil); !errors.Is(err, apperrors.ErrNilTransactionManager) {
+	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, &fakeTokenGen{}, nil, discardLogger); !errors.Is(err, apperrors.ErrNilTransactionManager) {
 		t.Fatalf("nil tx error = %v", err)
 	}
 }
@@ -170,6 +173,7 @@ func TestAuthServiceRegisterReportsDuplicateField(t *testing.T) {
 				&fakeSessionRepo{},
 				&fakeTokenGen{token: "access-token"},
 				&fakeTxManager{},
+				discardLogger,
 			)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
@@ -206,7 +210,7 @@ func TestAuthServiceLoginLooksUpOneColumn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			users := &fakeUserRepo{user: &models.User{ID: 7, Role: models.RolePatient, PasswordHash: hash}}
-			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeTxManager{})
+			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeTxManager{}, discardLogger)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
 			}
@@ -234,7 +238,7 @@ func TestAuthServiceRegisterPasswordMinimum(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			users := &fakeUserRepo{user: &models.User{ID: 7}}
-			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeTxManager{})
+			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeTxManager{}, discardLogger)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
 			}

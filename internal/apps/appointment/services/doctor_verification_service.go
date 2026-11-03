@@ -32,6 +32,7 @@ type DoctorVerificationService struct {
 	verifications DoctorVerificationRepository
 	appointments  *AppointmentService
 	tx            TransactionManager
+	logger        Logger
 }
 
 func NewDoctorVerificationService(
@@ -39,6 +40,7 @@ func NewDoctorVerificationService(
 	verifications DoctorVerificationRepository,
 	appointments *AppointmentService,
 	tx TransactionManager,
+	logger Logger,
 ) (*DoctorVerificationService, error) {
 	if doctors == nil {
 		return nil, apperrors.ErrNilDoctorRepository
@@ -52,12 +54,16 @@ func NewDoctorVerificationService(
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
 
 	return &DoctorVerificationService{
 		doctors:       doctors,
 		verifications: verifications,
 		appointments:  appointments,
 		tx:            tx,
+		logger:        logger,
 	}, nil
 }
 
@@ -101,10 +107,12 @@ func (dvs *DoctorVerificationService) Suspend(
 
 	result := &models.SuspensionResult{CancelledAppointments: len(cancelled)}
 	for _, appointment := range cancelled {
+		dvs.logger.InfoContext(ctx, "appointment cancelled", "appointment_id", appointment.ID, "cancel_reason", models.CancelReasonDoctorSuspended)
 		if appointment.PaymentStatus == models.AppointmentPaymentPaid {
 			result.RefundsRequested++
 		}
 	}
+	dvs.logger.InfoContext(ctx, "doctor suspended", "doctor_id", doctorID, "cancelled_appointments", result.CancelledAppointments, "refunds_requested", result.RefundsRequested)
 	if err := dvs.appointments.settleSuspended(ctx, cancelled, actingUserID); err != nil {
 		return nil, nil, fmt.Errorf("settle bookings of suspended doctor %d: %w", doctorID, err)
 	}
@@ -233,6 +241,8 @@ func (dvs *DoctorVerificationService) transition(
 		}
 		return nil, fmt.Errorf("review doctor %d: %w", doctorID, err)
 	}
+
+	dvs.logger.InfoContext(ctx, "doctor verification changed", "doctor_id", doctorID, "from", transition.from, "to", transition.to)
 
 	return reviewed, nil
 }

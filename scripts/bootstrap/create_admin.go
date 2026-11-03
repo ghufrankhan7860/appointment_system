@@ -13,7 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -23,13 +23,18 @@ import (
 	"appointment_system/internal/apps/appointment/repositories"
 	"appointment_system/internal/apps/appointment/services"
 	"appointment_system/internal/platform/datastore"
+	"appointment_system/internal/platform/logger"
 )
 
-const bootstrapTimeout = 30 * time.Second
+const (
+	bootstrapTimeout = 30 * time.Second
+	// jobName tags every log line of this command.
+	jobName = "create_admin"
+)
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("create admin: %v", err)
+		slog.Error("create admin", "error", err)
 		os.Exit(1)
 	}
 }
@@ -50,6 +55,17 @@ func run() error {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
+	logOutput, _, err := logger.Output(config.Log.File)
+	if err != nil {
+		return fmt.Errorf("initialize log output: %w", err)
+	}
+	baseLogger, err := logger.New(logger.Config{Level: config.Log.Level, Format: config.Log.Format, Source: config.Log.Source}, logOutput)
+	if err != nil {
+		return fmt.Errorf("initialize logger: %w", err)
+	}
+	slog.SetDefault(baseLogger)
+	logger := baseLogger.With("job", jobName)
+
 	ctx, cancel := context.WithTimeout(context.Background(), bootstrapTimeout)
 	defer cancel()
 
@@ -64,13 +80,14 @@ func run() error {
 		MaxIdleConns:    config.Database.MaxIdleConns,
 		ConnMaxLifetime: config.Database.ConnMaxLifetime,
 		ConnectTimeout:  config.Database.ConnectTimeout,
+		Logger:          logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize datastore: %w", err)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			log.Printf("close datastore: %v", err)
+			logger.Error("close datastore", "error", err)
 		}
 	}()
 
@@ -79,7 +96,7 @@ func run() error {
 		return fmt.Errorf("initialize user repository: %w", err)
 	}
 
-	adminUserService, err := services.NewAdminUserService(userRepository)
+	adminUserService, err := services.NewAdminUserService(userRepository, logger)
 	if err != nil {
 		return fmt.Errorf("initialize admin user service: %w", err)
 	}
@@ -96,6 +113,6 @@ func run() error {
 		return err
 	}
 
-	log.Printf("created admin user_id=%d email=%s", createdUser.ID, createdUser.Email)
+	logger.Info("run finished", "user_id", createdUser.ID)
 	return nil
 }

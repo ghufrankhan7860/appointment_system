@@ -3,7 +3,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	// Embeds the timezone database: the distroless image has no zoneinfo, and
 	// APP_TIMEZONE must load there too.
@@ -24,7 +24,7 @@ import (
 // @description Type "Bearer" followed by a space and the jwtToken returned by login.
 func main() {
 	if err := cmd.Execute(); err != nil {
-		log.Printf("application stopped: %v", err)
+		slog.Error("application stopped", "error", err)
 		os.Exit(1)
 	}
 }
