@@ -6702,9 +6702,9 @@
                     "type": "integer",
                     "example": 98
                 },
-                "temperatureCelsius": {
+                "temperatureFahrenheit": {
                     "type": "number",
-                    "example": 38.2
+                    "example": 100.8
                 },
                 "weightKg": {
                     "type": "number",

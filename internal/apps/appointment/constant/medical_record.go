@@ -27,15 +27,15 @@ const (
 
 // Plausible vitals. A value outside these is a typing mistake, not a reading.
 const (
-	MinPulsePerMinute     = 20
-	MaxPulsePerMinute     = 300
-	MinTemperatureCelsius = 25.0
-	MaxTemperatureCelsius = 45.0
-	MinWeightKg           = 0.5
-	MaxWeightKg           = 500.0
-	MinSpO2Percent        = 50
-	MaxSpO2Percent        = 100
-	MaxBloodPressureChars = 20
+	MinPulsePerMinute        = 20
+	MaxPulsePerMinute        = 300
+	MinTemperatureFahrenheit = 77.0
+	MaxTemperatureFahrenheit = 113.0
+	MinWeightKg              = 0.5
+	MaxWeightKg              = 500.0
+	MinSpO2Percent           = 50
+	MaxSpO2Percent           = 100
+	MaxBloodPressureChars    = 20
 )
 
 // AttachmentContentTypes are the file types an attachment can be. The type is

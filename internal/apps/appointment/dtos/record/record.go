@@ -27,11 +27,11 @@ type MedicalRecordResponse struct {
 
 // Vitals are the measurements taken at the visit; a missing value was not measured.
 type Vitals struct {
-	BloodPressure      string   `json:"bloodPressure,omitempty" example:"120/80"`
-	PulsePerMinute     *int     `json:"pulsePerMinute,omitempty" example:"82"`
-	TemperatureCelsius *float64 `json:"temperatureCelsius,omitempty" example:"38.2"`
-	WeightKg           *float64 `json:"weightKg,omitempty" example:"64.5"`
-	SpO2Percent        *int     `json:"spo2Percent,omitempty" example:"98"`
+	BloodPressure         string   `json:"bloodPressure,omitempty" example:"120/80"`
+	PulsePerMinute        *int     `json:"pulsePerMinute,omitempty" example:"82"`
+	TemperatureFahrenheit *float64 `json:"temperatureFahrenheit,omitempty" example:"100.8"`
+	WeightKg              *float64 `json:"weightKg,omitempty" example:"64.5"`
+	SpO2Percent           *int     `json:"spo2Percent,omitempty" example:"98"`
 }
 
 // Medicine is one line of the visit's prescription.

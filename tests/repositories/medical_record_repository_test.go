@@ -38,14 +38,14 @@ func TestMedicalRecordRepository(t *testing.T) {
 		t.Fatalf("second Create error = %v, want %v", err, apperrors.ErrMedicalRecordExists)
 	}
 
-	pulse, temperature := 88, 38.4
+	pulse, temperature := 88, 101.1
 	followUp := time.Date(2026, 11, 2, 15, 0, 0, 0, time.UTC)
 	if err := records.UpdateDraft(ctx, &models.MedicalRecord{
 		ID:                created.ID,
 		Diagnosis:         "Viral fever",
 		PrescriptionNotes: "Plenty of fluids",
 		FollowUpOn:        &followUp,
-		Vitals:            models.Vitals{BloodPressure: "118/76", PulsePerMinute: &pulse, TemperatureCelsius: &temperature},
+		Vitals:            models.Vitals{BloodPressure: "118/76", PulsePerMinute: &pulse, TemperatureFahrenheit: &temperature},
 		Medicines: []models.PrescriptionItem{
 			{MedicineName: "Paracetamol", Strength: "500 mg", Dosage: "1-0-1", DurationDays: 3, Timing: models.MedicineTimingAfterFood},
 			{MedicineName: "ORS", Dosage: "as needed", Timing: models.MedicineTimingAny},
@@ -70,12 +70,12 @@ func TestMedicalRecordRepository(t *testing.T) {
 
 	if err := records.UpdateDraft(ctx, &models.MedicalRecord{
 		ID: created.ID, Diagnosis: "Viral fever", FollowUpOn: &followUp,
-		Vitals: models.Vitals{PulsePerMinute: &pulse, TemperatureCelsius: &temperature},
+		Vitals: models.Vitals{PulsePerMinute: &pulse, TemperatureFahrenheit: &temperature},
 	}); err != nil {
 		t.Fatalf("third UpdateDraft returned error: %v", err)
 	}
 	saved, err = records.GetByID(ctx, created.ID)
-	if err != nil || saved.Vitals.PulsePerMinute == nil || *saved.Vitals.PulsePerMinute != pulse || *saved.Vitals.TemperatureCelsius != temperature {
+	if err != nil || saved.Vitals.PulsePerMinute == nil || *saved.Vitals.PulsePerMinute != pulse || *saved.Vitals.TemperatureFahrenheit != temperature {
 		t.Fatalf("GetByID vitals = %+v, %v; want the pulse and temperature back", saved.Vitals, err)
 	}
 	if saved.FollowUpOn == nil || saved.FollowUpOn.Format(time.DateOnly) != "2026-11-02" {

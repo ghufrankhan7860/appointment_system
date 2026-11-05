@@ -62,11 +62,11 @@ func (mrc *MedicalRecordController) UpdateDraft(ctx context.Context, request *re
 		Advice:            request.Advice,
 		PrescriptionNotes: request.PrescriptionNotes,
 		Vitals: models.Vitals{
-			BloodPressure:      request.Vitals.BloodPressure,
-			PulsePerMinute:     request.Vitals.PulsePerMinute,
-			TemperatureCelsius: request.Vitals.TemperatureCelsius,
-			WeightKg:           request.Vitals.WeightKg,
-			SpO2Percent:        request.Vitals.SpO2Percent,
+			BloodPressure:         request.Vitals.BloodPressure,
+			PulsePerMinute:        request.Vitals.PulsePerMinute,
+			TemperatureFahrenheit: request.Vitals.TemperatureFahrenheit,
+			WeightKg:              request.Vitals.WeightKg,
+			SpO2Percent:           request.Vitals.SpO2Percent,
 		},
 		Medicines: make([]models.PrescriptionItem, 0, len(request.Medicines)),
 	}

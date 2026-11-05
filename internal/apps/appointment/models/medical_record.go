@@ -42,11 +42,11 @@ const (
 
 // Vitals are the measurements taken at a visit. A nil value was not measured.
 type Vitals struct {
-	BloodPressure      string
-	PulsePerMinute     *int
-	TemperatureCelsius *float64
-	WeightKg           *float64
-	SpO2Percent        *int
+	BloodPressure         string
+	PulsePerMinute        *int
+	TemperatureFahrenheit *float64
+	WeightKg              *float64
+	SpO2Percent           *int
 }
 
 // PrescriptionItem is one medicine on a visit's prescription.

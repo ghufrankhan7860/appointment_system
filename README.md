@@ -1070,7 +1070,7 @@ Setup (test mode first):
 A record is the doctor's note for one appointment, with the visit's prescription. A visit has one prescription, so its medicines are part of the record.
 
 1. The appointment's doctor opens the record once the appointment has started and is not cancelled (`409` otherwise). Opening it again returns the same record.
-2. The doctor edits the draft with `PUT`: chief complaint, symptoms, diagnosis, examination notes, advice, prescription notes, follow-up date, vitals and up to 30 medicines. Vitals must be plausible (pulse 20-300, temperature 25-45 °C, weight 0.5-500 kg, SpO2 50-100) and each medicine needs a name and a dosage.
+2. The doctor edits the draft with `PUT`: chief complaint, symptoms, diagnosis, examination notes, advice, prescription notes, follow-up date, vitals and up to 30 medicines. Vitals must be plausible (pulse 20-300, temperature 77-113 °F, weight 0.5-500 kg, SpO2 50-100) and each medicine needs a name and a dosage.
 3. Finalizing needs a diagnosis and locks the record for good (`409` on any later change). It writes a `medical_record.finalized` outbox event that carries ids only, no clinical content.
 
 Who can read:

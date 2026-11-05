@@ -1394,8 +1394,8 @@ definitions:
       spo2Percent:
         example: 98
         type: integer
-      temperatureCelsius:
-        example: 38.2
+      temperatureFahrenheit:
+        example: 100.8
         type: number
       weightKg:
         example: 64.5

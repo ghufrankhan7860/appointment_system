@@ -73,8 +73,8 @@ func validateVitals(vitals models.Vitals) error {
 	if vitals.PulsePerMinute != nil && (*vitals.PulsePerMinute < constant.MinPulsePerMinute || *vitals.PulsePerMinute > constant.MaxPulsePerMinute) {
 		return apperrors.Invalid(apperrors.ErrInvalidMedicalRecordInput, "vitals.pulsePerMinute", fmt.Sprintf("must be between %d and %d", constant.MinPulsePerMinute, constant.MaxPulsePerMinute))
 	}
-	if vitals.TemperatureCelsius != nil && (*vitals.TemperatureCelsius < constant.MinTemperatureCelsius || *vitals.TemperatureCelsius > constant.MaxTemperatureCelsius) {
-		return apperrors.Invalid(apperrors.ErrInvalidMedicalRecordInput, "vitals.temperatureCelsius", fmt.Sprintf("must be between %g and %g", constant.MinTemperatureCelsius, constant.MaxTemperatureCelsius))
+	if vitals.TemperatureFahrenheit != nil && (*vitals.TemperatureFahrenheit < constant.MinTemperatureFahrenheit || *vitals.TemperatureFahrenheit > constant.MaxTemperatureFahrenheit) {
+		return apperrors.Invalid(apperrors.ErrInvalidMedicalRecordInput, "vitals.temperatureFahrenheit", fmt.Sprintf("must be between %g and %g", constant.MinTemperatureFahrenheit, constant.MaxTemperatureFahrenheit))
 	}
 	if vitals.WeightKg != nil && (*vitals.WeightKg < constant.MinWeightKg || *vitals.WeightKg > constant.MaxWeightKg) {
 		return apperrors.Invalid(apperrors.ErrInvalidMedicalRecordInput, "vitals.weightKg", fmt.Sprintf("must be between %g and %g", constant.MinWeightKg, constant.MaxWeightKg))

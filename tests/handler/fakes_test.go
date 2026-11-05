@@ -13,7 +13,6 @@ import (
 // discardLogger satisfies the services and handlers that log.
 var discardLogger = slog.New(slog.DiscardHandler)
 
-
 type fakePatientRepo struct {
 	patient *models.Patient
 	err     error

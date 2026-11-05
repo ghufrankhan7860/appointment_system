@@ -50,11 +50,11 @@ func (medicalRecordRecord) TableName() string {
 
 // vitalsRecord is the JSON shape of medical_records.vitals.
 type vitalsRecord struct {
-	BloodPressure      string   `json:"bloodPressure,omitempty"`
-	PulsePerMinute     *int     `json:"pulsePerMinute,omitempty"`
-	TemperatureCelsius *float64 `json:"temperatureCelsius,omitempty"`
-	WeightKg           *float64 `json:"weightKg,omitempty"`
-	SpO2Percent        *int     `json:"spo2Percent,omitempty"`
+	BloodPressure         string   `json:"bloodPressure,omitempty"`
+	PulsePerMinute        *int     `json:"pulsePerMinute,omitempty"`
+	TemperatureFahrenheit *float64 `json:"temperatureFahrenheit,omitempty"`
+	WeightKg              *float64 `json:"weightKg,omitempty"`
+	SpO2Percent           *int     `json:"spo2Percent,omitempty"`
 }
 
 type prescriptionItemRecord struct {
@@ -492,11 +492,11 @@ func toMedicalRecordModel(row medicalRecordRecord, items []prescriptionItemRecor
 		PrescriptionNotes: row.PrescriptionNotes,
 		FollowUpOn:        row.FollowUpOn,
 		Vitals: models.Vitals{
-			BloodPressure:      vitals.BloodPressure,
-			PulsePerMinute:     vitals.PulsePerMinute,
-			TemperatureCelsius: vitals.TemperatureCelsius,
-			WeightKg:           vitals.WeightKg,
-			SpO2Percent:        vitals.SpO2Percent,
+			BloodPressure:         vitals.BloodPressure,
+			PulsePerMinute:        vitals.PulsePerMinute,
+			TemperatureFahrenheit: vitals.TemperatureFahrenheit,
+			WeightKg:              vitals.WeightKg,
+			SpO2Percent:           vitals.SpO2Percent,
 		},
 		Medicines:   medicines,
 		Status:      models.MedicalRecordStatus(row.Status),
@@ -508,11 +508,11 @@ func toMedicalRecordModel(row medicalRecordRecord, items []prescriptionItemRecor
 
 func toVitalsRecord(vitals models.Vitals) vitalsRecord {
 	return vitalsRecord{
-		BloodPressure:      vitals.BloodPressure,
-		PulsePerMinute:     vitals.PulsePerMinute,
-		TemperatureCelsius: vitals.TemperatureCelsius,
-		WeightKg:           vitals.WeightKg,
-		SpO2Percent:        vitals.SpO2Percent,
+		BloodPressure:         vitals.BloodPressure,
+		PulsePerMinute:        vitals.PulsePerMinute,
+		TemperatureFahrenheit: vitals.TemperatureFahrenheit,
+		WeightKg:              vitals.WeightKg,
+		SpO2Percent:           vitals.SpO2Percent,
 	}
 }
 
