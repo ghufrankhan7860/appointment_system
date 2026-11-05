@@ -1,4 +1,4 @@
-# SITE_ADDRESS is the public host name, such as 52-65-56-135.sslip.io; Caddy
+# SITE_ADDRESS is the public host name, such as staging.medappoint.in; Caddy
 # gets and renews its HTTPS certificate on its own.
 # The API answers /api/* and /health. Every other path is the web client, a
 # separate compose project (appointment_system_frontend/deploy) reached as web:80

@@ -19,7 +19,7 @@
 
 .EXAMPLE
   .\deploy-staging.ps1
-  .\deploy-staging.ps1 -HealthUrl https://52-65-56-135.sslip.io/health
+  .\deploy-staging.ps1 -HealthUrl https://staging.medappoint.in/health
   .\deploy-staging.ps1 -SkipBuild            # re-ship images already built
   .\deploy-staging.ps1 -SkipConfigSync       # don't overwrite server deploy/ files
 
@@ -34,7 +34,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ServerHost  = "52.65.56.135",
+    [string]$ServerHost  = "13.55.81.62",
     [string]$User        = "ubuntu",
     [string]$KeyPath     = "$HOME\.ssh\appointment-staging.pem",
     [string]$RemoteDir   = "/home/ubuntu/app",
