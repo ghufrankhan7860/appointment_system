@@ -1240,7 +1240,7 @@ Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 3
 
 Logs always go to stdout through `log/slog`. Set `LOG_FILE` to a path (for example `var/log/appointment.log`) to also append every line to that file; its folder is created when missing, and empty `LOG_FILE` writes no file. The file is not rotated, so rotate it with logrotate (`copytruncate`) or prune it to the retention below; in Docker, put its folder on a volume or the file is lost with the container. `LOG_FORMAT` is `json` (default, for production, where the container runtime or a collector ships them) or `text` (local), `LOG_LEVEL` is `debug`, `info` (default), `warn` or `error`, and `LOG_SOURCE=true` adds the file and line. Every line logged during a request carries `correlation_id` (also returned as `X-Correlation-ID`) and, once authenticated, `user_id` and `role`. Each request writes one `request served` line with the route pattern, never the raw path; a 500 line carries the real error. Services log domain events with IDs only, and the keys `password`, `token`, `email`, `mobile`, `notes`, `diagnosis` and similar are redacted. Never log free text or personal data. Request lines hold `client_ip` and admin lines are an audit trail next to medical data, so keep logs for at most 30 days unless a legal hold requires longer.
 
-The client IP comes from the connection unless `TRUSTED_PROXIES` lists the reverse proxies (IPs or CIDRs, comma-separated) whose `X-Forwarded-For` header can be believed; empty trusts none, which is right without a proxy. Behind Caddy in Docker, set it to the subnet of the network Caddy reaches the api on (`docker network inspect <project>_default`); otherwise every session records Caddy's IP, or any client could fake its IP if all proxies were trusted.
+The client IP comes from the connection unless `TRUSTED_PROXIES` lists the reverse proxies (IPs or CIDRs, comma-separated) whose `X-Forwarded-For` header can be believed; empty trusts none, which is right without a proxy. Behind Caddy in Docker, set it to the subnet of the network Caddy reaches the api on; on the EC2 host that is `appointment-edge` (`docker network inspect appointment-edge`, `172.18.0.0/16`) for both staging and production. Otherwise every session records Caddy's IP, or any client could fake its IP if all proxies were trusted.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 
@@ -1273,5 +1273,30 @@ Stop the database with the **Stop PostgreSQL** task or:
 docker compose -f deploy/compose.yaml down
 
 ```
+
+## Deploy (EC2)
+
+Staging and production share one EC2 host (13.55.81.62) as separate compose projects, each with its own Postgres, volumes, image tag, server folder and env file, so each deploys on its own. The edge Caddy is the only container that publishes ports:
+
+```text
+internet ─▶ edge Caddy :80/:443 (appointment-edge, /home/ubuntu/edge)
+             ├─ medappoint.in          /api/*, /health ─▶ api-production:8080   (appointment-production, /home/ubuntu/app-production)
+             │                         everything else ─▶ web-production:80     (appointment-web-production, /home/ubuntu/web-production)
+             ├─ www.medappoint.in      301 ─▶ https://medappoint.in
+             └─ staging.medappoint.in  /api/*, /health ─▶ api-staging:8080      (appointment-staging, /home/ubuntu/app)
+                                       everything else ─▶ web-staging:80        (appointment-web, /home/ubuntu/web)
+```
+
+Until Razorpay activates live mode, `medappoint.in` temporarily serves the staging stack (test keys, staging database) so Razorpay can review a working site; `deploy/edge/Caddyfile` marks the line to switch back once production runs with live keys.
+
+The api and web containers join the shared `appointment-edge` network under those aliases; Postgres and the consumer stay on their own project network, so staging cannot reach the production database. Production Postgres listens on server-local `127.0.0.1:5433` (staging `5432`) for an SSH tunnel.
+
+| Script | Deploys | Env file |
+|---|---|---|
+| `deploy-staging.ps1` | `deploy/compose.staging.yaml` | `envs/.env.staging` |
+| `deploy-production.ps1` | `deploy/compose.production.yaml` | `envs/.env.production` |
+| `deploy-edge.ps1` | `deploy/edge/` (Caddy), only when a domain or route changes | none |
+
+`deploy-production.ps1` refuses uncommitted changes, an env file whose `APP_ENV` is not `production`, a Razorpay key that is not `rzp_live_` and any `REPLACE_ME` value, then asks you to type `production` (`-Yes` skips the prompt). `deploy-edge.ps1` validates the Caddyfile in a throwaway container and reloads Caddy in place. Production's scheduled jobs and daily database dump are in `deploy/crontab.production`, added by hand to the server crontab next to the staging block.
 
 Replace the temporary module path `appointment_system` in `go.mod` and imports with the final repository path before publishing the module.

@@ -1,0 +1,31 @@
+# The edge Caddy on the EC2 host: the only container that publishes ports. It
+# serves medappoint.in (production) and staging.medappoint.in (staging) over
+# HTTPS and reaches each stack's api and web over appointment-edge by alias.
+# deploy-edge.ps1 ships it to /home/ubuntu/edge; staging and production deploys
+# never touch it, so it changes only when a domain or route changes.
+name: appointment-edge
+
+services:
+    caddy:
+        image: caddy:2.8
+        ports:
+            - "80:80"
+            - "443:443"
+            - "443:443/udp"
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        networks:
+            - edge
+        restart: unless-stopped
+
+networks:
+    # Created by any deploy script if missing; every stack's api and web join it.
+    edge:
+        name: appointment-edge
+        external: true
+
+volumes:
+    caddy_data:
+    caddy_config:

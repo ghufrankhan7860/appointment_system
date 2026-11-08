@@ -1,0 +1,84 @@
+# Production on the shared EC2 host: Postgres, migrations, API and outbox consumer.
+# deploy-production.ps1 builds the image on a PC, loads it here and installs
+# deploy/.env (mode 600), which fills every ${...} below.
+# Nothing publishes a public port. The edge Caddy (deploy/edge) serves
+# medappoint.in and reaches the API as api-production over appointment-edge;
+# Postgres and the consumer stay on this project's own network, out of
+# staging's reach.
+name: appointment-production
+
+services:
+    postgres:
+        image: postgres:17
+        environment:
+            POSTGRES_DB: ${DB_NAME:?set DB_NAME in deploy/.env}
+            POSTGRES_USER: ${DB_USER:?set DB_USER in deploy/.env}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+        # Server-local only, for an SSH tunnel (DBeaver); staging holds 5432.
+        # Never open 5433 in the security group.
+        ports:
+            - "127.0.0.1:5433:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+            interval: 2s
+            timeout: 2s
+            retries: 30
+        restart: unless-stopped
+
+    migrate:
+        image: migrate/migrate:v4.18.3
+        volumes:
+            - ../migrations:/migrations:ro
+        command:
+            - "-path=/migrations"
+            # DB_PASSWORD must be URL-safe (letters and digits) to sit in this URL.
+            - "-database=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable"
+            - "up"
+        depends_on:
+            postgres:
+                condition: service_healthy
+        restart: "no"
+
+    api:
+        image: appointment-api:production
+        env_file: .env
+        # The database is the container above whatever deploy/.env says.
+        environment: &database
+            DB_HOST: postgres
+            DB_PORT: "5432"
+            DB_SSLMODE: disable
+            STORAGE_LOCAL_DIR: /app/var/storage
+        volumes:
+            - storage_data:/app/var/storage
+        networks:
+            default:
+            edge:
+                # The edge Caddyfile's upstream for medappoint.in.
+                aliases:
+                    - api-production
+        depends_on: &ready
+            postgres:
+                condition: service_healthy
+            migrate:
+                condition: service_completed_successfully
+        restart: unless-stopped
+
+    consumer:
+        image: appointment-api:production
+        entrypoint: ["/app/outbox"]
+        env_file: .env
+        environment: *database
+        depends_on: *ready
+        restart: unless-stopped
+
+networks:
+    # Created by any deploy script if missing; shared with the edge Caddy and the web clients.
+    edge:
+        name: appointment-edge
+        external: true
+
+volumes:
+    postgres_data:
+    storage_data:

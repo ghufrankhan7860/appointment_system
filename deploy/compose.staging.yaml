@@ -1,9 +1,10 @@
-# Staging on one EC2 host: Postgres, migrations, API, outbox consumer and Caddy
-# (HTTPS). deploy-staging.ps1 builds the image on a PC, loads it here and
-# installs deploy/.env (mode 600), which fills every ${...} below.
-# Only Caddy publishes ports; Postgres and the API stay on the compose network.
-# Caddy also joins appointment-edge, the network the separately deployed web
-# client (appointment_system_frontend/deploy) runs on, to reach it as web:80.
+# Staging on the shared EC2 host: Postgres, migrations, API and outbox consumer.
+# deploy-staging.ps1 builds the image on a PC, loads it here and installs
+# deploy/.env (mode 600), which fills every ${...} below.
+# Nothing publishes a public port. The edge Caddy (deploy/edge) serves
+# staging.medappoint.in and reaches the API as api-staging over appointment-edge;
+# Postgres and the consumer stay on this project's own network, out of
+# production's reach.
 name: appointment-staging
 
 services:
@@ -50,6 +51,12 @@ services:
             STORAGE_LOCAL_DIR: /app/var/storage
         volumes:
             - storage_data:/app/var/storage
+        networks:
+            default:
+            edge:
+                # The edge Caddyfile's upstream for staging.medappoint.in.
+                aliases:
+                    - api-staging
         depends_on: &ready
             postgres:
                 condition: service_healthy
@@ -65,27 +72,8 @@ services:
         depends_on: *ready
         restart: unless-stopped
 
-    caddy:
-        image: caddy:2.8
-        ports:
-            - "80:80"
-            - "443:443"
-            - "443:443/udp"
-        environment:
-            SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in deploy/.env}
-        volumes:
-            - ./Caddyfile:/etc/caddy/Caddyfile:ro
-            - caddy_data:/data
-            - caddy_config:/config
-        networks:
-            - default
-            - edge
-        depends_on:
-            - api
-        restart: unless-stopped
-
 networks:
-    # Created by either deploy script if missing; shared with the web client.
+    # Created by any deploy script if missing; shared with the edge Caddy and the web clients.
     edge:
         name: appointment-edge
         external: true
@@ -93,5 +81,3 @@ networks:
 volumes:
     postgres_data:
     storage_data:
-    caddy_data:
-    caddy_config:

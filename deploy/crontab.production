@@ -1,0 +1,14 @@
+# appointment-production jobs, appended to the ubuntu user's crontab on the EC2
+# host (crontab -e) next to the staging block. Not installed by any deploy script.
+# Each job runs once in a throwaway container from the production API image and
+# talks only to the production database. P is its own name so it never mixes
+# with staging's C.
+P=docker compose -f /home/ubuntu/app-production/deploy/compose.production.yaml run --rm --no-deps --entrypoint
+*/5 * * * *  $P /app/expire_payments   api >> /home/ubuntu/cron-production.log 2>&1
+*/15 * * * * $P /app/expire_proposals  api >> /home/ubuntu/cron-production.log 2>&1
+*/15 * * * * $P /app/reminders         api >> /home/ubuntu/cron-production.log 2>&1
+*/30 * * * * $P /app/reconcile_refunds api >> /home/ubuntu/cron-production.log 2>&1
+15 2 * * *   $P /app/purge_sessions    api >> /home/ubuntu/cron-production.log 2>&1
+# Daily database dump at 03:30 server time, last 7 kept, on this disk only: it
+# does not survive losing the instance. Kept apart from staging's /home/ubuntu/backups.
+30 3 * * * mkdir -p /home/ubuntu/backups-production && docker compose -f /home/ubuntu/app-production/deploy/compose.production.yaml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > /home/ubuntu/backups-production/db-$(date +\%F).sql.gz && find /home/ubuntu/backups-production -name '*.sql.gz' -mtime +7 -delete

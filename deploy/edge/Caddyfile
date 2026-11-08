@@ -1,0 +1,38 @@
+# The one public entry point on the EC2 host, shared by staging and production.
+# Caddy gets and renews each site's HTTPS certificate on its own.
+# Every upstream is a network alias on appointment-edge, set by the stack that
+# owns it, so each stack deploys on its own; while one is down its paths get 502.
+# Caddy resolves the names per request, so a missing stack never stops it starting.
+
+# (app) <api alias> <web alias>: /api/* and /health go to the API, every other
+# path to the web client.
+(app) {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+
+	handle /api/* {
+		reverse_proxy {args[0]}:8080
+	}
+	handle /health {
+		reverse_proxy {args[0]}:8080
+	}
+	handle {
+		reverse_proxy {args[1]}:80
+	}
+}
+
+# TEMPORARY until Razorpay activates live mode: medappoint.in serves the staging
+# stack (test keys, staging database) so the reviewer sees a working site. Switch
+# back to `import app api-production web-production` and run deploy-edge.ps1
+# once production is deployed with live keys.
+medappoint.in {
+	import app api-staging web-staging
+}
+
+www.medappoint.in {
+	redir https://medappoint.in{uri} permanent
+}
+
+staging.medappoint.in {
+	import app api-staging web-staging
+}

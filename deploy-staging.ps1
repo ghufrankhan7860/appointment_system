@@ -102,7 +102,7 @@ function Test-Native([string]$Exe, [string[]]$ArgList) {
 # Variables the staging stack cannot start without.
 # DB_HOST, DB_PORT and DB_SSLMODE are fixed by compose.staging.yaml.
 $RequiredEnv = @("APP_ENV", "JWT_SECRET", "DB_USER", "DB_PASSWORD", "DB_NAME",
-                 "PAYMENT_PROVIDER", "SITE_ADDRESS")
+                 "PAYMENT_PROVIDER")
 
 # ---------- 1. pre-flight ----------
 Write-Step "Pre-flight checks"
@@ -202,7 +202,7 @@ install -D -m 600 "__WORK_DIR__/app.env" deploy/.env
 rm -f "__WORK_DIR__/app.env"
 
 step "Making sure the shared network appointment-edge exists"
-# Caddy joins it to reach the web client, which deploys separately.
+# The api joins it as api-staging; the edge Caddy (deploy/edge) reaches it there.
 docker network inspect appointment-edge >/dev/null 2>&1 || docker network create appointment-edge
 
 step "Loading images"
@@ -250,7 +250,7 @@ try {
 if ($SkipConfigSync) {
     Write-Step "Config sync skipped (-SkipConfigSync)"
 } else {
-    Write-Step "Syncing '$LocalDeployDir' (compose file, Caddyfile) and 'migrations' to the server"
+    Write-Step "Syncing '$LocalDeployDir' (compose file) and 'migrations' to the server"
     Invoke-Native -Exe "scp" -ArgList ($CommonSshOpts + @("-r", $LocalDeployDir, "migrations", "${Remote}:$RemoteDir/")) -What "config sync"
 }
 
