@@ -127,6 +127,13 @@ definitions:
           $ref: '#/definitions/payment.RefundResponse'
         type: array
     type: object
+  admin.ListUserSessionsResponse:
+    properties:
+      sessions:
+        items:
+          $ref: '#/definitions/admin.UserSessionResponse'
+        type: array
+    type: object
   admin.RecordAccessResponse:
     properties:
       accessedByUserId:
@@ -203,6 +210,79 @@ definitions:
     properties:
       reason:
         example: Registration number not found in the council register
+        type: string
+    type: object
+  admin.RevokeUserSessionsResponse:
+    properties:
+      revoked:
+        type: integer
+    type: object
+  admin.UserSessionResponse:
+    properties:
+      appVersion:
+        type: string
+      browser:
+        example: Chrome Mobile
+        type: string
+      browserVersion:
+        example: "130.0"
+        type: string
+      createdAt:
+        type: string
+      current:
+        type: boolean
+      deviceBrand:
+        example: Google
+        type: string
+      deviceId:
+        type: string
+      deviceModel:
+        example: Pixel 8
+        type: string
+      deviceName:
+        type: string
+      devicePlatform:
+        enum:
+        - web
+        - android
+        - ios
+        example: web
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: integer
+      ipAddress:
+        type: string
+      language:
+        example: en-IN
+        type: string
+      lastSeenAt:
+        type: string
+      lastSeenIp:
+        type: string
+      os:
+        example: Android
+        type: string
+      osVersion:
+        example: "14"
+        type: string
+      revokedAt:
+        type: string
+      screen:
+        example: 1080x2400
+        type: string
+      status:
+        enum:
+        - active
+        - revoked
+        - expired
+        example: active
+        type: string
+      timezone:
+        example: Asia/Kolkata
+        type: string
+      userAgent:
         type: string
     type: object
   admin.VerificationResponse:
@@ -487,6 +567,13 @@ definitions:
         example: pending
         type: string
     type: object
+  auth.ListSessionsResponse:
+    properties:
+      sessions:
+        items:
+          $ref: '#/definitions/auth.SessionResponse'
+        type: array
+    type: object
   auth.LoginRequest:
     properties:
       email:
@@ -566,6 +653,66 @@ definitions:
       name:
         type: string
       role:
+        type: string
+    type: object
+  auth.RevokeOtherSessionsResponse:
+    properties:
+      revoked:
+        type: integer
+    type: object
+  auth.SessionResponse:
+    properties:
+      appVersion:
+        type: string
+      browser:
+        example: Chrome Mobile
+        type: string
+      browserVersion:
+        example: "130.0"
+        type: string
+      createdAt:
+        type: string
+      current:
+        type: boolean
+      deviceBrand:
+        example: Google
+        type: string
+      deviceModel:
+        example: Pixel 8
+        type: string
+      deviceName:
+        type: string
+      devicePlatform:
+        enum:
+        - web
+        - android
+        - ios
+        example: web
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: integer
+      ipAddress:
+        type: string
+      language:
+        example: en-IN
+        type: string
+      lastSeenAt:
+        type: string
+      lastSeenIp:
+        type: string
+      os:
+        example: Android
+        type: string
+      osVersion:
+        example: "14"
+        type: string
+      screen:
+        example: 1080x2400
+        type: string
+      timezone:
+        example: Asia/Kolkata
         type: string
     type: object
   doctor.AvailabilityRuleRequest:
@@ -2020,6 +2167,157 @@ paths:
       summary: Create another admin
       tags:
       - admin
+  /admin/users/{id}/sessions:
+    get:
+      description: Returns a user's sessions in every status (active, revoked, expired)
+        from the last 90 days, most recently used first, with the raw User-Agent and
+        device ID for investigations. Times are UTC. Limit defaults to 20 and is capped
+        at 100.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Rows to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.ListUserSessionsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List a user's sessions
+      tags:
+      - admin
+  /admin/users/{id}/sessions/{sessionId}:
+    delete:
+      description: Revokes one active session of a user; its refresh token stops working
+        at once and its access token within 15 minutes.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke one session of a user
+      tags:
+      - admin
+  /admin/users/{id}/sessions/revoke-all:
+    post:
+      description: Revokes every active session of a user, signing them out on all
+        devices, and returns how many were revoked.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.RevokeUserSessionsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke all sessions of a user
+      tags:
+      - admin
   /appointments:
     get:
       description: Lists the appointments of every patient the caller has active access
@@ -2617,7 +2915,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Log in with exactly one of email or mobileNo and a password.
+      description: Log in with exactly one of email or mobileNo and a password. Opens
+        a session (one per device login) that records the client IP, the User-Agent
+        and Accept-Language, and the optional X-Device-* and X-App-Version headers;
+        GET /auth/sessions lists them. The jwtToken carries the session ID.
       parameters:
       - description: Login credentials
         in: body
@@ -2625,6 +2926,30 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/auth.LoginRequest'
+      - description: Random ID the app keeps per install or browser (max 64)
+        in: header
+        name: X-Device-Id
+        type: string
+      - description: Device name, such as Ghufran's Pixel 8 (max 100)
+        in: header
+        name: X-Device-Name
+        type: string
+      - description: web, android or ios
+        in: header
+        name: X-Device-Platform
+        type: string
+      - description: App version (max 30)
+        in: header
+        name: X-App-Version
+        type: string
+      - description: Screen size as WxH, such as 1080x2400
+        in: header
+        name: X-Device-Screen
+        type: string
+      - description: IANA time zone, such as Asia/Kolkata
+        in: header
+        name: X-Device-Timezone
+        type: string
       produces:
       - application/json
       responses:
@@ -2686,7 +3011,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: Rotates the refresh token and returns a new jwtToken and refreshToken.
+      description: Rotates the refresh token on the same session and returns a new
+        jwtToken and refreshToken. The session's last-seen IP and time, User-Agent,
+        app version and timezone are updated from this request; its login IP and device
+        ID never change.
       parameters:
       - description: Refresh token
         in: body
@@ -2694,6 +3022,18 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/auth.RefreshRequest'
+      - description: The ID sent at login; a different one is logged
+        in: header
+        name: X-Device-Id
+        type: string
+      - description: App version (max 30)
+        in: header
+        name: X-App-Version
+        type: string
+      - description: IANA time zone, such as Asia/Kolkata
+        in: header
+        name: X-Device-Timezone
+        type: string
       produces:
       - application/json
       responses:
@@ -2757,6 +3097,105 @@ paths:
           schema:
             $ref: '#/definitions/dtos.ErrorResponse'
       summary: Register an account
+      tags:
+      - auth
+  /auth/sessions:
+    get:
+      description: The caller's active sessions, one per device login, most recently
+        used first. current marks the session this request's token belongs to. Times
+        are UTC.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.ListSessionsResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List my sessions
+      tags:
+      - auth
+  /auth/sessions/{id}:
+    delete:
+      description: Revokes one of the caller's sessions, including the current one;
+        its refresh token stops working at once and its access token within 15 minutes.
+        Another user's session is reported as not found.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Sign out one of my sessions
+      tags:
+      - auth
+  /auth/sessions/revoke-others:
+    post:
+      description: Revokes every session of the caller except the current one and
+        returns how many were revoked. A token issued before session IDs were carried
+        gets 401; refresh it and try again.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.RevokeOtherSessionsResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Sign out all my other sessions
       tags:
       - auth
   /doctors:

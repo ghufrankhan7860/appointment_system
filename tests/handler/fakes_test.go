@@ -83,25 +83,25 @@ func (f *fakeTxManager) WithinTransaction(ctx context.Context, fn func(context.C
 
 type fakeTokenVerifier struct{}
 
-func (f *fakeTokenVerifier) Verify(token string) (uint64, string, error) {
+func (f *fakeTokenVerifier) Verify(token string) (uint64, string, uint64, error) {
 	if token != "good-token" {
-		return 0, "", errors.New("invalid token")
+		return 0, "", 0, errors.New("invalid token")
 	}
-	return 7, "patient", nil
+	return 7, "patient", 21, nil
 }
 
 type fakeRoleTokenVerifier struct{}
 
-func (f *fakeRoleTokenVerifier) Verify(token string) (uint64, string, error) {
+func (f *fakeRoleTokenVerifier) Verify(token string) (uint64, string, uint64, error) {
 	switch token {
 	case "admin-token":
-		return 1, "admin", nil
+		return 1, "admin", 31, nil
 	case "doctor-token":
-		return 11, "doctor", nil
+		return 11, "doctor", 32, nil
 	case "patient-token":
-		return 7, "patient", nil
+		return 7, "patient", 33, nil
 	default:
-		return 0, "", errors.New("invalid token")
+		return 0, "", 0, errors.New("invalid token")
 	}
 }
 
@@ -250,12 +250,72 @@ func (f *fakeUserRepo) FindByMobile(ctx context.Context, mobileNo string) (*mode
 	return nil, apperrors.ErrInvalidCredentials
 }
 
+// GetByID knows only the patient user 7.
 func (f *fakeUserRepo) GetByID(ctx context.Context, id uint64) (*models.User, error) {
+	if id == 7 {
+		return &models.User{ID: 7, Role: models.RolePatient}, nil
+	}
 	return nil, apperrors.ErrUserNotFound
 }
 
 func (f *fakeUserRepo) ExistsByRole(ctx context.Context, role models.Role) (bool, error) {
 	return true, nil
+}
+
+type fakeSessionRepo struct {
+	sessions      []*models.Session
+	revokeErr     error
+	revokedCount  int64
+	revokedUserID uint64
+	revokedID     uint64
+	exceptID      uint64
+}
+
+func (f *fakeSessionRepo) Create(ctx context.Context, session *models.Session) error {
+	session.ID = 41
+	return nil
+}
+
+func (f *fakeSessionRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*models.Session, error) {
+	return nil, apperrors.ErrSessionNotFound
+}
+
+func (f *fakeSessionRepo) RevokeByID(ctx context.Context, id uint64) error {
+	return nil
+}
+
+func (f *fakeSessionRepo) Rotate(ctx context.Context, id uint64, oldTokenHash string, session *models.Session) error {
+	return nil
+}
+
+func (f *fakeSessionRepo) ListActiveByUser(ctx context.Context, userID uint64, now time.Time) ([]*models.Session, error) {
+	return f.sessions, nil
+}
+
+func (f *fakeSessionRepo) ListByUser(ctx context.Context, userID uint64, limit int, offset int) ([]*models.Session, error) {
+	return f.sessions, nil
+}
+
+func (f *fakeSessionRepo) RevokeByUserAndID(ctx context.Context, userID uint64, id uint64) error {
+	f.revokedUserID = userID
+	f.revokedID = id
+	return f.revokeErr
+}
+
+func (f *fakeSessionRepo) RevokeActiveByUser(ctx context.Context, userID uint64, exceptID uint64) (int64, error) {
+	f.revokedUserID = userID
+	f.exceptID = exceptID
+	return f.revokedCount, nil
+}
+
+func (f *fakeSessionRepo) DeleteEndedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	return 0, nil
+}
+
+type fakeUserAgentParser struct{}
+
+func (f *fakeUserAgentParser) Parse(userAgent string) models.UserAgentDetails {
+	return models.UserAgentDetails{}
 }
 
 type fakeAppointmentRepo struct {

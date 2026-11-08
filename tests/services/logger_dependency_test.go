@@ -25,7 +25,7 @@ func TestNewServicesRequireLogger(t *testing.T) {
 		new  func() error
 	}{
 		{name: "auth", new: func() error {
-			_, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeTxManager{}, nil)
+			_, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeUserAgentParser{}, nil)
 			return err
 		}},
 		{name: "patient", new: func() error {
@@ -66,6 +66,10 @@ func TestNewServicesRequireLogger(t *testing.T) {
 		}},
 		{name: "reminder", new: func() error {
 			_, err := services.NewReminderService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeTxManager{}, time.UTC, time.Now, nil)
+			return err
+		}},
+		{name: "session", new: func() error {
+			_, err := services.NewSessionService(&fakeSessionRepo{}, &fakeUserRepo{}, time.Now, nil)
 			return err
 		}},
 	}

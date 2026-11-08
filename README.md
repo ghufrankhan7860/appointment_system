@@ -92,6 +92,8 @@ Before adding code, read these documents:
 
 |   |-- cron/reconcile_refunds/     # Settles refunds still waiting for the gateway (make reconcile-refunds)
 
+|   |-- cron/purge_sessions/        # Deletes sessions ended more than 90 days ago (make purge-sessions)
+
 |   `-- backfill/                   # Placeholder: restartable data repair/import jobs
 
 |-- migrations/                     # Ordered schema migrations
@@ -800,6 +802,38 @@ POST /auth/logout        revokes the refresh token
 
 ```
 
+Sessions (require `Authorization: Bearer <jwtToken>`):
+
+```text
+
+GET    /auth/sessions                 the caller's active sessions, one per device login; current marks this one
+
+DELETE /auth/sessions/:id             sign out one of the caller's sessions (404 if it is not theirs)
+
+POST   /auth/sessions/revoke-others   sign out every other session of the caller ({revoked})
+
+```
+
+A login opens one session row and a refresh rotates its token in place, so one login on one device stays one session until logout, revocation or expiry. Each session records the client IP at login and the last-seen IP and time, the User-Agent (raw and parsed into browser, OS and device by `ua-parser`) and the first `Accept-Language` tag. The app may also send these optional headers on login and refresh:
+
+```text
+
+X-Device-Id        random ID the app keeps per install or browser (max 64)
+
+X-Device-Name      device name (max 100)
+
+X-Device-Platform  web | android | ios
+
+X-App-Version      app version (max 30)
+
+X-Device-Screen    WxH, such as 1080x2400
+
+X-Device-Timezone  IANA zone, such as Asia/Kolkata
+
+```
+
+A bad value returns `400` with `details` (for example `X-Device-Platform must be one of web, android, ios`). On refresh the last-seen IP, User-Agent, app version and timezone are updated; the login IP and device ID never change, and a refresh sending a different `X-Device-Id` is allowed but logged as `refresh device mismatch`. The `jwtToken` carries the session ID (`sid`). Revoking a session stops its refresh token at once; its access token keeps working until it expires (15 minutes). Session times are UTC.
+
 Patients (require `Authorization: Bearer <jwtToken>`):
 
 ```text
@@ -946,6 +980,12 @@ POST /admin/payments/:id/refund  {note?}   full refund of a captured payment  pa
 
 GET  /admin/refunds?status=      refunds, oldest first; default requested = still with Razorpay  payment:refund
 
+GET  /admin/users/:id/sessions?limit=&offset=     every session of a user (active, revoked, expired)  session:manage
+
+DELETE /admin/users/:id/sessions/:sessionId     revoke one session of a user    session:manage
+
+POST /admin/users/:id/sessions/revoke-all      sign a user out everywhere ({revoked})  session:manage
+
 
 GET  /admin/records/:id/access-log         who touched a record, never what it says  record:audit
 
@@ -1016,6 +1056,7 @@ Background jobs:
 - `make expire-payments` (`scripts/cron/expire_payments`) cancels unpaid bookings past their hold once and exits; schedule it every minute. Before cancelling, it asks the gateway whether the order was paid after all, in case the webhook was lost.
 - `make expire-proposals` (`scripts/cron/expire_proposals`) closes unanswered reschedule proposals once and exits; schedule it every few minutes.
 - `make reconcile-refunds` (`scripts/cron/reconcile_refunds`) settles refunds still `requested` with what the gateway reports, once, and exits; schedule it every 15 minutes. A refund the gateway has no record of after 15 minutes is marked `failed`, so an admin can retry it.
+- `make purge-sessions` (`scripts/cron/purge_sessions`) deletes sessions that expired or were revoked more than 90 days ago, once, and exits; schedule it daily. Sessions hold the client IP and device details, which are personal data, so they are not kept longer.
 
 Responses carry `startsAt` / `endsAt` with the clinic UTC offset, plus `date` and `startTime` in clinic time, `doctor {id, name, speciality}`, `patient {id, name}` and `bookedBy {userId, patientRelationship}`. `patientRelationship` is the booker's `user_patient.patient_relationship` (for example `child`), so a doctor's day can show "booked by child" without another call.
 
@@ -1161,6 +1202,7 @@ make cover                 # coverage of the application code, run from tests/
 | `make expire-payments` | Cancel bookings not paid within the hold, once |
 | `make expire-proposals` | Close reschedule proposals nobody answered in time, once |
 | `make reconcile-refunds` | Settle refunds still waiting for the gateway, once |
+| `make purge-sessions` | Delete sessions ended more than 90 days ago, once |
 
 ## Tests
 
@@ -1197,6 +1239,8 @@ The `migrate` service applies every ordered migration in `migrations/` (`000001`
 Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only; `razorpay` needs the three `RAZORPAY_*` settings (see **Razorpay**). `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
 
 Logs always go to stdout through `log/slog`. Set `LOG_FILE` to a path (for example `var/log/appointment.log`) to also append every line to that file; its folder is created when missing, and empty `LOG_FILE` writes no file. The file is not rotated, so rotate it with logrotate (`copytruncate`) or prune it to the retention below; in Docker, put its folder on a volume or the file is lost with the container. `LOG_FORMAT` is `json` (default, for production, where the container runtime or a collector ships them) or `text` (local), `LOG_LEVEL` is `debug`, `info` (default), `warn` or `error`, and `LOG_SOURCE=true` adds the file and line. Every line logged during a request carries `correlation_id` (also returned as `X-Correlation-ID`) and, once authenticated, `user_id` and `role`. Each request writes one `request served` line with the route pattern, never the raw path; a 500 line carries the real error. Services log domain events with IDs only, and the keys `password`, `token`, `email`, `mobile`, `notes`, `diagnosis` and similar are redacted. Never log free text or personal data. Request lines hold `client_ip` and admin lines are an audit trail next to medical data, so keep logs for at most 30 days unless a legal hold requires longer.
+
+The client IP comes from the connection unless `TRUSTED_PROXIES` lists the reverse proxies (IPs or CIDRs, comma-separated) whose `X-Forwarded-For` header can be believed; empty trusts none, which is right without a proxy. Behind Caddy in Docker, set it to the subnet of the network Caddy reaches the api on (`docker network inspect <project>_default`); otherwise every session records Caddy's IP, or any client could fake its IP if all proxies were trusted.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 

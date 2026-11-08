@@ -995,6 +995,241 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/users/{id}/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a user's sessions in every status (active, revoked, expired) from the last 90 days, most recently used first, with the raw User-Agent and device ID for investigations. Times are UTC. Limit defaults to 20 and is capped at 100.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List a user's sessions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rows to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.ListUserSessionsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/users/{id}/sessions/revoke-all": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes every active session of a user, signing them out on all devices, and returns how many were revoked.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Revoke all sessions of a user",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.RevokeUserSessionsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/users/{id}/sessions/{sessionId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes one active session of a user; its refresh token stops working at once and its access token within 15 minutes.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Revoke one session of a user",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/appointments": {
             "get": {
                 "security": [
@@ -1915,7 +2150,7 @@ const docTemplate = `{
         },
         "/auth/login": {
             "post": {
-                "description": "Log in with exactly one of email or mobileNo and a password.",
+                "description": "Log in with exactly one of email or mobileNo and a password. Opens a session (one per device login) that records the client IP, the User-Agent and Accept-Language, and the optional X-Device-* and X-App-Version headers; GET /auth/sessions lists them. The jwtToken carries the session ID.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1935,6 +2170,42 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/auth.LoginRequest"
                         }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Random ID the app keeps per install or browser (max 64)",
+                        "name": "X-Device-Id",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Device name, such as Ghufran's Pixel 8 (max 100)",
+                        "name": "X-Device-Name",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "web, android or ios",
+                        "name": "X-Device-Platform",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "App version (max 30)",
+                        "name": "X-App-Version",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Screen size as WxH, such as 1080x2400",
+                        "name": "X-Device-Screen",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "IANA time zone, such as Asia/Kolkata",
+                        "name": "X-Device-Timezone",
+                        "in": "header"
                     }
                 ],
                 "responses": {
@@ -2025,7 +2296,7 @@ const docTemplate = `{
         },
         "/auth/refresh": {
             "post": {
-                "description": "Rotates the refresh token and returns a new jwtToken and refreshToken.",
+                "description": "Rotates the refresh token on the same session and returns a new jwtToken and refreshToken. The session's last-seen IP and time, User-Agent, app version and timezone are updated from this request; its login IP and device ID never change.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2045,6 +2316,24 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/auth.RefreshRequest"
                         }
+                    },
+                    {
+                        "type": "string",
+                        "description": "The ID sent at login; a different one is logged",
+                        "name": "X-Device-Id",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "App version (max 30)",
+                        "name": "X-App-Version",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "IANA time zone, such as Asia/Kolkata",
+                        "name": "X-Device-Timezone",
+                        "in": "header"
                     }
                 ],
                 "responses": {
@@ -2137,6 +2426,162 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The caller's active sessions, one per device login, most recently used first. current marks the session this request's token belongs to. Times are UTC.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List my sessions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.ListSessionsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/sessions/revoke-others": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes every session of the caller except the current one and returns how many were revoked. A token issued before session IDs were carried gets 401; refresh it and try again.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Sign out all my other sessions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dtos.SuccessResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.RevokeOtherSessionsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/sessions/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes one of the caller's sessions, including the current one; its refresh token stops working at once and its access token within 15 minutes. Another user's session is reported as not found.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Sign out one of my sessions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/dtos.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/dtos.ErrorResponse"
                         }
@@ -4931,6 +5376,17 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.ListUserSessionsResponse": {
+            "type": "object",
+            "properties": {
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/admin.UserSessionResponse"
+                    }
+                }
+            }
+        },
         "admin.RecordAccessResponse": {
             "type": "object",
             "properties": {
@@ -5038,6 +5494,109 @@ const docTemplate = `{
                 "reason": {
                     "type": "string",
                     "example": "Registration number not found in the council register"
+                }
+            }
+        },
+        "admin.RevokeUserSessionsResponse": {
+            "type": "object",
+            "properties": {
+                "revoked": {
+                    "type": "integer"
+                }
+            }
+        },
+        "admin.UserSessionResponse": {
+            "type": "object",
+            "properties": {
+                "appVersion": {
+                    "type": "string"
+                },
+                "browser": {
+                    "type": "string",
+                    "example": "Chrome Mobile"
+                },
+                "browserVersion": {
+                    "type": "string",
+                    "example": "130.0"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "current": {
+                    "type": "boolean"
+                },
+                "deviceBrand": {
+                    "type": "string",
+                    "example": "Google"
+                },
+                "deviceId": {
+                    "type": "string"
+                },
+                "deviceModel": {
+                    "type": "string",
+                    "example": "Pixel 8"
+                },
+                "deviceName": {
+                    "type": "string"
+                },
+                "devicePlatform": {
+                    "type": "string",
+                    "enum": [
+                        "web",
+                        "android",
+                        "ios"
+                    ],
+                    "example": "web"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ipAddress": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string",
+                    "example": "en-IN"
+                },
+                "lastSeenAt": {
+                    "type": "string"
+                },
+                "lastSeenIp": {
+                    "type": "string"
+                },
+                "os": {
+                    "type": "string",
+                    "example": "Android"
+                },
+                "osVersion": {
+                    "type": "string",
+                    "example": "14"
+                },
+                "revokedAt": {
+                    "type": "string"
+                },
+                "screen": {
+                    "type": "string",
+                    "example": "1080x2400"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "active",
+                        "revoked",
+                        "expired"
+                    ],
+                    "example": "active"
+                },
+                "timezone": {
+                    "type": "string",
+                    "example": "Asia/Kolkata"
+                },
+                "userAgent": {
+                    "type": "string"
                 }
             }
         },
@@ -5433,6 +5992,17 @@ const docTemplate = `{
                 }
             }
         },
+        "auth.ListSessionsResponse": {
+            "type": "object",
+            "properties": {
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/auth.SessionResponse"
+                    }
+                }
+            }
+        },
         "auth.LoginRequest": {
             "type": "object",
             "required": [
@@ -5550,6 +6120,91 @@ const docTemplate = `{
                 },
                 "role": {
                     "type": "string"
+                }
+            }
+        },
+        "auth.RevokeOtherSessionsResponse": {
+            "type": "object",
+            "properties": {
+                "revoked": {
+                    "type": "integer"
+                }
+            }
+        },
+        "auth.SessionResponse": {
+            "type": "object",
+            "properties": {
+                "appVersion": {
+                    "type": "string"
+                },
+                "browser": {
+                    "type": "string",
+                    "example": "Chrome Mobile"
+                },
+                "browserVersion": {
+                    "type": "string",
+                    "example": "130.0"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "current": {
+                    "type": "boolean"
+                },
+                "deviceBrand": {
+                    "type": "string",
+                    "example": "Google"
+                },
+                "deviceModel": {
+                    "type": "string",
+                    "example": "Pixel 8"
+                },
+                "deviceName": {
+                    "type": "string"
+                },
+                "devicePlatform": {
+                    "type": "string",
+                    "enum": [
+                        "web",
+                        "android",
+                        "ios"
+                    ],
+                    "example": "web"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ipAddress": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string",
+                    "example": "en-IN"
+                },
+                "lastSeenAt": {
+                    "type": "string"
+                },
+                "lastSeenIp": {
+                    "type": "string"
+                },
+                "os": {
+                    "type": "string",
+                    "example": "Android"
+                },
+                "osVersion": {
+                    "type": "string",
+                    "example": "14"
+                },
+                "screen": {
+                    "type": "string",
+                    "example": "1080x2400"
+                },
+                "timezone": {
+                    "type": "string",
+                    "example": "Asia/Kolkata"
                 }
             }
         },

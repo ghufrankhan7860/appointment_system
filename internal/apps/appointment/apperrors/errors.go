@@ -19,6 +19,8 @@ var (
 	ErrNilUserPatientRepository = errors.New("user-patient repository is nil")
 	ErrNilTransactionManager    = errors.New("transaction manager is nil")
 	ErrNilLogger                = errors.New("logger is nil")
+	ErrNilSessionService        = errors.New("session service is nil")
+	ErrNilUserAgentParser       = errors.New("user agent parser is nil")
 )
 
 var (
@@ -38,6 +40,7 @@ var (
 	ErrSessionRevoked       = errors.New("refresh token is revoked")
 	ErrSessionExpired       = errors.New("session is expired")
 	ErrSessionExpiryMissing = errors.New("session expiry is required")
+	ErrInvalidSessionInput  = errors.New("invalid session input")
 )
 
 var (

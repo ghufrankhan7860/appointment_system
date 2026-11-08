@@ -13,11 +13,11 @@ import (
 
 type fakeTokenVerifier struct{}
 
-func (f *fakeTokenVerifier) Verify(token string) (uint64, string, error) {
+func (f *fakeTokenVerifier) Verify(token string) (uint64, string, uint64, error) {
 	if token != "good-token" {
-		return 0, "", errors.New("invalid token")
+		return 0, "", 0, errors.New("invalid token")
 	}
-	return 7, "patient", nil
+	return 7, "patient", 21, nil
 }
 
 func TestAuthenticate(t *testing.T) {
@@ -29,16 +29,17 @@ func TestAuthenticate(t *testing.T) {
 		wantStatus    int
 		wantPrincipal string
 		wantRole      string
+		wantSession   string
 	}{
 		{name: "missing header is rejected", authorization: "", wantStatus: http.StatusUnauthorized},
 		{name: "non bearer scheme is rejected", authorization: "Basic good-token", wantStatus: http.StatusUnauthorized},
 		{name: "invalid token is rejected", authorization: "Bearer bad-token", wantStatus: http.StatusUnauthorized},
-		{name: "valid token sets principal", authorization: "Bearer good-token", wantStatus: http.StatusOK, wantPrincipal: "7", wantRole: "patient"},
+		{name: "valid token sets principal", authorization: "Bearer good-token", wantStatus: http.StatusOK, wantPrincipal: "7", wantRole: "patient", wantSession: "21"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var gotPrincipal, gotRole string
+			var gotPrincipal, gotRole, gotSession string
 
 			router := gin.New()
 			router.Use(middleware.AppContext(), middleware.Authenticate(&fakeTokenVerifier{}))
@@ -46,6 +47,7 @@ func TestAuthenticate(t *testing.T) {
 				if applicationContext, ok := appcontext.From(ctx.Request.Context()); ok {
 					gotPrincipal = applicationContext.PrincipalID
 					gotRole = applicationContext.PrincipalRole
+					gotSession = applicationContext.SessionID
 				}
 				ctx.Status(http.StatusOK)
 			})
@@ -66,6 +68,9 @@ func TestAuthenticate(t *testing.T) {
 			}
 			if gotRole != tt.wantRole {
 				t.Fatalf("PrincipalRole = %q, want %q", gotRole, tt.wantRole)
+			}
+			if gotSession != tt.wantSession {
+				t.Fatalf("SessionID = %q, want %q", gotSession, tt.wantSession)
 			}
 		})
 	}

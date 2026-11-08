@@ -17,19 +17,21 @@ type AuthService struct {
 	users    UserRepository
 	sessions SessionRepository
 	tokens   TokenGenerator
-	tx       TransactionManager
+	parser   UserAgentParser
 	logger   Logger
 }
 
+// TokenGenerator issues access tokens. The session ID is carried in the token so
+// requests know which session (device) they come from.
 type TokenGenerator interface {
-	Generate(user models.User) (string, error)
+	Generate(user models.User, sessionID uint64) (string, error)
 }
 
 func NewAuthService(
 	users UserRepository,
 	sessions SessionRepository,
 	tokens TokenGenerator,
-	tx TransactionManager,
+	parser UserAgentParser,
 	logger Logger,
 ) (*AuthService, error) {
 	if users == nil {
@@ -41,8 +43,8 @@ func NewAuthService(
 	if tokens == nil {
 		return nil, apperrors.ErrNilTokenGenerator
 	}
-	if tx == nil {
-		return nil, apperrors.ErrNilTransactionManager
+	if parser == nil {
+		return nil, apperrors.ErrNilUserAgentParser
 	}
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
@@ -52,7 +54,7 @@ func NewAuthService(
 		users:    users,
 		sessions: sessions,
 		tokens:   tokens,
-		tx:       tx,
+		parser:   parser,
 		logger:   logger,
 	}, nil
 }
@@ -82,13 +84,21 @@ func (as *AuthService) Register(
 	return createdUser, nil
 }
 
+// Login checks the credentials and opens a session recording the client: its IP,
+// User-Agent (parsed), language and the device headers the app sent. The access
+// token carries the new session's ID.
 func (as *AuthService) Login(
 	ctx context.Context,
 	email *string,
 	mobileNo *string,
 	password string,
+	client models.SessionClient,
 ) (*models.User, string, string, error) {
 	identifier, isEmail, err := loginIdentifier(email, mobileNo)
+	if err != nil {
+		return nil, "", "", err
+	}
+	client, err = validateSessionClient(client)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -112,33 +122,51 @@ func (as *AuthService) Login(
 		return nil, "", "", apperrors.ErrInvalidCredentials
 	}
 
-	accessToken, err := as.tokens.Generate(*user)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("generate auth token: %w", err)
-	}
-
 	refreshToken, err := utils.NewOpaqueToken()
 	if err != nil {
 		return nil, "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	if err := as.sessions.Create(ctx, newRefreshSession(
-		user.ID,
-		utils.HashToken(refreshToken),
-	)); err != nil {
+	session := newRefreshSession(user.ID, utils.HashToken(refreshToken))
+	session.IPAddress = client.IPAddress
+	session.UserAgent = client.UserAgent
+	session.Browser = as.parser.Parse(client.UserAgent)
+	session.DeviceID = client.DeviceID
+	session.DeviceName = client.DeviceName
+	session.DevicePlatform = client.DevicePlatform
+	session.AppVersion = client.AppVersion
+	session.Screen = client.Screen
+	session.Timezone = client.Timezone
+	session.Language = client.AcceptLanguage
+	if err := as.sessions.Create(ctx, session); err != nil {
 		return nil, "", "", fmt.Errorf("create session: %w", err)
 	}
-	as.logger.InfoContext(ctx, "user logged in", "user_id", user.ID, "role", user.Role)
+
+	accessToken, err := as.tokens.Generate(*user, session.ID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("generate auth token: %w", err)
+	}
+	as.logger.InfoContext(ctx, "user logged in", "user_id", user.ID, "role", user.Role, "session_id", session.ID)
 
 	return user, accessToken, refreshToken, nil
 }
 
+// Refresh rotates the session's refresh token in place, so one login stays one
+// session row, and records where the client is now: IP, User-Agent, app version
+// and timezone. The login IP and device ID never change. A device ID that differs
+// from the one recorded at login is allowed but logged, since it can mean the
+// refresh token is used from another device.
 func (as *AuthService) Refresh(
 	ctx context.Context,
 	refreshToken string,
+	client models.SessionClient,
 ) (string, string, error) {
 	if strings.TrimSpace(refreshToken) == "" {
 		return "", "", apperrors.ErrSessionNotFound
+	}
+	client, err := validateSessionClient(client)
+	if err != nil {
+		return "", "", err
 	}
 
 	session, err := as.sessions.GetByTokenHash(
@@ -161,10 +189,8 @@ func (as *AuthService) Refresh(
 	if err != nil {
 		return "", "", fmt.Errorf("get session user: %w", err)
 	}
-
-	accessToken, err := as.tokens.Generate(*user)
-	if err != nil {
-		return "", "", fmt.Errorf("generate access token: %w", err)
+	if session.DeviceID != "" && client.DeviceID != "" && session.DeviceID != client.DeviceID {
+		as.logger.WarnContext(ctx, "refresh device mismatch", "session_id", session.ID, "user_id", user.ID)
 	}
 
 	nextRefreshToken, err := utils.NewOpaqueToken()
@@ -172,20 +198,28 @@ func (as *AuthService) Refresh(
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	nextSession := newRefreshSession(
-		user.ID,
-		utils.HashToken(nextRefreshToken),
-	)
-	if err := as.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
-		if err := as.sessions.Create(txCtx, nextSession); err != nil {
-			return fmt.Errorf("create rotated session: %w", err)
+	oldTokenHash := session.TokenHash
+	session.TokenHash = utils.HashToken(nextRefreshToken)
+	session.ExpiresAt = time.Now().UTC().Add(constant.RefreshTokenTTL)
+	session.LastSeenIP = client.IPAddress
+	session.UserAgent = client.UserAgent
+	session.Browser = as.parser.Parse(client.UserAgent)
+	if client.AppVersion != "" {
+		session.AppVersion = client.AppVersion
+	}
+	if client.Timezone != "" {
+		session.Timezone = client.Timezone
+	}
+	if err := as.sessions.Rotate(ctx, session.ID, oldTokenHash, session); err != nil {
+		if errors.Is(err, apperrors.ErrSessionNotFound) {
+			return "", "", err
 		}
-		if err := as.sessions.RevokeByID(txCtx, session.ID); err != nil {
-			return fmt.Errorf("revoke rotated session: %w", err)
-		}
-		return nil
-	}); err != nil {
 		return "", "", fmt.Errorf("rotate session: %w", err)
+	}
+
+	accessToken, err := as.tokens.Generate(*user, session.ID)
+	if err != nil {
+		return "", "", fmt.Errorf("generate access token: %w", err)
 	}
 	as.logger.InfoContext(ctx, "session refreshed", "session_id", session.ID, "user_id", user.ID)
 

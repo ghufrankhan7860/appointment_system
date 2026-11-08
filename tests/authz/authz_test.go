@@ -38,6 +38,8 @@ func TestHasPermission(t *testing.T) {
 		{name: "patient cannot write medical records", role: models.RolePatient, permission: authz.PermRecordWrite, want: false},
 		{name: "admin audits record access", role: models.RoleAdmin, permission: authz.PermRecordAudit, want: true},
 		{name: "admin cannot write medical records", role: models.RoleAdmin, permission: authz.PermRecordWrite, want: false},
+		{name: "admin manages user sessions", role: models.RoleAdmin, permission: authz.PermSessionManage, want: true},
+		{name: "patient cannot manage user sessions", role: models.RolePatient, permission: authz.PermSessionManage, want: false},
 		{name: "unknown role has nothing", role: models.Role("ghost"), permission: authz.PermAdminAccess, want: false},
 	}
 

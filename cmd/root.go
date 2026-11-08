@@ -96,6 +96,7 @@ func Execute() error {
 		WriteTimeout:      config.HTTP.WriteTimeout,
 		IdleTimeout:       config.HTTP.IdleTimeout,
 		ShutdownTimeout:   config.HTTP.ShutdownTimeout,
+		TrustedProxies:    config.HTTP.TrustedProxies,
 	}, logger, store, app)
 	if err != nil {
 		return fmt.Errorf("initialize HTTP server: %w", err)

@@ -13,7 +13,10 @@ type AppContext struct {
 	CorrelationID string
 	PrincipalID   string
 	PrincipalRole string
-	TenantID      string
+	// SessionID is the session (device login) the access token was issued for;
+	// empty for tokens issued before sessions were carried.
+	SessionID string
+	TenantID  string
 }
 
 // New creates request-scoped application context from a parent context.

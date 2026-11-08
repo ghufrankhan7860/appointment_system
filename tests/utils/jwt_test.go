@@ -24,28 +24,34 @@ func TestJWTManagerVerify(t *testing.T) {
 	}
 
 	user := models.User{ID: 42, Role: models.RolePatient}
-	validToken, err := manager.Generate(user)
+	validToken, err := manager.Generate(user, 9)
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
 	}
-	otherIssuerToken, err := otherIssuer.Generate(user)
+	legacyToken, err := manager.Generate(user, 0)
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
 	}
-	expiredToken, err := expiring.Generate(user)
+	otherIssuerToken, err := otherIssuer.Generate(user, 9)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	expiredToken, err := expiring.Generate(user, 9)
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
 	}
 	time.Sleep(5 * time.Millisecond)
 
 	tests := []struct {
-		name     string
-		token    string
-		wantID   uint64
-		wantRole string
-		wantErr  bool
+		name          string
+		token         string
+		wantID        uint64
+		wantRole      string
+		wantSessionID uint64
+		wantErr       bool
 	}{
-		{name: "valid token", token: validToken, wantID: 42, wantRole: "patient"},
+		{name: "valid token", token: validToken, wantID: 42, wantRole: "patient", wantSessionID: 9},
+		{name: "token without a session id", token: legacyToken, wantID: 42, wantRole: "patient", wantSessionID: 0},
 		{name: "tampered token", token: validToken + "x", wantErr: true},
 		{name: "other issuer token", token: otherIssuerToken, wantErr: true},
 		{name: "expired token", token: expiredToken, wantErr: true},
@@ -54,7 +60,7 @@ func TestJWTManagerVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			userID, role, err := manager.Verify(tt.token)
+			userID, role, sessionID, err := manager.Verify(tt.token)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Verify error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -63,6 +69,9 @@ func TestJWTManagerVerify(t *testing.T) {
 			}
 			if role != tt.wantRole {
 				t.Fatalf("Verify role = %q, want %q", role, tt.wantRole)
+			}
+			if sessionID != tt.wantSessionID {
+				t.Fatalf("Verify session id = %d, want %d", sessionID, tt.wantSessionID)
 			}
 		})
 	}

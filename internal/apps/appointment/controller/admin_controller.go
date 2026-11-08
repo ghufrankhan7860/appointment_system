@@ -15,6 +15,7 @@ type AdminController struct {
 	doctorService             *services.DoctorService
 	paymentService            *services.PaymentService
 	medicalRecordService      *services.MedicalRecordService
+	sessionService            *services.SessionService
 }
 
 func NewAdminController(
@@ -23,6 +24,7 @@ func NewAdminController(
 	doctorService *services.DoctorService,
 	paymentService *services.PaymentService,
 	medicalRecordService *services.MedicalRecordService,
+	sessionService *services.SessionService,
 ) (*AdminController, error) {
 	if adminUserService == nil {
 		return nil, apperrors.ErrNilAdminUserService
@@ -39,12 +41,16 @@ func NewAdminController(
 	if medicalRecordService == nil {
 		return nil, apperrors.ErrNilMedicalRecordService
 	}
+	if sessionService == nil {
+		return nil, apperrors.ErrNilSessionService
+	}
 	return &AdminController{
 		adminUserService:          adminUserService,
 		doctorVerificationService: doctorVerificationService,
 		doctorService:             doctorService,
 		paymentService:            paymentService,
 		medicalRecordService:      medicalRecordService,
+		sessionService:            sessionService,
 	}, nil
 }
 
@@ -252,4 +258,39 @@ func (ac *AdminController) CreateSpeciality(ctx context.Context, request *admin.
 		Slug: createdSpeciality.Slug,
 		Name: createdSpeciality.Name,
 	}, nil
+}
+
+func (ac *AdminController) ListUserSessions(ctx context.Context, request *admin.ListUserSessionsRequest) (*admin.ListUserSessionsResponse, error) {
+	sessions, err := ac.sessionService.ListForUser(ctx, request.ID, request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	response := admin.ListUserSessionsResponse{
+		Sessions: make([]admin.UserSessionResponse, 0, len(sessions)),
+	}
+	for _, session := range sessions {
+		response.Sessions = append(response.Sessions, admin.UserSessionResponse{
+			SessionResponse: toSessionResponse(session, 0),
+			Status:          string(ac.sessionService.Status(session)),
+			RevokedAt:       session.RevokedAt,
+			UserAgent:       session.UserAgent,
+			DeviceID:        session.DeviceID,
+		})
+	}
+
+	return &response, nil
+}
+
+func (ac *AdminController) RevokeUserSession(ctx context.Context, request *admin.RevokeUserSessionRequest) error {
+	return ac.sessionService.RevokeForUser(ctx, request.ID, request.SessionID)
+}
+
+func (ac *AdminController) RevokeUserSessions(ctx context.Context, request *admin.RevokeUserSessionsRequest) (*admin.RevokeUserSessionsResponse, error) {
+	revoked, err := ac.sessionService.RevokeAllForUser(ctx, request.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &admin.RevokeUserSessionsResponse{Revoked: revoked}, nil
 }

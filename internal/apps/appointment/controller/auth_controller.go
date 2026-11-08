@@ -9,15 +9,23 @@ import (
 )
 
 type AuthController struct {
-	authService *services.AuthService
+	authService    *services.AuthService
+	sessionService *services.SessionService
 }
 
-func NewAuthController(authService *services.AuthService) (*AuthController, error) {
+func NewAuthController(
+	authService *services.AuthService,
+	sessionService *services.SessionService,
+) (*AuthController, error) {
 	if authService == nil {
 		return nil, apperrors.ErrNilAuthService
 	}
+	if sessionService == nil {
+		return nil, apperrors.ErrNilSessionService
+	}
 	return &AuthController{
-		authService: authService,
+		authService:    authService,
+		sessionService: sessionService,
 	}, nil
 }
 
@@ -41,8 +49,13 @@ func (ac *AuthController) Register(ctx context.Context, request *auth.RegisterRe
 	}, nil
 }
 
-func (ac *AuthController) Login(ctx context.Context, request *auth.LoginRequest) (*auth.LoginResponse, error) {
-	user, accessToken, refreshToken, err := ac.authService.Login(ctx, request.Email, request.MobileNo, request.Password)
+func (ac *AuthController) Login(
+	ctx context.Context,
+	request *auth.LoginRequest,
+	clientHeaders *auth.ClientHeaders,
+	clientIP string,
+) (*auth.LoginResponse, error) {
+	user, accessToken, refreshToken, err := ac.authService.Login(ctx, request.Email, request.MobileNo, request.Password, toSessionClient(clientHeaders, clientIP))
 	if err != nil {
 		return nil, err
 	}
@@ -57,8 +70,13 @@ func (ac *AuthController) Login(ctx context.Context, request *auth.LoginRequest)
 	}, nil
 }
 
-func (ac *AuthController) Refresh(ctx context.Context, request *auth.RefreshRequest) (*auth.RefreshResponse, error) {
-	accessToken, refreshToken, err := ac.authService.Refresh(ctx, request.Token)
+func (ac *AuthController) Refresh(
+	ctx context.Context,
+	request *auth.RefreshRequest,
+	clientHeaders *auth.ClientHeaders,
+	clientIP string,
+) (*auth.RefreshResponse, error) {
+	accessToken, refreshToken, err := ac.authService.Refresh(ctx, request.Token, toSessionClient(clientHeaders, clientIP))
 	if err != nil {
 		return nil, err
 	}
@@ -70,4 +88,55 @@ func (ac *AuthController) Refresh(ctx context.Context, request *auth.RefreshRequ
 
 func (ac *AuthController) Logout(ctx context.Context, request *auth.RefreshRequest) error {
 	return ac.authService.Logout(ctx, request.Token)
+}
+
+func (ac *AuthController) ListSessions(ctx context.Context) (*auth.ListSessionsResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	sessions, err := ac.sessionService.List(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	currentSessionID := actingSessionID(ctx)
+	response := auth.ListSessionsResponse{
+		Sessions: make([]auth.SessionResponse, 0, len(sessions)),
+	}
+	for _, session := range sessions {
+		response.Sessions = append(response.Sessions, toSessionResponse(session, currentSessionID))
+	}
+
+	return &response, nil
+}
+
+func (ac *AuthController) RevokeSession(ctx context.Context, request *auth.RevokeSessionRequest) error {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return err
+	}
+
+	return ac.sessionService.Revoke(ctx, userID, request.ID)
+}
+
+// RevokeOtherSessions needs the current session's ID, so a token issued before
+// session IDs were carried is refused as ErrPrincipalNotFound until it is refreshed.
+func (ac *AuthController) RevokeOtherSessions(ctx context.Context) (*auth.RevokeOtherSessionsResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	currentSessionID := actingSessionID(ctx)
+	if currentSessionID == 0 {
+		return nil, apperrors.ErrPrincipalNotFound
+	}
+
+	revoked, err := ac.sessionService.RevokeOthers(ctx, userID, currentSessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &auth.RevokeOtherSessionsResponse{Revoked: revoked}, nil
 }

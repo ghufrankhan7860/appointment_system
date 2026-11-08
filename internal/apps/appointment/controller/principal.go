@@ -30,3 +30,19 @@ func actingRole(ctx context.Context) (models.Role, error) {
 
 	return models.Role(applicationContext.PrincipalRole), nil
 }
+
+// actingSessionID returns the session (device login) the request's access token
+// was issued for, or 0 when the token predates session IDs.
+func actingSessionID(ctx context.Context) uint64 {
+	applicationContext, ok := appcontext.From(ctx)
+	if !ok || applicationContext.SessionID == "" {
+		return 0
+	}
+
+	sessionID, err := strconv.ParseUint(applicationContext.SessionID, 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	return sessionID
+}

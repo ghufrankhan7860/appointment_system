@@ -58,6 +58,9 @@ func (ah *AdminHandler) RegisterRoutes(router *gin.RouterGroup) {
 	adminRoutes.POST("/specialities", authz.RequirePermission(authz.PermSpecialityManage), ah.CreateSpeciality)
 	adminRoutes.POST("/payments/:id/refund", authz.RequirePermission(authz.PermPaymentRefund), ah.RefundPayment)
 	adminRoutes.GET("/refunds", authz.RequirePermission(authz.PermPaymentRefund), ah.ListRefunds)
+	adminRoutes.GET("/users/:id/sessions", authz.RequirePermission(authz.PermSessionManage), ah.ListUserSessions)
+	adminRoutes.DELETE("/users/:id/sessions/:sessionId", authz.RequirePermission(authz.PermSessionManage), ah.RevokeUserSession)
+	adminRoutes.POST("/users/:id/sessions/revoke-all", authz.RequirePermission(authz.PermSessionManage), ah.RevokeUserSessions)
 	adminRoutes.GET("/records/:id/access-log", authz.RequirePermission(authz.PermRecordAudit), ah.ListRecordAccessLog)
 }
 
@@ -692,5 +695,142 @@ func (ah *AdminHandler) CreateSpeciality(ctx *gin.Context) {
 		"success": true,
 		"data":    response,
 		"message": "Speciality created successfully",
+	})
+}
+
+// ListUserSessions godoc
+// @Summary List a user's sessions
+// @Description Returns a user's sessions in every status (active, revoked, expired) from the last 90 days, most recently used first, with the raw User-Agent and device ID for investigations. Times are UTC. Limit defaults to 20 and is capped at 100.
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Param id path int true "User ID"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Rows to skip"
+// @Success 200 {object} dtos.SuccessResponse{data=admin.ListUserSessionsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/users/{id}/sessions [get]
+func (ah *AdminHandler) ListUserSessions(ctx *gin.Context) {
+	var listUserSessionsRequest admin.ListUserSessionsRequest
+	if err := ctx.ShouldBindUri(&listUserSessionsRequest); err != nil || listUserSessionsRequest.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid user id"})
+		return
+	}
+	if err := ctx.ShouldBindQuery(&listUserSessionsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := ah.adminController.ListUserSessions(ctx.Request.Context(), &listUserSessionsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrInvalidSessionInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid user id"})
+		case errors.Is(err, apperrors.ErrUserNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "User not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list sessions"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Sessions retrieved successfully",
+	})
+}
+
+// RevokeUserSession godoc
+// @Summary Revoke one session of a user
+// @Description Revokes one active session of a user; its refresh token stops working at once and its access token within 15 minutes.
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Param id path int true "User ID"
+// @Param sessionId path int true "Session ID"
+// @Success 200 {object} dtos.SuccessResponse
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/users/{id}/sessions/{sessionId} [delete]
+func (ah *AdminHandler) RevokeUserSession(ctx *gin.Context) {
+	var revokeUserSessionRequest admin.RevokeUserSessionRequest
+	if err := ctx.ShouldBindUri(&revokeUserSessionRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid user or session id"})
+		return
+	}
+
+	if err := ah.adminController.RevokeUserSession(ctx.Request.Context(), &revokeUserSessionRequest); err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrInvalidSessionInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid user or session id"})
+		case errors.Is(err, apperrors.ErrUserNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "User not found"})
+		case errors.Is(err, apperrors.ErrSessionNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Session not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to revoke session"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Session revoked successfully",
+	})
+}
+
+// RevokeUserSessions godoc
+// @Summary Revoke all sessions of a user
+// @Description Revokes every active session of a user, signing them out on all devices, and returns how many were revoked.
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Param id path int true "User ID"
+// @Success 200 {object} dtos.SuccessResponse{data=admin.RevokeUserSessionsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/users/{id}/sessions/revoke-all [post]
+func (ah *AdminHandler) RevokeUserSessions(ctx *gin.Context) {
+	var revokeUserSessionsRequest admin.RevokeUserSessionsRequest
+	if err := ctx.ShouldBindUri(&revokeUserSessionsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid user id"})
+		return
+	}
+
+	response, err := ah.adminController.RevokeUserSessions(ctx.Request.Context(), &revokeUserSessionsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrInvalidSessionInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid user id"})
+		case errors.Is(err, apperrors.ErrUserNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "User not found"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to revoke sessions"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Sessions revoked successfully",
 	})
 }

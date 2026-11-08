@@ -111,6 +111,9 @@ func (ch contextHandler) Handle(ctx context.Context, record slog.Record) error {
 				slog.String("role", applicationContext.PrincipalRole),
 			)
 		}
+		if applicationContext.SessionID != "" {
+			record.AddAttrs(slog.String("session_id", applicationContext.SessionID))
+		}
 	}
 
 	return ch.Handler.Handle(ctx, record)

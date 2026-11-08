@@ -1,9 +1,12 @@
 package services_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/services"
 	"appointment_system/internal/apps/appointment/utils"
+	"appointment_system/internal/platform/logger"
 )
 
 func TestAuthServiceRefreshSessionState(t *testing.T) {
@@ -53,14 +57,14 @@ func TestAuthServiceRefreshSessionState(t *testing.T) {
 				&fakeUserRepo{user: &models.User{ID: 7}},
 				sessions,
 				&fakeTokenGen{token: "access-token"},
-				&fakeTxManager{},
+				&fakeUserAgentParser{},
 				discardLogger,
 			)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
 			}
 
-			_, _, err = service.Refresh(context.Background(), "refresh-token")
+			_, _, err = service.Refresh(context.Background(), "refresh-token", models.SessionClient{})
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Refresh error = %v, want %v", err, tt.wantErr)
 			}
@@ -68,43 +72,53 @@ func TestAuthServiceRefreshSessionState(t *testing.T) {
 	}
 }
 
-func TestAuthServiceRefreshActiveSessionRotatesAtomically(t *testing.T) {
-	tx := &fakeTxManager{}
+func TestAuthServiceRefreshRotatesInPlace(t *testing.T) {
 	sessions := &fakeSessionRepo{
 		session: &models.Session{
-			ID:        3,
-			UserID:    7,
-			TokenHash: "hash",
-			ExpiresAt: time.Now().Add(time.Hour),
-			RevokedAt: nil,
+			ID:         3,
+			UserID:     7,
+			TokenHash:  "hash",
+			ExpiresAt:  time.Now().Add(time.Hour),
+			IPAddress:  "203.0.113.10",
+			DeviceID:   "device-1",
+			AppVersion: "1.0.0",
+			Timezone:   "Asia/Kolkata",
 		},
 	}
-	service, err := services.NewAuthService(
-		&fakeUserRepo{user: &models.User{ID: 7}},
-		sessions,
-		&fakeTokenGen{token: "access-token"},
-		tx,
-		discardLogger,
-	)
+	tokens := &fakeTokenGen{token: "access-token"}
+	parser := &fakeUserAgentParser{details: models.UserAgentDetails{BrowserName: "Chrome", BrowserVersion: "131.0"}}
+	service, err := services.NewAuthService(&fakeUserRepo{user: &models.User{ID: 7}}, sessions, tokens, parser, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAuthService returned error: %v", err)
 	}
 
-	accessToken, nextRefreshToken, err := service.Refresh(context.Background(), "refresh-token")
+	accessToken, nextRefreshToken, err := service.Refresh(context.Background(), "refresh-token", models.SessionClient{
+		IPAddress:  "198.51.100.7",
+		UserAgent:  "Mozilla/5.0 Chrome/131.0",
+		DeviceID:   "device-1",
+		AppVersion: "1.1.0",
+	})
 	if err != nil {
 		t.Fatalf("Refresh returned error: %v", err)
 	}
 	if accessToken == "" || nextRefreshToken == "" {
 		t.Fatalf("Refresh returned empty tokens: %q, %q", accessToken, nextRefreshToken)
 	}
-	if !tx.called {
-		t.Fatalf("Refresh did not run rotation in a transaction")
+	if sessions.createCalled || sessions.revokeCalled {
+		t.Fatalf("Refresh created or revoked a session, want the same session rotated in place")
 	}
-	if !sessions.createCalled {
-		t.Fatalf("Refresh did not create the rotated session")
+	rotated := sessions.rotated
+	if rotated == nil || sessions.rotatedFrom != "hash" || rotated.TokenHash != utils.HashToken(nextRefreshToken) {
+		t.Fatalf("Refresh rotated %+v from %q, want the new token hash replacing hash", rotated, sessions.rotatedFrom)
 	}
-	if !sessions.revokeCalled {
-		t.Fatalf("Refresh did not revoke the consumed session")
+	if rotated.LastSeenIP != "198.51.100.7" || rotated.IPAddress != "203.0.113.10" || rotated.DeviceID != "device-1" {
+		t.Fatalf("Refresh rotated IPs %q/%q device %q, want last seen updated and login IP and device kept", rotated.LastSeenIP, rotated.IPAddress, rotated.DeviceID)
+	}
+	if rotated.AppVersion != "1.1.0" || rotated.Timezone != "Asia/Kolkata" || rotated.Browser.BrowserVersion != "131.0" {
+		t.Fatalf("Refresh rotated app %q timezone %q browser %+v, want the new app version and browser and the old timezone", rotated.AppVersion, rotated.Timezone, rotated.Browser)
+	}
+	if tokens.sessionID != 3 {
+		t.Fatalf("Refresh issued a token for session %d, want 3", tokens.sessionID)
 	}
 }
 
@@ -123,7 +137,7 @@ func TestAuthServiceLogoutRevokedSessionIsIdempotent(t *testing.T) {
 		&fakeUserRepo{},
 		sessions,
 		&fakeTokenGen{},
-		&fakeTxManager{},
+		&fakeUserAgentParser{},
 		discardLogger,
 	)
 	if err != nil {
@@ -139,18 +153,18 @@ func TestAuthServiceLogoutRevokedSessionIsIdempotent(t *testing.T) {
 }
 
 func TestNewAuthServiceValidation(t *testing.T) {
-	tx := &fakeTxManager{}
-	if _, err := services.NewAuthService(nil, &fakeSessionRepo{}, &fakeTokenGen{}, tx, discardLogger); !errors.Is(err, apperrors.ErrNilUserRepository) {
+	parser := &fakeUserAgentParser{}
+	if _, err := services.NewAuthService(nil, &fakeSessionRepo{}, &fakeTokenGen{}, parser, discardLogger); !errors.Is(err, apperrors.ErrNilUserRepository) {
 		t.Fatalf("nil users error = %v", err)
 	}
-	if _, err := services.NewAuthService(&fakeUserRepo{}, nil, &fakeTokenGen{}, tx, discardLogger); !errors.Is(err, apperrors.ErrNilSessionRepository) {
+	if _, err := services.NewAuthService(&fakeUserRepo{}, nil, &fakeTokenGen{}, parser, discardLogger); !errors.Is(err, apperrors.ErrNilSessionRepository) {
 		t.Fatalf("nil sessions error = %v", err)
 	}
-	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, nil, tx, discardLogger); !errors.Is(err, apperrors.ErrNilTokenGenerator) {
+	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, nil, parser, discardLogger); !errors.Is(err, apperrors.ErrNilTokenGenerator) {
 		t.Fatalf("nil tokens error = %v", err)
 	}
-	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, &fakeTokenGen{}, nil, discardLogger); !errors.Is(err, apperrors.ErrNilTransactionManager) {
-		t.Fatalf("nil tx error = %v", err)
+	if _, err := services.NewAuthService(&fakeUserRepo{}, &fakeSessionRepo{}, &fakeTokenGen{}, nil, discardLogger); !errors.Is(err, apperrors.ErrNilUserAgentParser) {
+		t.Fatalf("nil parser error = %v", err)
 	}
 }
 
@@ -172,7 +186,7 @@ func TestAuthServiceRegisterReportsDuplicateField(t *testing.T) {
 				&fakeUserRepo{err: tt.repoErr},
 				&fakeSessionRepo{},
 				&fakeTokenGen{token: "access-token"},
-				&fakeTxManager{},
+				&fakeUserAgentParser{},
 				discardLogger,
 			)
 			if err != nil {
@@ -210,12 +224,12 @@ func TestAuthServiceLoginLooksUpOneColumn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			users := &fakeUserRepo{user: &models.User{ID: 7, Role: models.RolePatient, PasswordHash: hash}}
-			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeTxManager{}, discardLogger)
+			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeUserAgentParser{}, discardLogger)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
 			}
 
-			if _, _, _, err := service.Login(context.Background(), tt.email, tt.mobileNo, "password123"); err != nil {
+			if _, _, _, err := service.Login(context.Background(), tt.email, tt.mobileNo, "password123", models.SessionClient{}); err != nil {
 				t.Fatalf("Login returned error: %v", err)
 			}
 			if users.lookedUpBy != tt.want {
@@ -238,7 +252,7 @@ func TestAuthServiceRegisterPasswordMinimum(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			users := &fakeUserRepo{user: &models.User{ID: 7}}
-			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeTxManager{}, discardLogger)
+			service, err := services.NewAuthService(users, &fakeSessionRepo{}, &fakeTokenGen{}, &fakeUserAgentParser{}, discardLogger)
 			if err != nil {
 				t.Fatalf("NewAuthService returned error: %v", err)
 			}
@@ -251,5 +265,191 @@ func TestAuthServiceRegisterPasswordMinimum(t *testing.T) {
 				t.Fatalf("Register reason = %q", apperrors.Reason(err))
 			}
 		})
+	}
+}
+
+func TestAuthServiceLoginRecordsClient(t *testing.T) {
+	hash, err := utils.HashPassword("password123")
+	if err != nil {
+		t.Fatalf("HashPassword returned error: %v", err)
+	}
+	email := "ravi@example.com"
+	sessions := &fakeSessionRepo{}
+	tokens := &fakeTokenGen{token: "access-token"}
+	parser := &fakeUserAgentParser{details: models.UserAgentDetails{BrowserName: "Chrome Mobile", OSName: "Android"}}
+	service, err := services.NewAuthService(
+		&fakeUserRepo{user: &models.User{ID: 7, Role: models.RolePatient, PasswordHash: hash}},
+		sessions,
+		tokens,
+		parser,
+		discardLogger,
+	)
+	if err != nil {
+		t.Fatalf("NewAuthService returned error: %v", err)
+	}
+
+	_, _, _, err = service.Login(context.Background(), &email, nil, "password123", models.SessionClient{
+		IPAddress:      "203.0.113.10",
+		UserAgent:      "  Mozilla/5.0 (Linux; Android 14) Chrome/130.0  ",
+		AcceptLanguage: "en-IN,en;q=0.9",
+		DeviceID:       "device-1",
+		DeviceName:     "Pixel 8",
+		DevicePlatform: "Android",
+		AppVersion:     "1.4.2",
+		Screen:         "1080x2400",
+		Timezone:       "Asia/Kolkata",
+	})
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	created := sessions.created
+	if created == nil {
+		t.Fatalf("Login created no session")
+	}
+	if created.IPAddress != "203.0.113.10" || created.Language != "en-IN" || created.DevicePlatform != models.DevicePlatformAndroid {
+		t.Fatalf("Login session ip %q language %q platform %q, want the client IP, first language and normalised platform", created.IPAddress, created.Language, created.DevicePlatform)
+	}
+	if created.DeviceID != "device-1" || created.DeviceName != "Pixel 8" || created.AppVersion != "1.4.2" || created.Screen != "1080x2400" || created.Timezone != "Asia/Kolkata" {
+		t.Fatalf("Login session device = %+v, want the device headers", created)
+	}
+	if parser.parsed != "Mozilla/5.0 (Linux; Android 14) Chrome/130.0" || created.Browser.BrowserName != "Chrome Mobile" {
+		t.Fatalf("Login parsed %q into %+v, want the trimmed User-Agent parsed", parser.parsed, created.Browser)
+	}
+	if tokens.sessionID != 41 {
+		t.Fatalf("Login issued a token for session %d, want the created session 41", tokens.sessionID)
+	}
+}
+
+func TestAuthServiceLoginRejectsBadDeviceHeaders(t *testing.T) {
+	hash, err := utils.HashPassword("password123")
+	if err != nil {
+		t.Fatalf("HashPassword returned error: %v", err)
+	}
+	email := "ravi@example.com"
+
+	tests := []struct {
+		name       string
+		client     models.SessionClient
+		wantReason string
+	}{
+		{name: "unknown platform", client: models.SessionClient{DevicePlatform: "windows"}, wantReason: "X-Device-Platform must be one of web, android, ios"},
+		{name: "screen not width x height", client: models.SessionClient{Screen: "large"}, wantReason: "X-Device-Screen must be width x height in pixels, such as 1080x2400"},
+		{name: "timezone not IANA", client: models.SessionClient{Timezone: "IST"}, wantReason: "X-Device-Timezone must be an IANA time zone, such as Asia/Kolkata"},
+		{name: "server local zone", client: models.SessionClient{Timezone: "Local"}, wantReason: "X-Device-Timezone must be an IANA time zone, such as Asia/Kolkata"},
+		{name: "device id too long", client: models.SessionClient{DeviceID: strings.Repeat("a", constant.MaxDeviceIDLength+1)}, wantReason: fmt.Sprintf("X-Device-Id must be at most %d characters", constant.MaxDeviceIDLength)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sessions := &fakeSessionRepo{}
+			service, err := services.NewAuthService(
+				&fakeUserRepo{user: &models.User{ID: 7, Role: models.RolePatient, PasswordHash: hash}},
+				sessions,
+				&fakeTokenGen{token: "access-token"},
+				&fakeUserAgentParser{},
+				discardLogger,
+			)
+			if err != nil {
+				t.Fatalf("NewAuthService returned error: %v", err)
+			}
+
+			_, _, _, err = service.Login(context.Background(), &email, nil, "password123", tt.client)
+			if !errors.Is(err, apperrors.ErrInvalidSessionInput) {
+				t.Fatalf("Login error = %v, want %v", err, apperrors.ErrInvalidSessionInput)
+			}
+			if got := apperrors.Reason(err); got != tt.wantReason {
+				t.Fatalf("Reason = %q, want %q", got, tt.wantReason)
+			}
+			if sessions.createCalled {
+				t.Fatalf("Login created a session for a bad header")
+			}
+		})
+	}
+}
+
+func TestAuthServiceLoginKeepsBrowserHeaders(t *testing.T) {
+	hash, err := utils.HashPassword("password123")
+	if err != nil {
+		t.Fatalf("HashPassword returned error: %v", err)
+	}
+	email := "ravi@example.com"
+	sessions := &fakeSessionRepo{}
+	service, err := services.NewAuthService(
+		&fakeUserRepo{user: &models.User{ID: 7, Role: models.RolePatient, PasswordHash: hash}},
+		sessions,
+		&fakeTokenGen{token: "access-token"},
+		&fakeUserAgentParser{},
+		discardLogger,
+	)
+	if err != nil {
+		t.Fatalf("NewAuthService returned error: %v", err)
+	}
+
+	_, _, _, err = service.Login(context.Background(), &email, nil, "password123", models.SessionClient{
+		UserAgent:      strings.Repeat("u", constant.MaxUserAgentLength+50),
+		AcceptLanguage: "*",
+	})
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+	if got := len(sessions.created.UserAgent); got != constant.MaxUserAgentLength {
+		t.Fatalf("Login stored a User-Agent of %d characters, want it cut to %d", got, constant.MaxUserAgentLength)
+	}
+	if sessions.created.Language != "" {
+		t.Fatalf("Login stored language %q for a wildcard Accept-Language, want none", sessions.created.Language)
+	}
+}
+
+func TestAuthServiceRefreshDeviceMismatchIsLogged(t *testing.T) {
+	var output bytes.Buffer
+	jsonLogger, err := logger.New(logger.Config{Level: "info", Format: logger.FormatJSON}, &output)
+	if err != nil {
+		t.Fatalf("logger.New returned error: %v", err)
+	}
+	sessions := &fakeSessionRepo{session: &models.Session{ID: 3, UserID: 7, TokenHash: "hash", ExpiresAt: time.Now().Add(time.Hour), DeviceID: "device-1"}}
+	service, err := services.NewAuthService(&fakeUserRepo{user: &models.User{ID: 7}}, sessions, &fakeTokenGen{token: "access-token"}, &fakeUserAgentParser{}, jsonLogger)
+	if err != nil {
+		t.Fatalf("NewAuthService returned error: %v", err)
+	}
+
+	if _, _, err := service.Refresh(context.Background(), "refresh-token", models.SessionClient{DeviceID: "device-2"}); err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+
+	var warning map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("log line %q is not JSON: %v", line, err)
+		}
+		if record["msg"] == "refresh device mismatch" {
+			warning = record
+		}
+	}
+	if warning == nil || warning["level"] != "WARN" || warning["session_id"] != float64(3) || warning["user_id"] != float64(7) {
+		t.Fatalf("Refresh logged %s, want a WARN refresh device mismatch with session and user ids", output.String())
+	}
+	if strings.Contains(output.String(), "device-2") {
+		t.Fatalf("Refresh logged the device id: %s", output.String())
+	}
+	if sessions.rotated == nil {
+		t.Fatalf("Refresh did not rotate the session after a device mismatch")
+	}
+}
+
+func TestAuthServiceRefreshLosesRace(t *testing.T) {
+	sessions := &fakeSessionRepo{
+		session:   &models.Session{ID: 3, UserID: 7, TokenHash: "hash", ExpiresAt: time.Now().Add(time.Hour)},
+		rotateErr: apperrors.ErrSessionNotFound,
+	}
+	service, err := services.NewAuthService(&fakeUserRepo{user: &models.User{ID: 7}}, sessions, &fakeTokenGen{token: "access-token"}, &fakeUserAgentParser{}, discardLogger)
+	if err != nil {
+		t.Fatalf("NewAuthService returned error: %v", err)
+	}
+
+	_, _, err = service.Refresh(context.Background(), "refresh-token", models.SessionClient{})
+	if !errors.Is(err, apperrors.ErrSessionNotFound) {
+		t.Fatalf("Refresh error = %v, want %v", err, apperrors.ErrSessionNotFound)
 	}
 }

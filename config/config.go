@@ -10,6 +10,7 @@ package config
 import (
 	"appointment_system/internal/apps/appointment/constant"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -89,6 +90,10 @@ type HTTPConfig struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
+	// TrustedProxies are the IPs or CIDRs of the reverse proxies (Caddy) whose
+	// X-Forwarded-For gives the client IP. Empty trusts none, so the client IP is
+	// the direct connection, which is right without a proxy.
+	TrustedProxies []string
 }
 
 type DatabaseConfig struct {
@@ -150,6 +155,7 @@ func Load() (Config, error) {
 			WriteTimeout:      writeTimeout,
 			IdleTimeout:       idleTimeout,
 			ShutdownTimeout:   shutdownTimeout,
+			TrustedProxies:    trustedProxies(env("TRUSTED_PROXIES", "")),
 		},
 		Database: DatabaseConfig{
 			Host:            env("DB_HOST", defaultDBHost),
@@ -273,6 +279,13 @@ func Load() (Config, error) {
 	if config.Storage.Provider != storageProviderLocal {
 		return Config{}, fmt.Errorf("STORAGE_PROVIDER %q is not supported; use %q", config.Storage.Provider, storageProviderLocal)
 	}
+	for _, proxy := range config.HTTP.TrustedProxies {
+		if net.ParseIP(proxy) == nil {
+			if _, _, err := net.ParseCIDR(proxy); err != nil {
+				return Config{}, fmt.Errorf("TRUSTED_PROXIES entry %q is not an IP or CIDR", proxy)
+			}
+		}
+	}
 	if config.Storage.Provider == storageProviderLocal && config.Storage.LocalDir == "" {
 		return Config{}, fmt.Errorf("STORAGE_LOCAL_DIR is required for the %q storage provider", storageProviderLocal)
 	}
@@ -301,6 +314,18 @@ func envInt(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
 	}
 	return parsed, nil
+}
+
+// trustedProxies splits a comma-separated TRUSTED_PROXIES value, dropping blanks.
+func trustedProxies(value string) []string {
+	var proxies []string
+	for _, proxy := range strings.Split(value, ",") {
+		if proxy = strings.TrimSpace(proxy); proxy != "" {
+			proxies = append(proxies, proxy)
+		}
+	}
+
+	return proxies
 }
 
 func environment() string {

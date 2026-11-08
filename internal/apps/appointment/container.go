@@ -18,6 +18,7 @@ import (
 	"appointment_system/internal/apps/appointment/adapters/payment/none"
 	"appointment_system/internal/apps/appointment/adapters/payment/razorpay"
 	"appointment_system/internal/apps/appointment/adapters/storage/local"
+	"appointment_system/internal/apps/appointment/adapters/useragent/uap"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
 	"appointment_system/internal/apps/appointment/repositories"
@@ -69,23 +70,38 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize token generator: %w", err)
 	}
 
+	userAgentParser, err := uap.New()
+	if err != nil {
+		return nil, fmt.Errorf("initialize user agent parser: %w", err)
+	}
+
 	authService, err := services.NewAuthService(
 		userRepository,
 		sessionRepository,
 		tokenGenerator,
-		txManager,
+		userAgentParser,
 		logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize auth service: %w", err)
 	}
 
-	authController, err := controller.NewAuthController(authService)
+	sessionService, err := services.NewSessionService(
+		sessionRepository,
+		userRepository,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize session service: %w", err)
+	}
+
+	authController, err := controller.NewAuthController(authService, sessionService)
 	if err != nil {
 		return nil, fmt.Errorf("initialize auth controller: %w", err)
 	}
 
-	authHandler, err := handler.NewAuthHandler(authController)
+	authHandler, err := handler.NewAuthHandler(authController, tokenGenerator)
 	if err != nil {
 		return nil, fmt.Errorf("initialize auth handler: %w", err)
 	}
@@ -285,7 +301,7 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize payment handler: %w", err)
 	}
 
-	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService, medicalRecordService)
+	adminController, err := controller.NewAdminController(adminUserService, doctorVerificationService, doctorService, paymentService, medicalRecordService, sessionService)
 	if err != nil {
 		return nil, fmt.Errorf("initialize admin controller: %w", err)
 	}

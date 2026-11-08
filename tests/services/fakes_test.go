@@ -78,16 +78,40 @@ func (f *fakeUserRepo) GetByID(ctx context.Context, id uint64) (*models.User, er
 
 type fakeSessionRepo struct {
 	session      *models.Session
+	sessions     []*models.Session
 	getErr       error
 	createErr    error
 	revokeErr    error
+	rotateErr    error
+	listErr      error
 	createCalled bool
 	revokeCalled bool
+
+	created       *models.Session
+	rotated       *models.Session
+	rotatedFrom   string
+	listedNow     time.Time
+	listedLimit   int
+	listedOffset  int
+	revokedUserID uint64
+	revokedID     uint64
+	exceptID      uint64
+	revokedCount  int64
+	deleteBefore  time.Time
+	deleteLimit   int
+	deleteResults []int64
+	deleteCalls   int
 }
 
 func (f *fakeSessionRepo) Create(ctx context.Context, session *models.Session) error {
 	f.createCalled = true
-	return f.createErr
+	if f.createErr != nil {
+		return f.createErr
+	}
+	session.ID = 41
+	created := *session
+	f.created = &created
+	return nil
 }
 
 func (f *fakeSessionRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*models.Session, error) {
@@ -102,13 +126,69 @@ func (f *fakeSessionRepo) RevokeByID(ctx context.Context, id uint64) error {
 	return f.revokeErr
 }
 
-type fakeTokenGen struct {
-	token string
-	err   error
+func (f *fakeSessionRepo) Rotate(ctx context.Context, id uint64, oldTokenHash string, session *models.Session) error {
+	if f.rotateErr != nil {
+		return f.rotateErr
+	}
+	rotated := *session
+	f.rotated = &rotated
+	f.rotatedFrom = oldTokenHash
+	return nil
 }
 
-func (f *fakeTokenGen) Generate(user models.User) (string, error) {
+func (f *fakeSessionRepo) ListActiveByUser(ctx context.Context, userID uint64, now time.Time) ([]*models.Session, error) {
+	f.listedNow = now
+	return f.sessions, f.listErr
+}
+
+func (f *fakeSessionRepo) ListByUser(ctx context.Context, userID uint64, limit int, offset int) ([]*models.Session, error) {
+	f.listedLimit = limit
+	f.listedOffset = offset
+	return f.sessions, f.listErr
+}
+
+func (f *fakeSessionRepo) RevokeByUserAndID(ctx context.Context, userID uint64, id uint64) error {
+	f.revokedUserID = userID
+	f.revokedID = id
+	return f.revokeErr
+}
+
+func (f *fakeSessionRepo) RevokeActiveByUser(ctx context.Context, userID uint64, exceptID uint64) (int64, error) {
+	f.revokedUserID = userID
+	f.exceptID = exceptID
+	return f.revokedCount, f.revokeErr
+}
+
+func (f *fakeSessionRepo) DeleteEndedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	f.deleteBefore = before
+	f.deleteLimit = limit
+	if f.deleteCalls >= len(f.deleteResults) {
+		return 0, nil
+	}
+	deleted := f.deleteResults[f.deleteCalls]
+	f.deleteCalls++
+	return deleted, nil
+}
+
+type fakeTokenGen struct {
+	token     string
+	err       error
+	sessionID uint64
+}
+
+func (f *fakeTokenGen) Generate(user models.User, sessionID uint64) (string, error) {
+	f.sessionID = sessionID
 	return f.token, f.err
+}
+
+type fakeUserAgentParser struct {
+	details models.UserAgentDetails
+	parsed  string
+}
+
+func (f *fakeUserAgentParser) Parse(userAgent string) models.UserAgentDetails {
+	f.parsed = userAgent
+	return f.details
 }
 
 type fakeAvailabilityRepo struct {

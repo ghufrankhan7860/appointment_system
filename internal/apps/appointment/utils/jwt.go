@@ -19,7 +19,8 @@ type JWTManager struct {
 }
 
 type authClaims struct {
-	Role string `json:"role"`
+	Role      string `json:"role"`
+	SessionID uint64 `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -41,10 +42,13 @@ func NewJWTManager(secret, issuer string, ttl time.Duration) (*JWTManager, error
 	}, nil
 }
 
-func (manager *JWTManager) Generate(user models.User) (string, error) {
+// Generate issues an access token for user, tied to the session (device login) it
+// was issued for.
+func (manager *JWTManager) Generate(user models.User, sessionID uint64) (string, error) {
 	now := time.Now().UTC()
 	claims := authClaims{
-		Role: string(user.Role),
+		Role:      string(user.Role),
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    manager.issuer,
 			Subject:   strconv.FormatUint(user.ID, 10),
@@ -58,8 +62,9 @@ func (manager *JWTManager) Generate(user models.User) (string, error) {
 	return token.SignedString(manager.secret)
 }
 
-// Verify validates an access token and returns the user ID and role it carries.
-func (manager *JWTManager) Verify(tokenString string) (uint64, string, error) {
+// Verify validates an access token and returns the user ID, role and session ID
+// it carries. A token issued before sessions were carried has session ID 0.
+func (manager *JWTManager) Verify(tokenString string) (uint64, string, uint64, error) {
 	var claims authClaims
 
 	if _, err := jwt.ParseWithClaims(
@@ -72,17 +77,17 @@ func (manager *JWTManager) Verify(tokenString string) (uint64, string, error) {
 		jwt.WithIssuer(manager.issuer),
 		jwt.WithExpirationRequired(),
 	); err != nil {
-		return 0, "", err
+		return 0, "", 0, err
 	}
 
 	userID, err := strconv.ParseUint(claims.Subject, 10, 64)
 	if err != nil || userID == 0 {
-		return 0, "", errors.New("invalid token subject")
+		return 0, "", 0, errors.New("invalid token subject")
 	}
 
 	if claims.Role == "" {
-		return 0, "", errors.New("invalid token role")
+		return 0, "", 0, errors.New("invalid token role")
 	}
 
-	return userID, claims.Role, nil
+	return userID, claims.Role, claims.SessionID, nil
 }

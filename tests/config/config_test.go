@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -182,6 +183,40 @@ func TestLoadLogging(t *testing.T) {
 			}
 			if loaded.Log != tt.want {
 				t.Fatalf("Load log = %+v, want %+v", loaded.Log, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadTrustedProxies(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+
+	tests := []struct {
+		name       string
+		value      string
+		want       []string
+		wantErrKey string
+	}{
+		{name: "empty trusts none", value: "", want: nil},
+		{name: "subnet and address", value: " 172.19.0.0/16 , 10.0.0.5 ,", want: []string{"172.19.0.0/16", "10.0.0.5"}},
+		{name: "not an address", value: "caddy", wantErrKey: "TRUSTED_PROXIES"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TRUSTED_PROXIES", tt.value)
+			loaded, err := config.Load()
+			if tt.wantErrKey != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrKey) {
+					t.Fatalf("Load error = %v, want an invalid %s", err, tt.wantErrKey)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			if !slices.Equal(loaded.HTTP.TrustedProxies, tt.want) {
+				t.Fatalf("Load trusted proxies = %q, want %q", loaded.HTTP.TrustedProxies, tt.want)
 			}
 		})
 	}

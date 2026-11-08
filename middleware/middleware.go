@@ -51,8 +51,10 @@ func AppContext() gin.HandlerFunc {
 	}
 }
 
+// TokenVerifier checks an access token and returns the user ID, role and session
+// ID it carries (0 when the token predates session IDs).
 type TokenVerifier interface {
-	Verify(token string) (uint64, string, error)
+	Verify(token string) (uint64, string, uint64, error)
 }
 
 // Authenticate rejects requests without a valid Bearer token and records the
@@ -65,7 +67,7 @@ func Authenticate(verifier TokenVerifier) gin.HandlerFunc {
 			return
 		}
 
-		userID, role, err := verifier.Verify(strings.TrimSpace(token))
+		userID, role, sessionID, err := verifier.Verify(strings.TrimSpace(token))
 		if err != nil {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Invalid or expired token"})
 			return
@@ -79,6 +81,9 @@ func Authenticate(verifier TokenVerifier) gin.HandlerFunc {
 
 		applicationContext.PrincipalID = strconv.FormatUint(userID, 10)
 		applicationContext.PrincipalRole = role
+		if sessionID != 0 {
+			applicationContext.SessionID = strconv.FormatUint(sessionID, 10)
+		}
 		ctx.Next()
 	}
 }

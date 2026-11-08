@@ -23,6 +23,9 @@ type Config struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
+	// TrustedProxies are the proxies whose X-Forwarded-For gives the client IP;
+	// empty trusts none.
+	TrustedProxies []string
 }
 
 // Server owns the HTTP server lifecycle.
@@ -50,10 +53,17 @@ func New(config Config, logger *slog.Logger, healthChecker HealthChecker, appRou
 		return nil, errors.New("app routes are required")
 	}
 
+	router := NewRouter(logger, healthChecker, appRoutes)
+	// gin trusts every proxy by default, which lets any client fake its IP with
+	// X-Forwarded-For; nil trusts none.
+	if err := router.SetTrustedProxies(config.TrustedProxies); err != nil {
+		return nil, fmt.Errorf("set trusted proxies: %w", err)
+	}
+
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              config.Address,
-			Handler:           NewRouter(logger, healthChecker, appRoutes),
+			Handler:           router,
 			ReadHeaderTimeout: config.ReadHeaderTimeout,
 			ReadTimeout:       config.ReadTimeout,
 			WriteTimeout:      config.WriteTimeout,

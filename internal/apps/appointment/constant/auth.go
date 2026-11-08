@@ -20,4 +20,20 @@ const (
 	MinAdminPasswordLength = 12
 	// RefreshTokenBytes is the random size of an opaque refresh token (hex-encoded to twice this).
 	RefreshTokenBytes = 32
+
+	// SessionRetention is how long a session stays in the table after it expired or was
+	// revoked; it holds the client IP and device details, which are personal data.
+	SessionRetention time.Duration = 90 * 24 * time.Hour
+	// SessionPurgeBatchSize is how many ended sessions one purge run deletes per query.
+	SessionPurgeBatchSize = 500
+	// MaxUserAgentLength caps the stored User-Agent; a longer one is cut, never refused.
+	MaxUserAgentLength = 512
+	// MaxLanguageLength caps the first Accept-Language tag (BCP 47 tags fit in 35).
+	MaxLanguageLength = 35
+	// Device header limits; they match the sessions columns.
+	MaxDeviceIDLength   = 64
+	MaxDeviceNameLength = 100
+	MaxAppVersionLength = 30
+	// UserAgentCacheSize is how many distinct User-Agents the parser keeps parsed in memory.
+	UserAgentCacheSize = 1000
 )
