@@ -50,6 +50,12 @@ const (
 	// logFormatText is easier to read locally.
 	logFormatJSON = "json"
 	logFormatText = "text"
+	// defaultSTUNURLs is a free public STUN server, enough for peers to learn
+	// their public address.
+	defaultSTUNURLs = "stun:stun.l.google.com:19302"
+	// minTURNSecretLength keeps the secret shared with the TURN server out of
+	// guessing range.
+	minTURNSecretLength = 32
 )
 
 const (
@@ -70,6 +76,7 @@ type Config struct {
 	Database DatabaseConfig
 	Auth     AuthConfig
 	Payment  PaymentConfig
+	Call     CallConfig
 	Storage  StorageConfig
 	Log      LogConfig
 }
@@ -117,6 +124,17 @@ type PaymentConfig struct {
 	RazorpayKeyID         string
 	RazorpayKeySecret     string
 	RazorpayWebhookSecret string
+}
+
+type CallConfig struct {
+	// STUNURLs and TURNURLs are the ICE servers handed to call peers. TURN
+	// relays a call when the peers cannot connect directly; it is off while
+	// TURNURLs is empty.
+	STUNURLs []string
+	TURNURLs []string
+	// TURNSecret is shared with the TURN server (coturn use-auth-secret) to
+	// sign short-lived credentials. Required when TURNURLs is set.
+	TURNSecret string
 }
 
 type StorageConfig struct {
@@ -176,6 +194,11 @@ func Load() (Config, error) {
 			RazorpayKeyID:         env("RAZORPAY_KEY_ID", ""),
 			RazorpayKeySecret:     env("RAZORPAY_KEY_SECRET", ""),
 			RazorpayWebhookSecret: env("RAZORPAY_WEBHOOK_SECRET", ""),
+		},
+		Call: CallConfig{
+			STUNURLs:   splitList(env("STUN_URLS", defaultSTUNURLs)),
+			TURNURLs:   splitList(env("TURN_URLS", "")),
+			TURNSecret: env("TURN_SECRET", ""),
 		},
 		Storage: StorageConfig{
 			Provider: env("STORAGE_PROVIDER", storageProviderLocal),
@@ -286,6 +309,9 @@ func Load() (Config, error) {
 			}
 		}
 	}
+	if len(config.Call.TURNURLs) > 0 && len(config.Call.TURNSecret) < minTURNSecretLength {
+		return Config{}, fmt.Errorf("TURN_SECRET must contain at least %d characters when TURN_URLS is set", minTURNSecretLength)
+	}
 	if config.Storage.Provider == storageProviderLocal && config.Storage.LocalDir == "" {
 		return Config{}, fmt.Errorf("STORAGE_LOCAL_DIR is required for the %q storage provider", storageProviderLocal)
 	}
@@ -326,6 +352,18 @@ func trustedProxies(value string) []string {
 	}
 
 	return proxies
+}
+
+// splitList splits a comma-separated value, dropping blanks.
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+
+	return items
 }
 
 func environment() string {

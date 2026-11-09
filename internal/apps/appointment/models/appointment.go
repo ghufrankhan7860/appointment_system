@@ -128,6 +128,10 @@ const (
 	OutboxEventPatientAccessGranted = "patient.access_granted"
 	OutboxEventPatientAccessChanged = "patient.access_changed"
 	OutboxEventPatientAccessRevoked = "patient.access_revoked"
+
+	OutboxAggregateCall    = "call"
+	OutboxEventCallStarted = "call.started"
+	OutboxEventCallEnded   = "call.ended"
 )
 
 // ReminderWindow names one reminder sent before an appointment. Each window is

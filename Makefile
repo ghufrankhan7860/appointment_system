@@ -6,7 +6,7 @@ GO_TAGS = swagger
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy create-admin cover consumer reminders expire-payments expire-proposals reconcile-refunds purge-sessions
+.PHONY: help up down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy create-admin cover consumer reminders expire-payments expire-proposals reconcile-refunds purge-sessions expire-calls
 
 help:
 	@echo Docker:
@@ -37,6 +37,7 @@ help:
 	@echo   make expire-proposals close reschedule proposals nobody answered in time, once
 	@echo   make reconcile-refunds settle refunds still waiting for the gateway, once
 	@echo   make purge-sessions   delete sessions ended more than 90 days ago, once
+	@echo   make expire-calls     end call rooms whose time is over, once
 
 up: export GO_BUILD_TAGS = $(GO_TAGS)
 up:
@@ -113,3 +114,6 @@ reconcile-refunds:
 
 purge-sessions:
 	go run ./scripts/cron/purge_sessions
+
+expire-calls:
+	go run ./scripts/cron/expire_calls

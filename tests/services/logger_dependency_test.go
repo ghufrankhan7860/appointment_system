@@ -15,7 +15,7 @@ func TestNewServicesRequireLogger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	appointments, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, availability, payments, &fakeTxManager{}, discardLogger)
+	appointments, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, availability, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestNewServicesRequireLogger(t *testing.T) {
 			return err
 		}},
 		{name: "appointment", new: func() error {
-			_, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, availability, payments, &fakeTxManager{}, nil)
+			_, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, availability, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, nil)
 			return err
 		}},
 		{name: "doctor verification", new: func() error {

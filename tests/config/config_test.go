@@ -221,3 +221,51 @@ func TestLoadTrustedProxies(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadCallServers(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+
+	tests := []struct {
+		name       string
+		stun       *string
+		turn       string
+		secret     string
+		wantSTUN   []string
+		wantTURN   []string
+		wantErrKey string
+	}{
+		{name: "default STUN and no TURN", wantSTUN: []string{"stun:stun.l.google.com:19302"}},
+		{name: "own STUN servers", stun: stringPointer("stun:a.example:3478, stun:b.example:3478"), wantSTUN: []string{"stun:a.example:3478", "stun:b.example:3478"}},
+		{name: "TURN with its secret", turn: "turn:turn.example:3478,turns:turn.example:5349", secret: strings.Repeat("t", 32), wantSTUN: []string{"stun:stun.l.google.com:19302"}, wantTURN: []string{"turn:turn.example:3478", "turns:turn.example:5349"}},
+		{name: "TURN without a secret", turn: "turn:turn.example:3478", wantErrKey: "TURN_SECRET"},
+		{name: "TURN with a short secret", turn: "turn:turn.example:3478", secret: "short", wantErrKey: "TURN_SECRET"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.stun != nil {
+				t.Setenv("STUN_URLS", *tt.stun)
+			}
+			t.Setenv("TURN_URLS", tt.turn)
+			t.Setenv("TURN_SECRET", tt.secret)
+
+			loaded, err := config.Load()
+			if tt.wantErrKey != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrKey) {
+					t.Fatalf("Load error = %v, want an invalid %s", err, tt.wantErrKey)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			if !slices.Equal(loaded.Call.STUNURLs, tt.wantSTUN) || !slices.Equal(loaded.Call.TURNURLs, tt.wantTURN) {
+				t.Fatalf("Load call servers = %q/%q, want %q/%q", loaded.Call.STUNURLs, loaded.Call.TURNURLs, tt.wantSTUN, tt.wantTURN)
+			}
+		})
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}

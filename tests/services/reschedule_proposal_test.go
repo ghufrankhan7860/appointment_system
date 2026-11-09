@@ -130,7 +130,7 @@ func TestAppointmentServiceProposalExpiresAfterTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound}, &fakeDoctorRepo{byID: doctor, byUserID: doctor}, availabilityService, payments, &fakeTxManager{}, discardLogger)
+	service, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound}, &fakeDoctorRepo{byID: doctor, byUserID: doctor}, availabilityService, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}

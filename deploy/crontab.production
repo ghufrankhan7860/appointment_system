@@ -8,6 +8,7 @@ P=docker compose -f /home/ubuntu/app-production/deploy/compose.production.yaml r
 */15 * * * * $P /app/expire_proposals  api >> /home/ubuntu/cron-production.log 2>&1
 */15 * * * * $P /app/reminders         api >> /home/ubuntu/cron-production.log 2>&1
 */30 * * * * $P /app/reconcile_refunds api >> /home/ubuntu/cron-production.log 2>&1
+*/5 * * * *  $P /app/expire_calls      api >> /home/ubuntu/cron-production.log 2>&1
 15 2 * * *   $P /app/purge_sessions    api >> /home/ubuntu/cron-production.log 2>&1
 # Daily database dump at 03:30 server time, last 7 kept, on this disk only: it
 # does not survive losing the instance. Kept apart from staging's /home/ubuntu/backups.

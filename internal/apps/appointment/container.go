@@ -15,10 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"appointment_system/internal/apps/appointment/adapters/callhub/memory"
 	"appointment_system/internal/apps/appointment/adapters/payment/none"
 	"appointment_system/internal/apps/appointment/adapters/payment/razorpay"
 	"appointment_system/internal/apps/appointment/adapters/storage/local"
 	"appointment_system/internal/apps/appointment/adapters/useragent/uap"
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
 	"appointment_system/internal/apps/appointment/repositories"
@@ -37,6 +39,9 @@ type Container struct {
 	AppointmentHandler   *handler.AppointmentHandler
 	PaymentHandler       *handler.PaymentHandler
 	MedicalRecordHandler *handler.MedicalRecordHandler
+	CallHandler          *handler.CallHandler
+
+	callHub *memory.Hub
 }
 
 func NewContainer(
@@ -46,6 +51,7 @@ func NewContainer(
 	tokenTTL time.Duration,
 	clinicLocation *time.Location,
 	paymentSettings PaymentSettings,
+	callSettings CallSettings,
 	storageProvider string,
 	storageLocalDir string,
 	logger *slog.Logger,
@@ -258,6 +264,31 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize payment service: %w", err)
 	}
 
+	callRoomRepository, err := repositories.NewCallRoomRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call room repository: %w", err)
+	}
+
+	callParticipantRepository, err := repositories.NewCallParticipantRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call participant repository: %w", err)
+	}
+
+	callGuestTokenRepository, err := repositories.NewCallGuestTokenRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call guest token repository: %w", err)
+	}
+
+	callEventRepository, err := repositories.NewCallEventRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call event repository: %w", err)
+	}
+
+	callJoinAttemptRepository, err := repositories.NewCallJoinAttemptRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call join attempt repository: %w", err)
+	}
+
 	appointmentService, err := services.NewAppointmentService(
 		appointmentRepository,
 		outboxRepository,
@@ -265,6 +296,8 @@ func NewContainer(
 		doctorRepository,
 		availabilityService,
 		paymentService,
+		callRoomRepository,
+		callEventRepository,
 		txManager,
 		logger,
 	)
@@ -358,6 +391,84 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize admin handler: %w", err)
 	}
 
+	callTokenManager, err := utils.NewCallTokenManager(jwtSecret, jwtIssuer, constant.CallTokenTTL)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call token manager: %w", err)
+	}
+
+	callHub := memory.New()
+	iceSettings := services.ICESettings{
+		STUNURLs:   callSettings.STUNURLs,
+		TURNURLs:   callSettings.TURNURLs,
+		TURNSecret: callSettings.TURNSecret,
+	}
+
+	callService, err := services.NewCallService(
+		appointmentRepository,
+		doctorRepository,
+		userPatientRepository,
+		userRepository,
+		callRoomRepository,
+		callParticipantRepository,
+		callGuestTokenRepository,
+		callEventRepository,
+		callJoinAttemptRepository,
+		outboxRepository,
+		txManager,
+		callTokenManager,
+		callHub,
+		iceSettings,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call service: %w", err)
+	}
+
+	codeRoomService, err := services.NewCodeRoomService(
+		doctorRepository,
+		userRepository,
+		callRoomRepository,
+		callParticipantRepository,
+		callEventRepository,
+		callJoinAttemptRepository,
+		outboxRepository,
+		txManager,
+		callTokenManager,
+		callHub,
+		iceSettings,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize code room service: %w", err)
+	}
+
+	callSessionService, err := services.NewCallSessionService(
+		callRoomRepository,
+		callParticipantRepository,
+		callEventRepository,
+		outboxRepository,
+		txManager,
+		callTokenManager,
+		callHub,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call session service: %w", err)
+	}
+
+	callController, err := controller.NewCallController(callService, codeRoomService, callSessionService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call controller: %w", err)
+	}
+
+	callHandler, err := handler.NewCallHandler(callController, tokenGenerator, logger)
+	if err != nil {
+		return nil, fmt.Errorf("initialize call handler: %w", err)
+	}
+
 	return &Container{
 		AuthHandler:          authHandler,
 		PatientHandler:       patientHandler,
@@ -366,6 +477,8 @@ func NewContainer(
 		AppointmentHandler:   appointmentHandler,
 		PaymentHandler:       paymentHandler,
 		MedicalRecordHandler: medicalRecordHandler,
+		CallHandler:          callHandler,
+		callHub:              callHub,
 	}, nil
 }
 
@@ -377,6 +490,21 @@ func (c *Container) RegisterRoutes(router *gin.RouterGroup) {
 	c.AppointmentHandler.RegisterRoutes(router)
 	c.PaymentHandler.RegisterRoutes(router)
 	c.MedicalRecordHandler.RegisterRoutes(router)
+	c.CallHandler.RegisterRoutes(router)
+}
+
+// Close closes the open call sockets. The HTTP server's shutdown does not,
+// because their connections were taken over from it.
+func (c *Container) Close() {
+	c.callHub.CloseAll()
+}
+
+// CallSettings are the ICE servers handed to call peers. TURN is used only
+// when both TURNURLs and TURNSecret are set.
+type CallSettings struct {
+	STUNURLs   []string
+	TURNURLs   []string
+	TURNSecret string
 }
 
 // NewFileStorage returns the file storage adapter for the configured provider.

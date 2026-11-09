@@ -94,6 +94,8 @@ Before adding code, read these documents:
 
 |   |-- cron/purge_sessions/        # Deletes sessions ended more than 90 days ago (make purge-sessions)
 
+|   |-- cron/expire_calls/          # Ends call rooms whose time is over (make expire-calls)
+
 |   `-- backfill/                   # Placeholder: restartable data repair/import jobs
 
 |-- migrations/                     # Ordered schema migrations
@@ -778,6 +780,10 @@ The following invariants should be preserved throughout the application:
 
     at least one active full access holder.
 
+12. An appointment has at most one live call room, and a call room
+
+    grants no access to appointments, payments or records.
+
 ```
 
 ## API
@@ -888,6 +894,57 @@ Sharing never creates a patient: redeeming an invite adds a `user_patient` link,
 - Revoking access keeps past and upcoming appointments; `booked_by_user_id` stays as the record of who booked.
 - Each change writes a `user_patient_history` row (`created`, `invite_redeemed`, `access_changed`, `revoked_by_holder`, `left`) and an outbox event (`patient.access_granted`, `patient.access_changed`, `patient.access_revoked`).
 - Claiming a record by an OTP to the patient's own mobile or email (no existing holder needed) waits for email or SMS delivery.
+
+Calls (audio and video; `/calls/*` routes are public, the rest require `Authorization: Bearer <jwtToken>`):
+
+```text
+
+POST   /appointments/:id/call                      doctor, patient side  join the appointment's call ({mediaMode?: audio|video}), opening the room if nobody has
+
+GET    /appointments/:id/call                      doctor, patient side  the live room and who joined; inRoom marks who is connected now
+
+POST   /appointments/:id/call/end                  doctor, patient side  hang up for everyone
+
+POST   /appointments/:id/call/guest-links          doctor               a link for someone without an account ({displayName?, maxUses?}); the token is returned only here
+
+DELETE /appointments/:id/call/guest-links/:linkId  doctor               revoke a guest link
+
+POST   /calls/guest/:token                         public               join an appointment's call with a guest link ({displayName, mediaMode?})
+
+POST   /calls/code/:code                           public               join a code room ({displayName, mediaMode?})
+
+GET    /calls/ws?token=                            public               the signaling WebSocket, opened with the wsToken of a join response
+
+POST   /doctors/me/call-rooms                      verified doctor      create a code room ({title?, maxParticipants?, requiresApproval?, scheduledAt?}); the code is returned only here
+
+GET    /doctors/me/call-rooms                      verified doctor      the caller's rooms, newest first
+
+POST   /doctors/me/call-rooms/:id/join             verified doctor      join as the host
+
+POST   /doctors/me/call-rooms/:id/end              verified doctor      end the room for everyone
+
+GET    /doctors/me/call-rooms/:id/participants     verified doctor      everyone who joined, waiting ones included
+
+```
+
+Calls are WebRTC peer to peer: media goes browser to browser and the API only decides who may join, relays the signaling messages and hands out ICE servers. Every join answers `{roomId, peerId, role, waiting, wsToken, wsTokenExpiresAt, iceServers}`.
+
+- An appointment's call is one room at a time (`call_rooms`, `kind = appointment`) holding the doctor and one patient-side peer. Only the appointment's doctor and the patient side with `full` or `appointments_only` access join; anyone else, `read_only` included, gets `404`. Every appointment mode can have a call.
+- The call opens 10 minutes before the start and closes 30 minutes after the end, for a `scheduled` appointment that is `paid` or `waived` (`409` with the reason otherwise). Each side has one seat; a third person gets `409`, and the same user joining again takes their own seat back.
+- A guest link joins someone without an account as the patient side, so it is refused while the patient side is in. It works until the call closes, up to `maxUses` joins (3 by default, at most 5), and only its SHA-256 is stored. The frontend builds the join URL from the token.
+- A code room (`kind = code`) is a doctor's room outside any appointment: a family briefing, a follow-up group, a second opinion. It holds 2 to 5 people including the host (5 by default) and never grants access to the host's appointments or records. Only doctors with `call:host` and `verification_status = verified` host it (`403`); a host keeps at most 3 live rooms and creates at most 20 a day (`409`).
+- A room code is 6 random digits and a [Damm](https://en.wikipedia.org/wiki/Damm_algorithm) check digit, shown once and stored as its SHA-256; spaces and dashes are ignored. A wrong check digit is a typo (`400`, not counted). Without `scheduledAt` a room lasts 24 hours; with it, joins open 10 minutes before and the room lasts until 2 hours after.
+- With a lobby (`requiresApproval`, on by default) a joiner waits (`waiting: true`) until the host admits them. The room's size is checked when someone is admitted, and the host's seat is always kept free.
+- An unknown guest link or room code is one `404`. 5 of them from one IP within 10 minutes answer `429` until the window passes (`call_join_attempts`).
+- Completing an appointment, marking it no-show or cancelling it ends its room (`appointment_closed`). The host leaving a code room ends it after 5 minutes (`host_ended`).
+- Each change writes a `call_events` row (`opened`, `joined`, `left`, `admitted`, `denied`, `removed`, `muted`, `unmuted`, `media_changed`, `connection_state`, `ended`), and a room starting or ending writes an outbox event (`call.started`, `call.ended`).
+
+The WebSocket carries JSON messages `{"type": ...}`. The server sends `welcome` (your `peerId` and the `peers` already in), `peer-joined`, `peer-left`, `lobby` (you are waiting; for the host, `peer` is someone waiting), `offer` / `answer` / `ice` with `from`, `media`, `host`, `ended` and `error`. A client sends `offer`, `answer` and `ice` with `to`, `media {mode}`, `state {state: connected|relay|failed}`, `leave`, and, as a code room's host, `host {action: admit|deny|remove|mute|unmute|end, peerId}`. The newcomer sends the offers to everyone already in, which avoids both sides offering at once. Audio-to-video is a renegotiation between the peers; the server only passes it on.
+
+- The `wsToken` (15 minutes) is a JWT for one participant of one room, signed with a key derived from `JWT_SECRET` and its own audience, so it never works as an access token and an access token never opens a socket. It is checked before the upgrade, so a bad token is a plain `401` and a full room `409`. Browsers may open the socket only from the site that serves the API.
+- The database is the source of truth for who is in a room: a participant is in while `left_at` is empty and `last_seen_at` is under 60 seconds old. The server pings every 20 seconds; each pong updates `last_seen_at` and closes the socket once its room has ended, so an end from another request or the job reaches open sockets within 20 seconds.
+- Sockets live in the API process (`adapters/callhub/memory`, behind the `CallHub` port), which is enough while each environment runs one API container; several would need a relay between them, such as Redis pub/sub.
+- `iceServers` always has STUN (`STUN_URLS`, default `stun:stun.l.google.com:19302`). TURN, which relays a call the peers cannot connect directly (common on mobile networks), is added only when `TURN_URLS` and `TURN_SECRET` are set, with credentials valid for one hour in coturn's `use-auth-secret` scheme. See [Calls: TURN](#calls-turn).
 
 Appointments (require `Authorization: Bearer <jwtToken>`):
 
@@ -1096,6 +1153,7 @@ Background jobs:
 - `make expire-proposals` (`scripts/cron/expire_proposals`) closes unanswered reschedule proposals once and exits; schedule it every few minutes.
 - `make reconcile-refunds` (`scripts/cron/reconcile_refunds`) settles refunds still `requested` with what the gateway reports, once, and exits; schedule it every 15 minutes. A refund the gateway has no record of after 15 minutes is marked `failed`, so an admin can retry it.
 - `make purge-sessions` (`scripts/cron/purge_sessions`) deletes sessions that expired or were revoked more than 90 days ago, once, and exits; schedule it daily. Sessions hold the client IP and device details, which are personal data, so they are not kept longer.
+- `make expire-calls` (`scripts/cron/expire_calls`) ends call rooms whose time is over, once, and exits; schedule it every 5 minutes. An appointment room ends once its appointment closed or 30 minutes after it ended (`no_answer` if the second peer never came, `timeout` otherwise); a code room past its expiry, 5 minutes after its host left, or after 30 minutes with nobody in. Sockets still open see the end on their next heartbeat.
 
 Responses carry `startsAt` / `endsAt` with the clinic UTC offset, plus `date` and `startTime` in clinic time, `doctor {id, name, speciality}`, `patient {id, name}` and `bookedBy {userId, patientRelationship}`. `patientRelationship` is the booker's `user_patient.patient_relationship` (for example `child`), so a doctor's day can show "booked by child" without another call.
 
@@ -1242,6 +1300,7 @@ make cover                 # coverage of the application code, run from tests/
 | `make expire-proposals` | Close reschedule proposals nobody answered in time, once |
 | `make reconcile-refunds` | Settle refunds still waiting for the gateway, once |
 | `make purge-sessions` | Delete sessions ended more than 90 days ago, once |
+| `make expire-calls` | End call rooms whose time is over, once |
 
 ## Tests
 
@@ -1280,6 +1339,8 @@ Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 3
 Logs always go to stdout through `log/slog`. Set `LOG_FILE` to a path (for example `var/log/appointment.log`) to also append every line to that file; its folder is created when missing, and empty `LOG_FILE` writes no file. The file is not rotated, so rotate it with logrotate (`copytruncate`) or prune it to the retention below; in Docker, put its folder on a volume or the file is lost with the container. `LOG_FORMAT` is `json` (default, for production, where the container runtime or a collector ships them) or `text` (local), `LOG_LEVEL` is `debug`, `info` (default), `warn` or `error`, and `LOG_SOURCE=true` adds the file and line. Every line logged during a request carries `correlation_id` (also returned as `X-Correlation-ID`) and, once authenticated, `user_id` and `role`. Each request writes one `request served` line with the route pattern, never the raw path; a 500 line carries the real error. Services log domain events with IDs only, and the keys `password`, `token`, `email`, `mobile`, `notes`, `diagnosis` and similar are redacted. Never log free text or personal data. Request lines hold `client_ip` and admin lines are an audit trail next to medical data, so keep logs for at most 30 days unless a legal hold requires longer.
 
 The client IP comes from the connection unless `TRUSTED_PROXIES` lists the reverse proxies (IPs or CIDRs, comma-separated) whose `X-Forwarded-For` header can be believed; empty trusts none, which is right without a proxy. Behind Caddy in Docker, set it to the subnet of the network Caddy reaches the api on; on the EC2 host that is `appointment-edge` (`docker network inspect appointment-edge`, `172.18.0.0/16`) for both staging and production. Otherwise every session records Caddy's IP, or any client could fake its IP if all proxies were trusted.
+
+The client IP also keys the limit on wrong call codes and guest links, so a wrong `TRUSTED_PROXIES` either counts everyone as Caddy or lets a client pick its own IP.
 
 As the schema evolves, create ordered migrations for domain changes such as:
 
@@ -1337,5 +1398,20 @@ The api and web containers join the shared `appointment-edge` network under thos
 | `deploy-edge.ps1` | `deploy/edge/` (Caddy), only when a domain or route changes | none |
 
 `deploy-production.ps1` refuses uncommitted changes, an env file whose `APP_ENV` is not `production`, a Razorpay key that is not `rzp_live_` and any `REPLACE_ME` value, then asks you to type `production` (`-Yes` skips the prompt). `deploy-edge.ps1` validates the Caddyfile in a throwaway container and reloads Caddy in place. Production's scheduled jobs and daily database dump are in `deploy/crontab.production`, added by hand to the server crontab next to the staging block.
+
+
+### Calls: TURN
+
+TURN is built but off: with `TURN_URLS` and `TURN_SECRET` empty the API hands out STUN only, and calls that cannot connect directly fail. `deploy/turn/` holds a coturn stack for the EC2 host; no deploy script ships it. To turn it on:
+
+1. Open the EC2 security group for `3478` TCP and UDP, `5349` TCP and UDP `49152-49400`. coturn runs with host networking, the one exception to "only the edge Caddy publishes ports".
+2. Point `turn.medappoint.in` at the Elastic IP.
+3. Put a certificate for `turn.medappoint.in` in `/home/ubuntu/turn-certs/turn.crt` and `turn.key` (for example a `turn.medappoint.in { respond 404 }` block in the edge Caddyfile and a copy of the files from Caddy's data volume), and renew it the same way.
+4. Copy `deploy/turn/turn.env.example` to `deploy/turn/.env` on the server with a new `TURN_SECRET` (at least 32 characters) and `TURN_EXTERNAL_IP` (`<Elastic IP>/<private IP>`), then run `docker compose -f deploy/turn/compose.turn.yaml up -d`.
+5. Set the same `TURN_SECRET` and `TURN_URLS=turn:turn.medappoint.in:3478,turns:turn.medappoint.in:5349` in `envs/.env.staging` and `envs/.env.production`, and deploy both APIs.
+
+Check it with the WebRTC Trickle ICE page: a `relay` candidate means TURN works. One relay serves both environments.
+
+Production's `deploy/crontab.production` runs `expire_calls` every 5 minutes; add the same line to the staging block with `$C`.
 
 Replace the temporary module path `appointment_system` in `go.mod` and imports with the final repository path before publishing the module.

@@ -144,6 +144,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize payment service: %w", err)
 	}
+	callRoomRepository, err := repositories.NewCallRoomRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize call room repository: %w", err)
+	}
+	callEventRepository, err := repositories.NewCallEventRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize call event repository: %w", err)
+	}
 	appointmentService, err := services.NewAppointmentService(
 		appointmentRepository,
 		outboxRepository,
@@ -151,6 +159,8 @@ func run() error {
 		doctorRepository,
 		availabilityService,
 		paymentService,
+		callRoomRepository,
+		callEventRepository,
 		txManager,
 		logger,
 	)

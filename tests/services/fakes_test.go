@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
@@ -1211,4 +1212,332 @@ func (f *fakeFileStorage) Delete(ctx context.Context, key string) error {
 	delete(f.files, key)
 	f.deleted = append(f.deleted, key)
 	return nil
+}
+
+func liveCallRoom(room *models.CallRoom) bool {
+	return room.Status == models.CallRoomStatusOpen || room.Status == models.CallRoomStatusActive
+}
+
+type fakeCallRoomRepo struct {
+	rooms     []*models.CallRoom
+	createErr error
+}
+
+func (f *fakeCallRoomRepo) Create(ctx context.Context, room *models.CallRoom) (*models.CallRoom, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	for _, existing := range f.rooms {
+		if !liveCallRoom(existing) {
+			continue
+		}
+		if room.AppointmentID != nil && existing.AppointmentID != nil && *room.AppointmentID == *existing.AppointmentID {
+			return nil, apperrors.ErrCallRoomExists
+		}
+		if room.JoinCodeHash != "" && room.JoinCodeHash == existing.JoinCodeHash {
+			return nil, apperrors.ErrCallJoinCodeExists
+		}
+	}
+	created := *room
+	created.ID = uint64(len(f.rooms) + 1)
+	created.CreatedAt = room.OpenedAt
+	f.rooms = append(f.rooms, &created)
+	stored := created
+	return &stored, nil
+}
+
+func (f *fakeCallRoomRepo) find(match func(*models.CallRoom) bool) (*models.CallRoom, error) {
+	for _, room := range f.rooms {
+		if match(room) {
+			found := *room
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrCallRoomNotFound
+}
+
+func (f *fakeCallRoomRepo) GetByID(ctx context.Context, id uint64) (*models.CallRoom, error) {
+	return f.find(func(room *models.CallRoom) bool { return room.ID == id })
+}
+
+func (f *fakeCallRoomRepo) GetByIDForUpdate(ctx context.Context, id uint64) (*models.CallRoom, error) {
+	return f.GetByID(ctx, id)
+}
+
+func (f *fakeCallRoomRepo) GetLiveByAppointment(ctx context.Context, appointmentID uint64) (*models.CallRoom, error) {
+	return f.find(func(room *models.CallRoom) bool {
+		return liveCallRoom(room) && room.AppointmentID != nil && *room.AppointmentID == appointmentID
+	})
+}
+
+func (f *fakeCallRoomRepo) GetLiveByAppointmentForUpdate(ctx context.Context, appointmentID uint64) (*models.CallRoom, error) {
+	return f.GetLiveByAppointment(ctx, appointmentID)
+}
+
+func (f *fakeCallRoomRepo) GetLiveByJoinCodeHashForUpdate(ctx context.Context, joinCodeHash string) (*models.CallRoom, error) {
+	return f.find(func(room *models.CallRoom) bool {
+		return liveCallRoom(room) && room.JoinCodeHash == joinCodeHash
+	})
+}
+
+func (f *fakeCallRoomRepo) ListByHost(ctx context.Context, hostUserID uint64, kind models.CallRoomKind, limit int) ([]*models.CallRoom, error) {
+	var rooms []*models.CallRoom
+	for i := len(f.rooms) - 1; i >= 0 && len(rooms) < limit; i-- {
+		if f.rooms[i].HostUserID == hostUserID && f.rooms[i].Kind == kind {
+			found := *f.rooms[i]
+			rooms = append(rooms, &found)
+		}
+	}
+	return rooms, nil
+}
+
+func (f *fakeCallRoomRepo) ListLive(ctx context.Context, limit int) ([]*models.CallRoom, error) {
+	var rooms []*models.CallRoom
+	for _, room := range f.rooms {
+		if liveCallRoom(room) && len(rooms) < limit {
+			found := *room
+			rooms = append(rooms, &found)
+		}
+	}
+	return rooms, nil
+}
+
+func (f *fakeCallRoomRepo) CountLiveByHost(ctx context.Context, hostUserID uint64, kind models.CallRoomKind) (int64, error) {
+	var count int64
+	for _, room := range f.rooms {
+		if room.HostUserID == hostUserID && room.Kind == kind && liveCallRoom(room) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (f *fakeCallRoomRepo) CountCreatedByHostSince(ctx context.Context, hostUserID uint64, kind models.CallRoomKind, since time.Time) (int64, error) {
+	var count int64
+	for _, room := range f.rooms {
+		if room.HostUserID == hostUserID && room.Kind == kind && room.CreatedAt.After(since) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (f *fakeCallRoomRepo) MarkActive(ctx context.Context, id uint64, startedAt time.Time) (bool, error) {
+	for _, room := range f.rooms {
+		if room.ID == id && room.Status == models.CallRoomStatusOpen {
+			room.Status = models.CallRoomStatusActive
+			room.StartedAt = &startedAt
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (f *fakeCallRoomRepo) End(ctx context.Context, id uint64, reason models.CallEndReason, endedAt time.Time) error {
+	for _, room := range f.rooms {
+		if room.ID == id && liveCallRoom(room) {
+			room.Status = models.CallRoomStatusEnded
+			room.EndReason = reason
+			room.EndedAt = &endedAt
+			return nil
+		}
+	}
+	return apperrors.ErrCallRoomNotFound
+}
+
+type fakeCallParticipantRepo struct {
+	participants []*models.CallParticipant
+}
+
+func (f *fakeCallParticipantRepo) Create(ctx context.Context, participant *models.CallParticipant) (*models.CallParticipant, error) {
+	created := *participant
+	created.ID = uint64(len(f.participants) + 1)
+	f.participants = append(f.participants, &created)
+	stored := created
+	return &stored, nil
+}
+
+func (f *fakeCallParticipantRepo) GetByID(ctx context.Context, id uint64) (*models.CallParticipant, error) {
+	for _, participant := range f.participants {
+		if participant.ID == id {
+			found := *participant
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrCallParticipantNotFound
+}
+
+func (f *fakeCallParticipantRepo) ListByRoom(ctx context.Context, roomID uint64) ([]*models.CallParticipant, error) {
+	var participants []*models.CallParticipant
+	for _, participant := range f.participants {
+		if participant.CallRoomID == roomID {
+			found := *participant
+			participants = append(participants, &found)
+		}
+	}
+	return participants, nil
+}
+
+func (f *fakeCallParticipantRepo) Update(ctx context.Context, participant *models.CallParticipant) (*models.CallParticipant, error) {
+	for i, existing := range f.participants {
+		if existing.ID == participant.ID {
+			updated := *participant
+			f.participants[i] = &updated
+			stored := updated
+			return &stored, nil
+		}
+	}
+	return nil, apperrors.ErrCallParticipantNotFound
+}
+
+func (f *fakeCallParticipantRepo) Touch(ctx context.Context, id uint64, seenAt time.Time) error {
+	for _, participant := range f.participants {
+		if participant.ID == id {
+			participant.LastSeenAt = &seenAt
+		}
+	}
+	return nil
+}
+
+// connect marks a participant as connected at now, as its socket does.
+func (f *fakeCallParticipantRepo) connect(id uint64, now time.Time) {
+	for _, participant := range f.participants {
+		if participant.ID == id {
+			participant.JoinedAt = &now
+			participant.LastSeenAt = &now
+			participant.LeftAt = nil
+		}
+	}
+}
+
+type fakeCallGuestTokenRepo struct {
+	tokens []*models.CallGuestToken
+}
+
+func (f *fakeCallGuestTokenRepo) Create(ctx context.Context, guestToken *models.CallGuestToken) (*models.CallGuestToken, error) {
+	created := *guestToken
+	created.ID = uint64(len(f.tokens) + 1)
+	f.tokens = append(f.tokens, &created)
+	stored := created
+	return &stored, nil
+}
+
+func (f *fakeCallGuestTokenRepo) GetByTokenHashForUpdate(ctx context.Context, tokenHash string) (*models.CallGuestToken, error) {
+	for _, guestToken := range f.tokens {
+		if guestToken.TokenHash == tokenHash {
+			found := *guestToken
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrCallGuestLinkNotFound
+}
+
+func (f *fakeCallGuestTokenRepo) IncrementUse(ctx context.Context, id uint64) error {
+	for _, guestToken := range f.tokens {
+		if guestToken.ID == id {
+			guestToken.UseCount++
+		}
+	}
+	return nil
+}
+
+func (f *fakeCallGuestTokenRepo) Revoke(ctx context.Context, appointmentID uint64, id uint64, revokedAt time.Time) error {
+	for _, guestToken := range f.tokens {
+		if guestToken.ID == id && guestToken.AppointmentID == appointmentID && guestToken.RevokedAt == nil {
+			guestToken.RevokedAt = &revokedAt
+			return nil
+		}
+	}
+	return apperrors.ErrCallGuestLinkNotFound
+}
+
+type fakeCallEventRepo struct {
+	events []*models.CallEvent
+}
+
+func (f *fakeCallEventRepo) Create(ctx context.Context, event *models.CallEvent) error {
+	f.events = append(f.events, event)
+	return nil
+}
+
+func (f *fakeCallEventRepo) count(eventType models.CallEventType) int {
+	count := 0
+	for _, event := range f.events {
+		if event.EventType == eventType {
+			count++
+		}
+	}
+	return count
+}
+
+type fakeCallJoinAttempt struct {
+	clientIP string
+	at       time.Time
+}
+
+type fakeCallJoinAttemptRepo struct {
+	attempts []fakeCallJoinAttempt
+}
+
+func (f *fakeCallJoinAttemptRepo) Create(ctx context.Context, clientIP string, at time.Time) error {
+	f.attempts = append(f.attempts, fakeCallJoinAttempt{clientIP: clientIP, at: at})
+	return nil
+}
+
+func (f *fakeCallJoinAttemptRepo) CountSince(ctx context.Context, clientIP string, since time.Time) (int64, error) {
+	var count int64
+	for _, attempt := range f.attempts {
+		if attempt.clientIP == clientIP && attempt.at.After(since) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (f *fakeCallJoinAttemptRepo) DeleteBefore(ctx context.Context, clientIP string, before time.Time) error {
+	kept := f.attempts[:0]
+	for _, attempt := range f.attempts {
+		if attempt.clientIP != clientIP || attempt.at.After(before) {
+			kept = append(kept, attempt)
+		}
+	}
+	f.attempts = kept
+	return nil
+}
+
+type fakeCallPeer struct {
+	mu      sync.Mutex
+	peerID  string
+	signals []models.CallSignal
+	closed  bool
+}
+
+func (f *fakeCallPeer) PeerID() string {
+	return f.peerID
+}
+
+func (f *fakeCallPeer) Send(signal models.CallSignal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signals = append(f.signals, signal)
+	return nil
+}
+
+func (f *fakeCallPeer) Close() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+}
+
+// received returns the signals of signalType the peer got, oldest first.
+func (f *fakeCallPeer) received(signalType models.CallSignalType) []models.CallSignal {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var signals []models.CallSignal
+	for _, signal := range f.signals {
+		if signal.Type == signalType {
+			signals = append(signals, signal)
+		}
+	}
+	return signals
 }

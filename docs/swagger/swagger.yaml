@@ -715,6 +715,246 @@ definitions:
         example: Asia/Kolkata
         type: string
     type: object
+  call.CallJoinResponse:
+    properties:
+      iceServers:
+        items:
+          $ref: '#/definitions/call.ICEServerResponse'
+        type: array
+      peerId:
+        example: 3f9c2a7d1b6e8f40
+        type: string
+      role:
+        enum:
+        - host
+        - doctor
+        - patient_side
+        - guest
+        - member
+        example: doctor
+        type: string
+      roomId:
+        type: integer
+      waiting:
+        type: boolean
+      wsToken:
+        type: string
+      wsTokenExpiresAt:
+        type: string
+    type: object
+  call.CallParticipantResponse:
+    properties:
+      admissionStatus:
+        enum:
+        - admitted
+        - waiting
+        - denied
+        - removed
+        example: admitted
+        type: string
+      displayName:
+        example: Asha Rao
+        type: string
+      inRoom:
+        type: boolean
+      mediaMode:
+        enum:
+        - audio
+        - video
+        example: audio
+        type: string
+      mutedByHost:
+        type: boolean
+      peerId:
+        example: 3f9c2a7d1b6e8f40
+        type: string
+      role:
+        enum:
+        - host
+        - doctor
+        - patient_side
+        - guest
+        - member
+        example: patient_side
+        type: string
+    type: object
+  call.CallRoomResponse:
+    properties:
+      code:
+        example: "4829137"
+        type: string
+      endReason:
+        enum:
+        - hangup
+        - host_ended
+        - timeout
+        - expired
+        example: host_ended
+        type: string
+      endedAt:
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: integer
+      maxParticipants:
+        example: 5
+        type: integer
+      openedAt:
+        type: string
+      requiresApproval:
+        example: true
+        type: boolean
+      scheduledAt:
+        type: string
+      startedAt:
+        type: string
+      status:
+        enum:
+        - open
+        - active
+        - ended
+        example: open
+        type: string
+      title:
+        example: Family briefing
+        type: string
+    type: object
+  call.CreateCallRoomRequest:
+    properties:
+      maxParticipants:
+        example: 5
+        maximum: 5
+        minimum: 2
+        type: integer
+      requiresApproval:
+        example: true
+        type: boolean
+      scheduledAt:
+        type: string
+      title:
+        example: Family briefing
+        maxLength: 100
+        type: string
+    type: object
+  call.CreateGuestLinkRequest:
+    properties:
+      displayName:
+        example: Ravi Rao
+        maxLength: 100
+        type: string
+      maxUses:
+        example: 3
+        maximum: 5
+        minimum: 1
+        type: integer
+    type: object
+  call.GetCallResponse:
+    properties:
+      openedAt:
+        type: string
+      participants:
+        items:
+          $ref: '#/definitions/call.CallParticipantResponse'
+        type: array
+      roomId:
+        type: integer
+      startedAt:
+        type: string
+      status:
+        enum:
+        - open
+        - active
+        example: active
+        type: string
+    type: object
+  call.GuestLinkResponse:
+    properties:
+      displayName:
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: integer
+      maxUses:
+        example: 3
+        type: integer
+      token:
+        type: string
+    type: object
+  call.ICEServerResponse:
+    properties:
+      credential:
+        type: string
+      urls:
+        example:
+        - stun:stun.l.google.com:19302
+        items:
+          type: string
+        type: array
+      username:
+        type: string
+    type: object
+  call.JoinCallRoomAsHostRequest:
+    properties:
+      mediaMode:
+        enum:
+        - audio
+        - video
+        example: audio
+        type: string
+    type: object
+  call.JoinCallRoomRequest:
+    properties:
+      displayName:
+        example: Ravi Rao
+        maxLength: 100
+        type: string
+      mediaMode:
+        enum:
+        - audio
+        - video
+        example: audio
+        type: string
+    required:
+    - displayName
+    type: object
+  call.JoinGuestCallRequest:
+    properties:
+      displayName:
+        example: Ravi Rao
+        maxLength: 100
+        type: string
+      mediaMode:
+        enum:
+        - audio
+        - video
+        example: audio
+        type: string
+    type: object
+  call.ListCallRoomParticipantsResponse:
+    properties:
+      participants:
+        items:
+          $ref: '#/definitions/call.CallParticipantResponse'
+        type: array
+    type: object
+  call.ListCallRoomsResponse:
+    properties:
+      rooms:
+        items:
+          $ref: '#/definitions/call.CallRoomResponse'
+        type: array
+    type: object
+  call.OpenCallRequest:
+    properties:
+      mediaMode:
+        enum:
+        - audio
+        - video
+        example: audio
+        type: string
+    type: object
   doctor.AvailabilityRuleRequest:
     properties:
       dayOfWeek:
@@ -2615,6 +2855,251 @@ paths:
       summary: Get an appointment
       tags:
       - appointments
+  /appointments/{id}/call:
+    get:
+      description: Returns the appointment's live call room and who joined it; inRoom
+        marks the people connected right now. Open to the appointment's doctor and
+        the patient side with full or appointments_only access.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.GetCallResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get an appointment's call
+      tags:
+      - calls
+    post:
+      consumes:
+      - application/json
+      description: Joins the caller to the appointment's audio/video call, opening
+        the room if nobody has yet. Only the appointment's doctor and the patient
+        side with full or appointments_only access can join, from 10 minutes before
+        the start until 30 minutes after the end of a scheduled appointment that is
+        paid or free. Each side has one seat. Returns the token for GET /calls/ws
+        and the ICE servers.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Media to start with; audio when empty
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/call.OpenCallRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.CallJoinResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Join an appointment's call
+      tags:
+      - calls
+  /appointments/{id}/call/end:
+    post:
+      description: Ends the appointment's live call for everyone in it.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Hang up an appointment's call
+      tags:
+      - calls
+  /appointments/{id}/call/guest-links:
+    post:
+      consumes:
+      - application/json
+      description: Lets the appointment's doctor invite someone without an account
+        to the call as the patient side. The token is shown only in this response;
+        the frontend builds the join URL from it. The link works until 30 minutes
+        after the appointment ends, up to maxUses joins (3 by default, at most 5).
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Guest link
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/call.CreateGuestLinkRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.GuestLinkResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a guest link for an appointment's call
+      tags:
+      - calls
+  /appointments/{id}/call/guest-links/{linkId}:
+    delete:
+      description: Stops a guest link from being used again. Someone already in the
+        call stays in it.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Guest link ID
+        in: path
+        name: linkId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke a guest link
+      tags:
+      - calls
   /appointments/{id}/cancel:
     post:
       consumes:
@@ -3322,6 +3807,159 @@ paths:
       summary: Sign out all my other sessions
       tags:
       - auth
+  /calls/code/{code}:
+    post:
+      consumes:
+      - application/json
+      description: 'Public: joins a doctor''s code room with its 7-digit code (spaces
+        and dashes are ignored; a wrong check digit is answered 400 and not counted).
+        With a lobby, waiting is true until the host admits the joiner. 5 wrong codes
+        or links from one IP within 10 minutes block joins from it for the rest of
+        the window.'
+      parameters:
+      - description: Join code
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: Joiner details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/call.JoinCallRoomRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.CallJoinResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Join a code room
+      tags:
+      - calls
+  /calls/guest/{token}:
+    post:
+      consumes:
+      - application/json
+      description: 'Public: joins someone without an account to an appointment''s
+        call as the patient side. displayName is required unless the doctor set one
+        on the link. Refused while the patient side is in the call. 5 wrong links
+        or codes from one IP within 10 minutes block joins from it for the rest of
+        the window.'
+      parameters:
+      - description: Guest link token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: Guest details
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/call.JoinGuestCallRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.CallJoinResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Join an appointment's call with a guest link
+      tags:
+      - calls
+  /calls/ws:
+    get:
+      description: 'Upgrades to a WebSocket for the call the token was issued for
+        (wsToken from a join response, valid 15 minutes). Messages are JSON {"type":
+        ...}. The server sends welcome (your peerId and the peers already in), peer-joined,
+        peer-left, lobby, offer/answer/ice (with from), media, host, ended and error.
+        Clients send offer, answer and ice (with to), media {mode}, state {state:
+        connected|relay|failed}, leave, and, as a code room host, host {action: admit|deny|remove|mute|unmute|end,
+        peerId}. The newcomer sends the offers. The server pings every 20 seconds;
+        a peer silent for 60 seconds is out of the room.'
+      parameters:
+      - description: Call token (wsToken)
+        in: query
+        name: token
+        required: true
+        type: string
+      responses:
+        "101":
+          description: Switching Protocols
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Open the call signaling WebSocket
+      tags:
+      - calls
   /doctors:
     get:
       description: Lists verified doctors who accept patients. Speciality and tag
@@ -4002,6 +4640,234 @@ paths:
       summary: Replace the caller's weekly availability
       tags:
       - doctors
+  /doctors/me/call-rooms:
+    get:
+      description: Lists the caller's code rooms, live and ended, newest first (the
+        last 50). Codes are never shown again.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.ListCallRoomsResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List my code rooms
+      tags:
+      - calls
+    post:
+      consumes:
+      - application/json
+      description: 'Opens a room outside any appointment that anyone with its code
+        can join under a display name: up to maxParticipants people including the
+        host (5 by default), with a lobby unless requiresApproval is false. The 7-digit
+        code is shown only in this response. With scheduledAt the room opens 10 minutes
+        before it and lasts until 2 hours after; without it the room lasts 24 hours.
+        Only verified doctors can host; at most 3 live rooms and 20 a day.'
+      parameters:
+      - description: Room
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/call.CreateCallRoomRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.CallRoomResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a code room
+      tags:
+      - calls
+  /doctors/me/call-rooms/{id}/end:
+    post:
+      description: Ends the caller's live code room for everyone in it.
+      parameters:
+      - description: Room ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: End my code room
+      tags:
+      - calls
+  /doctors/me/call-rooms/{id}/join:
+    post:
+      consumes:
+      - application/json
+      description: Joins the caller to their own live code room. The host's seat is
+        always kept free. The host admits, denies, mutes and removes people over the
+        WebSocket.
+      parameters:
+      - description: Room ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Media to start with; audio when empty
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/call.JoinCallRoomAsHostRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.CallJoinResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Join my code room as its host
+      tags:
+      - calls
+  /doctors/me/call-rooms/{id}/participants:
+    get:
+      description: Lists everyone who joined the caller's code room, waiting ones
+        included; inRoom marks the people connected right now.
+      parameters:
+      - description: Room ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/call.ListCallRoomParticipantsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List who joined my code room
+      tags:
+      - calls
   /doctors/me/overrides:
     post:
       consumes:

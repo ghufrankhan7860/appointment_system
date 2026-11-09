@@ -22,6 +22,7 @@ const (
 	PermRecordAudit         Permission = "record:audit"
 	PermPatientView         Permission = "patient:view"
 	PermSessionManage       Permission = "session:manage"
+	PermCallHost            Permission = "call:host"
 )
 
 var rolePermissions = map[models.Role][]Permission{
@@ -40,6 +41,7 @@ var rolePermissions = map[models.Role][]Permission{
 		PermAppointmentManage,
 		PermRecordWrite,
 		PermPatientView,
+		PermCallHost,
 	},
 	models.RolePatient: {
 		PermAppointmentBook,

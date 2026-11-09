@@ -1,0 +1,21 @@
+# coturn on the EC2 host: relays the media of a call whose peers cannot reach
+# each other directly (mobile CGNAT, strict office Wi-Fi). It is the one
+# exception to "only the edge Caddy publishes ports": a relay needs host
+# networking and a UDP port range, which Docker's port publishing handles badly.
+# One relay serves staging and production; both APIs sign credentials with the
+# same TURN_SECRET. Not deployed by any script; see "Calls: TURN" in README.md.
+name: appointment-turn
+
+services:
+    turn:
+        image: coturn/coturn:4.7.0
+        network_mode: host
+        volumes:
+            - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+            - /home/ubuntu/turn-certs:/certs:ro
+        command:
+            - "-c"
+            - "/etc/coturn/turnserver.conf"
+            - "--static-auth-secret=${TURN_SECRET:?set TURN_SECRET in deploy/turn/.env}"
+            - "--external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP in deploy/turn/.env}"
+        restart: unless-stopped

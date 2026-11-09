@@ -41,7 +41,7 @@ func TestAppointmentServiceBookLogsBooking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, payments, &fakeTxManager{}, jsonLogger)
+	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, jsonLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}

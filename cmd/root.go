@@ -81,6 +81,11 @@ func Execute() error {
 			RazorpayKeySecret:     config.Payment.RazorpayKeySecret,
 			RazorpayWebhookSecret: config.Payment.RazorpayWebhookSecret,
 		},
+		appointment.CallSettings{
+			STUNURLs:   config.Call.STUNURLs,
+			TURNURLs:   config.Call.TURNURLs,
+			TURNSecret: config.Call.TURNSecret,
+		},
 		config.Storage.Provider,
 		config.Storage.LocalDir,
 		logger,
@@ -88,6 +93,7 @@ func Execute() error {
 	if err != nil {
 		return fmt.Errorf("initialize appointment application: %w", err)
 	}
+	defer app.Close()
 
 	httpServer, err := server.New(server.Config{
 		Address:           config.HTTP.Address,

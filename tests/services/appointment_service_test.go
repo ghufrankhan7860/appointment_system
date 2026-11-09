@@ -67,7 +67,7 @@ func newTestAppointmentAndPaymentServices(
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, paymentService, &fakeTxManager{}, discardLogger)
+	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, paymentService, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}
@@ -103,21 +103,25 @@ func TestNewAppointmentServiceValidation(t *testing.T) {
 		doctors      services.DoctorRepository
 		availability *services.AvailabilityService
 		payments     *services.PaymentService
+		callRooms    services.CallRoomRepository
+		callEvents   services.CallEventRepository
 		tx           services.TransactionManager
 		wantErr      error
 	}{
-		{name: "nil appointment repository", outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilAppointmentRepository},
-		{name: "nil outbox repository", appointments: &fakeAppointmentRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilOutboxRepository},
-		{name: "nil user-patient repository", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilUserPatientRepository},
-		{name: "nil doctor repository", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, availability: availability, payments: payments, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilDoctorRepository},
-		{name: "nil availability service", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, payments: payments, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilAvailabilityService},
-		{name: "nil payment service", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilPaymentService},
-		{name: "nil transaction manager", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, wantErr: apperrors.ErrNilTransactionManager},
+		{name: "nil appointment repository", outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, callRooms: &fakeCallRoomRepo{}, callEvents: &fakeCallEventRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilAppointmentRepository},
+		{name: "nil outbox repository", appointments: &fakeAppointmentRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, callRooms: &fakeCallRoomRepo{}, callEvents: &fakeCallEventRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilOutboxRepository},
+		{name: "nil user-patient repository", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, callRooms: &fakeCallRoomRepo{}, callEvents: &fakeCallEventRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilUserPatientRepository},
+		{name: "nil doctor repository", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, availability: availability, payments: payments, callRooms: &fakeCallRoomRepo{}, callEvents: &fakeCallEventRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilDoctorRepository},
+		{name: "nil availability service", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, payments: payments, callRooms: &fakeCallRoomRepo{}, callEvents: &fakeCallEventRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilAvailabilityService},
+		{name: "nil payment service", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, callRooms: &fakeCallRoomRepo{}, callEvents: &fakeCallEventRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilPaymentService},
+		{name: "nil transaction manager", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, callRooms: &fakeCallRoomRepo{}, callEvents: &fakeCallEventRepo{}, wantErr: apperrors.ErrNilTransactionManager},
+		{name: "nil call room repository", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, callEvents: &fakeCallEventRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilCallRoomRepository},
+		{name: "nil call event repository", appointments: &fakeAppointmentRepo{}, outbox: &fakeOutboxRepo{}, userPatients: &fakeUserPatientRepo{}, doctors: &fakeDoctorRepo{}, availability: availability, payments: payments, callRooms: &fakeCallRoomRepo{}, tx: &fakeTxManager{}, wantErr: apperrors.ErrNilCallEventRepository},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := services.NewAppointmentService(tt.appointments, tt.outbox, tt.userPatients, tt.doctors, tt.availability, tt.payments, tt.tx, discardLogger); !errors.Is(err, tt.wantErr) {
+			if _, err := services.NewAppointmentService(tt.appointments, tt.outbox, tt.userPatients, tt.doctors, tt.availability, tt.payments, tt.callRooms, tt.callEvents, tt.tx, discardLogger); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("NewAppointmentService error = %v, want %v", err, tt.wantErr)
 			}
 		})

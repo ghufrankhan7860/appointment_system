@@ -222,6 +222,9 @@ func (as *AppointmentService) AcceptReschedule(
 		}); err != nil {
 			return err
 		}
+		if err := as.endCall(txCtx, original.ID, actingUserID); err != nil {
+			return err
+		}
 		if err := as.appointments.UpdateStatus(txCtx, proposal.PlaceholderAppointmentID, models.AppointmentStatusRescheduleProposed, models.AppointmentStatusScheduled); err != nil {
 			return err
 		}

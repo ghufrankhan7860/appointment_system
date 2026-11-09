@@ -74,6 +74,37 @@ var (
 )
 
 var (
+	ErrNilCallRoomRepository        = errors.New("call room repository is nil")
+	ErrNilCallParticipantRepository = errors.New("call participant repository is nil")
+	ErrNilCallGuestTokenRepository  = errors.New("call guest token repository is nil")
+	ErrNilCallEventRepository       = errors.New("call event repository is nil")
+	ErrNilCallJoinAttemptRepository = errors.New("call join attempt repository is nil")
+	ErrNilCallHub                   = errors.New("call hub is nil")
+	ErrNilCallTokenIssuer           = errors.New("call token issuer is nil")
+	ErrNilCallService               = errors.New("call service is nil")
+	ErrNilCodeRoomService           = errors.New("code room service is nil")
+	ErrNilCallSessionService        = errors.New("call session service is nil")
+	ErrNilCallController            = errors.New("call controller is nil")
+)
+
+var (
+	ErrNilCallRequest           = errors.New("call request is nil")
+	ErrInvalidCallInput         = errors.New("invalid call input")
+	ErrCallRoomNotFound         = errors.New("call room not found")
+	ErrCallRoomExists           = errors.New("appointment already has a live call room")
+	ErrCallParticipantNotFound  = errors.New("call participant not found")
+	ErrCallNotOpen              = errors.New("call is not open")
+	ErrCallRoomFull             = errors.New("call room is full")
+	ErrCallRoomLimitReached     = errors.New("too many call rooms")
+	ErrCallHostNotAllowed       = errors.New("only verified doctors can host a call room")
+	ErrCallGuestLinkNotFound    = errors.New("call guest link not found")
+	ErrCallJoinInvalid          = errors.New("call code or link is invalid or expired")
+	ErrCallJoinAttemptsExceeded = errors.New("too many wrong call codes or links")
+	ErrCallJoinCodeExists       = errors.New("call join code already exists")
+	ErrCallTokenInvalid         = errors.New("call token is invalid")
+)
+
+var (
 	ErrNilDoctorRepository             = errors.New("doctor repository is nil")
 	ErrNilSpecialityRepository         = errors.New("speciality repository is nil")
 	ErrNilDoctorVerificationRepository = errors.New("doctor verification repository is nil")

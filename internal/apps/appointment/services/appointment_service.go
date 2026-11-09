@@ -31,6 +31,8 @@ type AppointmentService struct {
 	doctors      DoctorRepository
 	availability *AvailabilityService
 	payments     *PaymentService
+	callRooms    CallRoomRepository
+	callEvents   CallEventRepository
 	tx           TransactionManager
 	logger       Logger
 }
@@ -42,6 +44,8 @@ func NewAppointmentService(
 	doctors DoctorRepository,
 	availability *AvailabilityService,
 	payments *PaymentService,
+	callRooms CallRoomRepository,
+	callEvents CallEventRepository,
 	tx TransactionManager,
 	logger Logger,
 ) (*AppointmentService, error) {
@@ -63,6 +67,12 @@ func NewAppointmentService(
 	if payments == nil {
 		return nil, apperrors.ErrNilPaymentService
 	}
+	if callRooms == nil {
+		return nil, apperrors.ErrNilCallRoomRepository
+	}
+	if callEvents == nil {
+		return nil, apperrors.ErrNilCallEventRepository
+	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
@@ -77,6 +87,8 @@ func NewAppointmentService(
 		doctors:      doctors,
 		availability: availability,
 		payments:     payments,
+		callRooms:    callRooms,
+		callEvents:   callEvents,
 		tx:           tx,
 		logger:       logger,
 	}, nil
@@ -601,6 +613,9 @@ func (as *AppointmentService) close(
 		}); err != nil {
 			return err
 		}
+		if err := as.endCall(txCtx, appointmentID, actingUserID); err != nil {
+			return err
+		}
 
 		closed := appointment.Appointment
 		closed.Status = toStatus
@@ -706,14 +721,23 @@ func (as *AppointmentService) cancelBooking(
 	if err := as.appointments.Cancel(txCtx, appointmentID, actingUserID, cancelReason); err != nil {
 		return err
 	}
-
-	return as.appointments.CreateStatusChange(txCtx, &models.AppointmentStatusChange{
+	if err := as.appointments.CreateStatusChange(txCtx, &models.AppointmentStatusChange{
 		AppointmentID:   appointmentID,
 		ChangedByUserID: actingUserID,
 		FromStatus:      fromStatus,
 		ToStatus:        models.AppointmentStatusCancelled,
 		Reason:          note,
-	})
+	}); err != nil {
+		return err
+	}
+
+	return as.endCall(txCtx, appointmentID, actingUserID)
+}
+
+// endCall ends the appointment's live call, if any, inside the caller's
+// transaction that closes or cancels the appointment.
+func (as *AppointmentService) endCall(txCtx context.Context, appointmentID uint64, actingUserID uint64) error {
+	return endAppointmentCall(txCtx, as.callRooms, as.callEvents, as.outbox, appointmentID, actingUserID, as.availability.now())
 }
 
 // replay returns the appointment the acting user already created with
