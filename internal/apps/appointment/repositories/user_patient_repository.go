@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type UserPatientRepository struct {
@@ -55,6 +56,9 @@ func (repo *UserPatientRepository) Create(ctx context.Context, userPatient *mode
 	if err := dbFromContext(ctx, repo.db).Create(&record).Error; err != nil {
 		if userPatientLinkUnique.ViolatedBy(err) {
 			return nil, apperrors.ErrUserPatientAlreadyExists
+		}
+		if userPatientSelfUnique.ViolatedBy(err) {
+			return nil, apperrors.ErrPatientSelfLinkExists
 		}
 		return nil, fmt.Errorf("create user-patient record: %w", err)
 	}
@@ -149,6 +153,41 @@ func (repo *UserPatientRepository) ListActiveByUser(ctx context.Context, userID 
 	return result, nil
 }
 
+func (repo *UserPatientRepository) ListActiveByPatient(ctx context.Context, patientID uint64) ([]*models.UserPatient, error) {
+	var records []userPatientRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Where("patient_id = ? AND status = ?", patientID, string(models.UserPatientStatusActive)).
+		Order("user_id ASC").
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list active user-patients by patient: %w", err)
+	}
+
+	result := make([]*models.UserPatient, 0, len(records))
+	for _, record := range records {
+		result = append(result, toUserPatientModel(record))
+	}
+	return result, nil
+}
+
+func (repo *UserPatientRepository) ListActiveByPatientForUpdate(ctx context.Context, patientID uint64) ([]*models.UserPatient, error) {
+	var records []userPatientRecord
+
+	if err := dbFromContext(ctx, repo.db).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("patient_id = ? AND status = ?", patientID, string(models.UserPatientStatusActive)).
+		Order("user_id ASC").
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list active user-patients by patient for update: %w", err)
+	}
+
+	result := make([]*models.UserPatient, 0, len(records))
+	for _, record := range records {
+		result = append(result, toUserPatientModel(record))
+	}
+	return result, nil
+}
+
 func (repo *UserPatientRepository) Update(ctx context.Context, userPatient *models.UserPatient) (*models.UserPatient, error) {
 	if userPatient == nil {
 		return nil, apperrors.ErrNilUserPatientRequest
@@ -167,6 +206,9 @@ func (repo *UserPatientRepository) Update(ctx context.Context, userPatient *mode
 		Where("user_id = ? AND patient_id = ?", userPatient.UserID, userPatient.PatientID).
 		Updates(updates)
 	if result.Error != nil {
+		if userPatientSelfUnique.ViolatedBy(result.Error) {
+			return nil, apperrors.ErrPatientSelfLinkExists
+		}
 		return nil, fmt.Errorf("update user-patient record: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {

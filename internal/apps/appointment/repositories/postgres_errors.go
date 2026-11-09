@@ -27,6 +27,8 @@ const (
 	providerPaymentUnique           uniqueConstraint = "idx_payments_provider_provider_payment_id_unique"
 	pendingProposalUnique           uniqueConstraint = "idx_reschedule_proposals_appointment_id_pending_unique"
 	medicalRecordAppointmentUnique  uniqueConstraint = "medical_records_appointment_id_key"
+	patientInviteCodeHashUnique     uniqueConstraint = "idx_patient_invites_code_hash_unique"
+	userPatientSelfUnique           uniqueConstraint = "idx_user_patient_patient_id_self_unique"
 )
 
 func (constraint uniqueConstraint) ViolatedBy(err error) bool {

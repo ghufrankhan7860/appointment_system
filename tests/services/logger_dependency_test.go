@@ -29,7 +29,7 @@ func TestNewServicesRequireLogger(t *testing.T) {
 			return err
 		}},
 		{name: "patient", new: func() error {
-			_, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, nil)
+			_, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, nil)
 			return err
 		}},
 		{name: "admin user", new: func() error {

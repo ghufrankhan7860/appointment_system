@@ -15,6 +15,7 @@ import (
 type PatientService struct {
 	patients     PatientRepository
 	userPatients UserPatientRepository
+	history      UserPatientHistoryRepository
 	tx           TransactionManager
 	logger       Logger
 }
@@ -22,6 +23,7 @@ type PatientService struct {
 func NewPatientService(
 	patients PatientRepository,
 	userPatients UserPatientRepository,
+	history UserPatientHistoryRepository,
 	tx TransactionManager,
 	logger Logger,
 ) (*PatientService, error) {
@@ -31,13 +33,16 @@ func NewPatientService(
 	if userPatients == nil {
 		return nil, apperrors.ErrNilUserPatientRepository
 	}
+	if history == nil {
+		return nil, apperrors.ErrNilUserPatientHistoryRepository
+	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
 	}
-	return &PatientService{patients: patients, userPatients: userPatients, tx: tx, logger: logger}, nil
+	return &PatientService{patients: patients, userPatients: userPatients, history: history, tx: tx, logger: logger}, nil
 }
 
 func (s *PatientService) Create(
@@ -81,6 +86,16 @@ func (s *PatientService) Create(
 			}
 			return fmt.Errorf("create user-patient link: %w", err)
 		}
+		if err := s.history.Create(txCtx, &models.UserPatientHistory{
+			UserID:          actingUserID,
+			PatientID:       next.ID,
+			ChangedByUserID: actingUserID,
+			ToStatus:        link.Status,
+			ToAccessLevel:   link.AccessLevel,
+			Reason:          models.UserPatientChangeCreated,
+		}); err != nil {
+			return fmt.Errorf("create user-patient history: %w", err)
+		}
 		created = next
 		return nil
 	})
@@ -104,7 +119,7 @@ func (s *PatientService) GetByID(
 	ctx context.Context,
 	actingUserID uint64,
 	patientID uint64,
-) (*models.Patient, error) {
+) (*models.LinkedPatient, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("get patient context: %w", err)
 	}
@@ -112,7 +127,8 @@ func (s *PatientService) GetByID(
 		return nil, fmt.Errorf("get patient with missing ids: %w", apperrors.ErrInvalidPatientInput)
 	}
 
-	if _, err := s.userPatients.GetActiveByUserAndPatient(ctx, actingUserID, patientID); err != nil {
+	link, err := s.userPatients.GetActiveByUserAndPatient(ctx, actingUserID, patientID)
+	if err != nil {
 		if errors.Is(err, apperrors.ErrUserPatientNotFound) {
 			return nil, apperrors.ErrPatientNotFound
 		}
@@ -127,7 +143,7 @@ func (s *PatientService) GetByID(
 		return nil, fmt.Errorf("get patient by id: %w", err)
 	}
 
-	return patient, nil
+	return &models.LinkedPatient{Patient: *patient, Link: *link}, nil
 }
 
 func (s *PatientService) List(
@@ -135,7 +151,7 @@ func (s *PatientService) List(
 	actingUserID uint64,
 	limit int,
 	offset int,
-) ([]*models.Patient, error) {
+) ([]*models.LinkedPatient, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("list patients context: %w", err)
 	}
@@ -150,7 +166,7 @@ func (s *PatientService) List(
 		return nil, fmt.Errorf("list active user-patients: %w", err)
 	}
 	if len(userPatients) == 0 {
-		return []*models.Patient{}, nil
+		return []*models.LinkedPatient{}, nil
 	}
 
 	ids := make([]uint64, 0, len(userPatients))
@@ -161,7 +177,7 @@ func (s *PatientService) List(
 		ids = append(ids, link.PatientID)
 	}
 	if len(ids) == 0 {
-		return []*models.Patient{}, nil
+		return []*models.LinkedPatient{}, nil
 	}
 
 	byID, err := s.patients.GetByIDs(ctx, ids)
@@ -169,13 +185,16 @@ func (s *PatientService) List(
 		return nil, fmt.Errorf("get patients by ids: %w", err)
 	}
 
-	result := make([]*models.Patient, 0, len(ids))
-	for _, id := range ids {
-		patient, ok := byID[id]
+	result := make([]*models.LinkedPatient, 0, len(ids))
+	for _, link := range userPatients {
+		if link == nil {
+			continue
+		}
+		patient, ok := byID[link.PatientID]
 		if !ok || patient == nil {
 			continue
 		}
-		result = append(result, patient)
+		result = append(result, &models.LinkedPatient{Patient: *patient, Link: *link})
 	}
 
 	return result, nil

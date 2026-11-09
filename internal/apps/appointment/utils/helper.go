@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"math/big"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -29,6 +30,21 @@ func NewOpaqueToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf[:]), nil
+}
+
+// NewCode returns length characters drawn uniformly from alphabet with
+// crypto/rand.
+func NewCode(alphabet string, length int) (string, error) {
+	limit := big.NewInt(int64(len(alphabet)))
+	code := make([]byte, length)
+	for i := range code {
+		index, err := rand.Int(rand.Reader, limit)
+		if err != nil {
+			return "", err
+		}
+		code[i] = alphabet[index.Int64()]
+	}
+	return string(code), nil
 }
 
 func CheckPassword(passwordHash []byte, password string) error {

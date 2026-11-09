@@ -21,6 +21,12 @@ var (
 	ErrNilLogger                = errors.New("logger is nil")
 	ErrNilSessionService        = errors.New("session service is nil")
 	ErrNilUserAgentParser       = errors.New("user agent parser is nil")
+
+	ErrNilPatientInviteRepository        = errors.New("patient invite repository is nil")
+	ErrNilPatientInviteAttemptRepository = errors.New("patient invite attempt repository is nil")
+	ErrNilUserPatientHistoryRepository   = errors.New("user-patient history repository is nil")
+	ErrNilPatientInviteService           = errors.New("patient invite service is nil")
+	ErrNilPatientMembershipService       = errors.New("patient membership service is nil")
 )
 
 var (
@@ -53,6 +59,18 @@ var (
 	ErrUserPatientNotFound      = errors.New("user-patient not found")
 	ErrUserPatientAlreadyExists = errors.New("user-patient already exists")
 	ErrPrincipalNotFound        = errors.New("principal not found")
+)
+
+var (
+	ErrNilPatientInviteRequest       = errors.New("patient invite request is nil")
+	ErrInvalidPatientInviteInput     = errors.New("invalid patient invite input")
+	ErrPatientInviteNotFound         = errors.New("patient invite not found")
+	ErrPatientInviteInvalid          = errors.New("invite code is invalid or expired")
+	ErrPatientInviteCodeExists       = errors.New("patient invite code already exists")
+	ErrPatientInviteLimitReached     = errors.New("patient has too many pending invites")
+	ErrPatientInviteAttemptsExceeded = errors.New("too many wrong invite codes")
+	ErrPatientSelfLinkExists         = errors.New("patient already has a self link")
+	ErrPatientLastFullHolder         = errors.New("patient must keep at least one full access holder")
 )
 
 var (

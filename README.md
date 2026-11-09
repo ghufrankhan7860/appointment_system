@@ -772,6 +772,12 @@ The following invariants should be preserved throughout the application:
 
     to an existing patient must not create a duplicate patient record.
 
+11. A patient has at most one active self link (the patient's own
+
+    account), it always has full access, and a patient always keeps
+
+    at least one active full access holder.
+
 ```
 
 ## API
@@ -848,7 +854,40 @@ PUT  /patients/:id       update a patient (requires full access)
 
 ```
 
-`dateOfBirth` is sent as `YYYY-MM-DD`. A patient the caller has no active link to is reported as `404`, so patient IDs are not revealed. Updating with a non-full access level returns `403`.
+`dateOfBirth` is sent as `YYYY-MM-DD`. A patient the caller has no active link to is reported as `404`, so patient IDs are not revealed. Updating with a non-full access level returns `403`. Get and list also return the caller's own `relationship` and `accessLevel` for each patient.
+
+Patient sharing (require `Authorization: Bearer <jwtToken>`):
+
+```text
+
+POST   /patients/:id/invites              full     create an invite ({relationship, accessLevel, expiresInHours?}); the code is returned only here
+
+GET    /patients/:id/invites              full     pending invites, without codes
+
+DELETE /patients/:id/invites/:inviteId    full     revoke a pending invite
+
+POST   /patients/claim                    any      redeem a code ({code}); links the caller and returns the patient
+
+GET    /patients/:id/members              full     who has access, with a masked mobile; current marks the caller
+
+PATCH  /patients/:id/members/:userId      full     change another member's access level ({accessLevel})
+
+DELETE /patients/:id/members/:userId      full     revoke another member's access
+
+DELETE /patients/:id/membership           any      leave: remove the caller's own access
+
+```
+
+Sharing never creates a patient: redeeming an invite adds a `user_patient` link, so the patient's appointments, payments and records follow at once.
+
+- An invite code is 8 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no I, O, 0 or 1), single use, and stored only as its SHA-256. Redeeming ignores case, spaces and dashes. An invite lives 48 hours unless `expiresInHours` (1–168) says otherwise, and a patient can have at most 5 pending.
+- `relationship` is the redeemer's relationship to the patient. A `self` invite must grant `full` and is refused (`409`) while the patient already has a self link; it is how a grown-up child takes over their own record.
+- An unknown, used, revoked or expired code is one `404`. After 5 wrong codes within an hour the caller gets `429` until the hour passes (`patient_invite_attempts`). A caller already linked gets `409`. A user whose access was revoked, or who left, gets the same link back with the new invite's relationship and access level.
+- The self link is the top authority: nobody else can change or revoke it, and the self user can change or revoke anyone, including whoever created the record. Other full holders manage everyone except the self link. Nobody changes their own access through the member routes; they leave instead.
+- Every change keeps at least one active full holder (`409` otherwise), including leaving.
+- Revoking access keeps past and upcoming appointments; `booked_by_user_id` stays as the record of who booked.
+- Each change writes a `user_patient_history` row (`created`, `invite_redeemed`, `access_changed`, `revoked_by_holder`, `left`) and an outbox event (`patient.access_granted`, `patient.access_changed`, `patient.access_revoked`).
+- Claiming a record by an OTP to the patient's own mobile or email (no existing holder needed) waits for email or SMS delivery.
 
 Appointments (require `Authorization: Bearer <jwtToken>`):
 

@@ -11,4 +11,6 @@ type GetPatientResponse struct {
 	DateOfBirth      string `json:"dateOfBirth"`
 	BloodType        string `json:"bloodType"`
 	EmergencyContact string `json:"emergencyContact"`
+	Relationship     string `json:"relationship" enums:"self,father,mother,spouse,child,sibling,guardian,caregiver,other" example:"self"`
+	AccessLevel      string `json:"accessLevel" enums:"full,appointments_only,read_only" example:"full"`
 }

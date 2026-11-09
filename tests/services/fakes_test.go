@@ -48,10 +48,19 @@ func (f *fakeAdminUserRepo) ExistsByRole(ctx context.Context, role models.Role) 
 	return f.adminExists, nil
 }
 
+func (f *fakeAdminUserRepo) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*models.User, error) {
+	return map[uint64]*models.User{}, nil
+}
+
 type fakeUserRepo struct {
 	user       *models.User
+	users      map[uint64]*models.User
 	err        error
 	lookedUpBy string
+}
+
+func (f *fakeUserRepo) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*models.User, error) {
+	return f.users, f.err
 }
 
 func (f *fakeUserRepo) Create(ctx context.Context, user *models.User) (*models.User, error) {
@@ -446,7 +455,20 @@ type fakeUserPatientRepo struct {
 	listLimit  int
 	listOffset int
 
-	updateCalled bool
+	patientLinks []*models.UserPatient
+
+	updateCalled  bool
+	updateInput   *models.UserPatient
+	updateErr     error
+	revokedUserID uint64
+}
+
+func (f *fakeUserPatientRepo) ListActiveByPatient(ctx context.Context, patientID uint64) ([]*models.UserPatient, error) {
+	return f.patientLinks, nil
+}
+
+func (f *fakeUserPatientRepo) ListActiveByPatientForUpdate(ctx context.Context, patientID uint64) ([]*models.UserPatient, error) {
+	return f.patientLinks, nil
 }
 
 func (f *fakeUserPatientRepo) Create(ctx context.Context, link *models.UserPatient) (*models.UserPatient, error) {
@@ -488,11 +510,106 @@ func (f *fakeUserPatientRepo) ListActiveByUser(ctx context.Context, userID uint6
 
 func (f *fakeUserPatientRepo) Update(ctx context.Context, link *models.UserPatient) (*models.UserPatient, error) {
 	f.updateCalled = true
-	return f.activeResult, f.activeErr
+	f.updateInput = link
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
+	updated := *link
+	return &updated, nil
 }
 
 func (f *fakeUserPatientRepo) Revoke(ctx context.Context, userID uint64, patientID uint64) (*models.UserPatient, error) {
-	return f.activeResult, f.activeErr
+	f.revokedUserID = userID
+	return &models.UserPatient{UserID: userID, PatientID: patientID, Status: models.UserPatientStatusRevoked}, nil
+}
+
+type fakePatientInviteRepo struct {
+	invite  *models.PatientInvite
+	getErr  error
+	gotHash string
+
+	createErrs  []error
+	createCalls int
+	created     *models.PatientInvite
+
+	pending    int64
+	listResult []*models.PatientInvite
+
+	revokeErr  error
+	revokedID  uint64
+	redeemedID uint64
+	expiredID  uint64
+}
+
+func (f *fakePatientInviteRepo) Create(ctx context.Context, invite *models.PatientInvite) (*models.PatientInvite, error) {
+	f.createCalls++
+	if len(f.createErrs) >= f.createCalls && f.createErrs[f.createCalls-1] != nil {
+		return nil, f.createErrs[f.createCalls-1]
+	}
+	created := *invite
+	created.ID = 31
+	f.created = &created
+	return &created, nil
+}
+
+func (f *fakePatientInviteRepo) GetByCodeHashForUpdate(ctx context.Context, codeHash string) (*models.PatientInvite, error) {
+	f.gotHash = codeHash
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return f.invite, nil
+}
+
+func (f *fakePatientInviteRepo) ListPendingByPatient(ctx context.Context, patientID uint64, now time.Time) ([]*models.PatientInvite, error) {
+	return f.listResult, nil
+}
+
+func (f *fakePatientInviteRepo) CountPendingByPatient(ctx context.Context, patientID uint64, now time.Time) (int64, error) {
+	return f.pending, nil
+}
+
+func (f *fakePatientInviteRepo) MarkRedeemed(ctx context.Context, id uint64, redeemedByUserID uint64, redeemedAt time.Time) error {
+	f.redeemedID = id
+	return nil
+}
+
+func (f *fakePatientInviteRepo) Revoke(ctx context.Context, patientID uint64, id uint64) error {
+	f.revokedID = id
+	return f.revokeErr
+}
+
+func (f *fakePatientInviteRepo) MarkExpired(ctx context.Context, id uint64) error {
+	f.expiredID = id
+	return nil
+}
+
+type fakeInviteAttemptRepo struct {
+	count         int64
+	created       int
+	deletedBefore time.Time
+}
+
+func (f *fakeInviteAttemptRepo) Create(ctx context.Context, userID uint64, at time.Time) error {
+	f.created++
+	return nil
+}
+
+func (f *fakeInviteAttemptRepo) CountSince(ctx context.Context, userID uint64, since time.Time) (int64, error) {
+	return f.count, nil
+}
+
+func (f *fakeInviteAttemptRepo) DeleteBefore(ctx context.Context, userID uint64, before time.Time) error {
+	f.deletedBefore = before
+	return nil
+}
+
+type fakeUserPatientHistoryRepo struct {
+	entries []*models.UserPatientHistory
+}
+
+func (f *fakeUserPatientHistoryRepo) Create(ctx context.Context, history *models.UserPatientHistory) error {
+	f.entries = append(f.entries, history)
+	return nil
 }
 
 type fakeTxManager struct {

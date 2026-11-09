@@ -123,6 +123,11 @@ const (
 	// OutboxEventRefundFailed tells admins a refund did not go through, so
 	// they can retry it.
 	OutboxEventRefundFailed = "refund.failed"
+
+	OutboxAggregatePatient          = "patient"
+	OutboxEventPatientAccessGranted = "patient.access_granted"
+	OutboxEventPatientAccessChanged = "patient.access_changed"
+	OutboxEventPatientAccessRevoked = "patient.access_revoked"
 )
 
 // ReminderWindow names one reminder sent before an appointment. Each window is

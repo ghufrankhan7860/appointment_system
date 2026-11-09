@@ -1108,6 +1108,46 @@ definitions:
       success:
         type: boolean
     type: object
+  patient.ClaimPatientRequest:
+    properties:
+      code:
+        example: K7Q2-M9XD
+        maxLength: 20
+        type: string
+    required:
+    - code
+    type: object
+  patient.CreatePatientInviteRequest:
+    properties:
+      accessLevel:
+        enum:
+        - full
+        - appointments_only
+        - read_only
+        example: full
+        type: string
+      expiresInHours:
+        example: 48
+        maximum: 168
+        minimum: 1
+        type: integer
+      relationship:
+        enum:
+        - self
+        - father
+        - mother
+        - spouse
+        - child
+        - sibling
+        - guardian
+        - caregiver
+        - other
+        example: mother
+        type: string
+    required:
+    - accessLevel
+    - relationship
+    type: object
   patient.CreatePatientRequest:
     properties:
       bloodType:
@@ -1177,6 +1217,13 @@ definitions:
     type: object
   patient.GetPatientResponse:
     properties:
+      accessLevel:
+        enum:
+        - full
+        - appointments_only
+        - read_only
+        example: full
+        type: string
       bloodType:
         type: string
       dateOfBirth:
@@ -1189,6 +1236,33 @@ definitions:
         type: integer
       name:
         type: string
+      relationship:
+        enum:
+        - self
+        - father
+        - mother
+        - spouse
+        - child
+        - sibling
+        - guardian
+        - caregiver
+        - other
+        example: self
+        type: string
+    type: object
+  patient.ListPatientInvitesResponse:
+    properties:
+      invites:
+        items:
+          $ref: '#/definitions/patient.PatientInviteResponse'
+        type: array
+    type: object
+  patient.ListPatientMembersResponse:
+    properties:
+      members:
+        items:
+          $ref: '#/definitions/patient.PatientMemberResponse'
+        type: array
     type: object
   patient.ListPatientsResponse:
     properties:
@@ -1196,6 +1270,56 @@ definitions:
         items:
           $ref: '#/definitions/patient.GetPatientResponse'
         type: array
+    type: object
+  patient.PatientInviteResponse:
+    properties:
+      accessLevel:
+        example: full
+        type: string
+      code:
+        example: K7Q2M9XD
+        type: string
+      createdAt:
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: integer
+      relationship:
+        example: mother
+        type: string
+    type: object
+  patient.PatientMemberResponse:
+    properties:
+      accessLevel:
+        example: full
+        type: string
+      current:
+        type: boolean
+      maskedMobile:
+        example: 98******10
+        type: string
+      name:
+        type: string
+      relationship:
+        example: mother
+        type: string
+      since:
+        type: string
+      userId:
+        type: integer
+    type: object
+  patient.UpdatePatientMemberRequest:
+    properties:
+      accessLevel:
+        enum:
+        - full
+        - appointments_only
+        - read_only
+        example: read_only
+        type: string
+    required:
+    - accessLevel
     type: object
   patient.UpdatePatientRequest:
     properties:
@@ -4608,6 +4732,361 @@ paths:
       summary: Upload a report for a patient
       tags:
       - medical records
+  /patients/{id}/invites:
+    get:
+      description: Lists the patient's invites that are pending and not expired, without
+        their codes. Requires full access to the patient.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.ListPatientInvitesResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List a patient's pending invites
+      tags:
+      - patients
+    post:
+      consumes:
+      - application/json
+      description: Creates a one-time invite code for a patient the caller holds with
+        full access. Whoever redeems it gets the given relationship and access level.
+        The code is returned only in this response. A self invite must grant full
+        access and is refused while the patient has a self link. At most 5 invites
+        can be pending; expiresInHours defaults to 48.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Invite details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/patient.CreatePatientInviteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.PatientInviteResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Invite someone to a patient
+      tags:
+      - patients
+  /patients/{id}/invites/{inviteId}:
+    delete:
+      description: Revokes a pending invite so its code stops working. Requires full
+        access to the patient. An invite that is not pending is reported as not found.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Invite ID
+        in: path
+        name: inviteId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke a pending invite
+      tags:
+      - patients
+  /patients/{id}/members:
+    get:
+      description: Lists every user with active access to the patient, with a masked
+        mobile number. Current marks the caller. Requires full access to the patient.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.ListPatientMembersResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List who has access to a patient
+      tags:
+      - patients
+  /patients/{id}/members/{userId}:
+    delete:
+      description: Revokes another member's access. Requires full access to the patient.
+        A self link cannot be revoked by anyone else, your own access is removed with
+        leave, and the last full holder cannot be removed. Past appointments are kept.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Member user ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove a member's access
+      tags:
+      - patients
+    patch:
+      consumes:
+      - application/json
+      description: Changes another member's access level. Requires full access to
+        the patient. A self link cannot be changed, your own access cannot be changed,
+        and the last full holder cannot be downgraded.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Member user ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: New access level
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/patient.UpdatePatientMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Change a member's access
+      tags:
+      - patients
+  /patients/{id}/membership:
+    delete:
+      description: Removes the caller's own access to the patient. The last full holder
+        cannot leave until someone else has full access. Past appointments are kept.
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Leave a patient
+      tags:
+      - patients
   /patients/{id}/records:
     get:
       description: Lists the patient's finalized records, newest first. Needs full
@@ -4660,6 +5139,63 @@ paths:
       summary: List a patient's medical records
       tags:
       - medical records
+  /patients/claim:
+    post:
+      consumes:
+      - application/json
+      description: Redeems an invite code and links the caller to its patient with
+        the invite's relationship and access level; the patient's appointments and
+        records follow. Codes are case-insensitive and may contain spaces or dashes.
+        An unknown, used, revoked or expired code is one 404. After 5 wrong codes
+        in an hour the caller gets 429 until the hour passes.
+      parameters:
+      - description: Invite code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/patient.ClaimPatientRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/patient.GetPatientResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Claim a patient with an invite code
+      tags:
+      - patients
   /payments/{id}/verify:
     post:
       consumes:

@@ -141,6 +141,35 @@ func (repo *UserRepository) GetByID(ctx context.Context, id uint64) (*models.Use
 	}, nil
 }
 
+// GetByIDs leaves out password hashes; it serves listings, never sign-in.
+func (repo *UserRepository) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*models.User, error) {
+	result := make(map[uint64]*models.User, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	var records []userRecord
+	if err := dbFromContext(ctx, repo.db).
+		Where("id IN ?", ids).
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("get users by ids: %w", err)
+	}
+
+	for _, record := range records {
+		result[record.ID] = &models.User{
+			ID:        record.ID,
+			Name:      record.Name,
+			Email:     record.Email,
+			MobileNo:  record.MobileNo,
+			Role:      models.Role(record.Role),
+			CreatedAt: record.CreatedAt,
+			UpdatedAt: record.UpdatedAt,
+		}
+	}
+
+	return result, nil
+}
+
 func (repo *UserRepository) ExistsByRole(ctx context.Context, role models.Role) (bool, error) {
 	var count int64
 

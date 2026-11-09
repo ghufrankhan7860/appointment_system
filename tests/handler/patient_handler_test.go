@@ -21,16 +21,21 @@ const patientPayload = `{"name":"Asha","gender":"Female","dateOfBirth":"1990-01-
 
 func newPatientRouter(t *testing.T, patients *fakePatientRepo, userPatients *fakeUserPatientRepo) *gin.Engine {
 	t.Helper()
+
+	return newPatientSharingRouter(t, patients, userPatients, &fakePatientInviteRepo{}, &fakeInviteAttemptRepo{})
+}
+
+func newPatientSharingRouter(
+	t *testing.T,
+	patients *fakePatientRepo,
+	userPatients *fakeUserPatientRepo,
+	invites *fakePatientInviteRepo,
+	attempts *fakeInviteAttemptRepo,
+) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	service, err := services.NewPatientService(patients, userPatients, &fakeTxManager{}, discardLogger)
-	if err != nil {
-		t.Fatalf("NewPatientService returned error: %v", err)
-	}
-	patientController, err := controller.NewPatientController(service)
-	if err != nil {
-		t.Fatalf("NewPatientController returned error: %v", err)
-	}
+	patientController := newTestPatientController(t, patients, userPatients, invites, attempts)
 	patientHandler, err := handler.NewPatientHandler(patientController, &fakeTokenVerifier{})
 	if err != nil {
 		t.Fatalf("NewPatientHandler returned error: %v", err)
@@ -43,19 +48,53 @@ func newPatientRouter(t *testing.T, patients *fakePatientRepo, userPatients *fak
 	return router
 }
 
+func newTestPatientController(
+	t *testing.T,
+	patients *fakePatientRepo,
+	userPatients *fakeUserPatientRepo,
+	invites *fakePatientInviteRepo,
+	attempts *fakeInviteAttemptRepo,
+) *controller.PatientController {
+	t.Helper()
+
+	patientService, err := services.NewPatientService(patients, userPatients, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
+	if err != nil {
+		t.Fatalf("NewPatientService returned error: %v", err)
+	}
+	inviteService, err := services.NewPatientInviteService(invites, attempts, userPatients, &fakeUserPatientHistoryRepo{}, patients, &fakeOutboxRepo{}, &fakeTxManager{}, time.Now, discardLogger)
+	if err != nil {
+		t.Fatalf("NewPatientInviteService returned error: %v", err)
+	}
+	membershipService, err := services.NewPatientMembershipService(userPatients, &fakeUserRepo{}, &fakeUserPatientHistoryRepo{}, &fakeOutboxRepo{}, &fakeTxManager{}, discardLogger)
+	if err != nil {
+		t.Fatalf("NewPatientMembershipService returned error: %v", err)
+	}
+	patientController, err := controller.NewPatientController(patientService, inviteService, membershipService)
+	if err != nil {
+		t.Fatalf("NewPatientController returned error: %v", err)
+	}
+
+	return patientController
+}
+
 func TestNewPatientHandlerValidation(t *testing.T) {
 	if _, err := handler.NewPatientHandler(nil, &fakeTokenVerifier{}); !errors.Is(err, apperrors.ErrNilPatientController) {
 		t.Fatalf("nil controller error = %v, want %v", err, apperrors.ErrNilPatientController)
 	}
 
-	service, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
+	patientService, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPatientService returned error: %v", err)
 	}
-	patientController, err := controller.NewPatientController(service)
+	membershipService, err := services.NewPatientMembershipService(&fakeUserPatientRepo{}, &fakeUserRepo{}, &fakeUserPatientHistoryRepo{}, &fakeOutboxRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
-		t.Fatalf("NewPatientController returned error: %v", err)
+		t.Fatalf("NewPatientMembershipService returned error: %v", err)
 	}
+	if _, err := controller.NewPatientController(patientService, nil, membershipService); !errors.Is(err, apperrors.ErrNilPatientInviteService) {
+		t.Fatalf("nil invite service error = %v, want %v", err, apperrors.ErrNilPatientInviteService)
+	}
+
+	patientController := newTestPatientController(t, &fakePatientRepo{}, &fakeUserPatientRepo{}, &fakePatientInviteRepo{}, &fakeInviteAttemptRepo{})
 	if _, err := handler.NewPatientHandler(patientController, nil); !errors.Is(err, apperrors.ErrNilTokenVerifier) {
 		t.Fatalf("nil verifier error = %v, want %v", err, apperrors.ErrNilTokenVerifier)
 	}
@@ -222,6 +261,81 @@ func TestPatientHandlerStatusCodes(t *testing.T) {
 
 			if recorder.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d, body = %s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestPatientSharingHandlerStatusCodes(t *testing.T) {
+	savedPatient := &models.Patient{ID: 3, Name: "Asha", Gender: models.GenderFemale, DateOfBirth: time.Date(1990, 1, 2, 0, 0, 0, 0, time.UTC), BloodType: models.BloodTypeOPlus}
+	full := func(userID uint64, relationship models.Relationship) *models.UserPatient {
+		return &models.UserPatient{UserID: userID, PatientID: 3, PatientRelationship: relationship, AccessLevel: models.AccessLevelFull, Status: models.UserPatientStatusActive}
+	}
+	readOnly := &models.UserPatient{UserID: 7, PatientID: 3, PatientRelationship: models.RelationshipCaregiver, AccessLevel: models.AccessLevelReadOnly, Status: models.UserPatientStatusActive}
+	readOnlyOther := &models.UserPatient{UserID: 8, PatientID: 3, PatientRelationship: models.RelationshipCaregiver, AccessLevel: models.AccessLevelReadOnly, Status: models.UserPatientStatusActive}
+	pendingInvite := &models.PatientInvite{ID: 31, PatientID: 3, PatientRelationship: models.RelationshipFather, AccessLevel: models.AccessLevelFull, Status: models.PatientInviteStatusPending, ExpiresAt: time.Now().Add(time.Hour)}
+
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		body         string
+		userPatients *fakeUserPatientRepo
+		invites      *fakePatientInviteRepo
+		attempts     *fakeInviteAttemptRepo
+		wantStatus   int
+		wantBody     string
+	}{
+		{name: "get shows the caller's access", method: http.MethodGet, path: "/api/v1/patients/3", userPatients: &fakeUserPatientRepo{userPatient: full(7, models.RelationshipMother)}, wantStatus: http.StatusOK, wantBody: `"relationship":"mother","accessLevel":"full"`},
+		{name: "create invite returns the code", method: http.MethodPost, path: "/api/v1/patients/3/invites", body: `{"relationship":"father","accessLevel":"full"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother)}}, wantStatus: http.StatusCreated, wantBody: `"code":"`},
+		{name: "create invite with an unknown relationship", method: http.MethodPost, path: "/api/v1/patients/3/invites", body: `{"relationship":"cousin","accessLevel":"full"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother)}}, wantStatus: http.StatusBadRequest, wantBody: `"details"`},
+		{name: "create invite with a long lifetime", method: http.MethodPost, path: "/api/v1/patients/3/invites", body: `{"relationship":"father","accessLevel":"full","expiresInHours":500}`, userPatients: &fakeUserPatientRepo{}, wantStatus: http.StatusBadRequest},
+		{name: "create invite without full access", method: http.MethodPost, path: "/api/v1/patients/3/invites", body: `{"relationship":"father","accessLevel":"full"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{readOnly}}, wantStatus: http.StatusForbidden},
+		{name: "create invite for someone else's patient", method: http.MethodPost, path: "/api/v1/patients/3/invites", body: `{"relationship":"father","accessLevel":"full"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(8, models.RelationshipMother)}}, wantStatus: http.StatusNotFound},
+		{name: "create self invite while a self link exists", method: http.MethodPost, path: "/api/v1/patients/3/invites", body: `{"relationship":"self","accessLevel":"full"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother), full(8, models.RelationshipSelf)}}, wantStatus: http.StatusConflict},
+		{name: "create invite over the pending limit", method: http.MethodPost, path: "/api/v1/patients/3/invites", body: `{"relationship":"father","accessLevel":"full"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother)}}, invites: &fakePatientInviteRepo{pending: 5}, wantStatus: http.StatusConflict},
+		{name: "list invites", method: http.MethodGet, path: "/api/v1/patients/3/invites", userPatients: &fakeUserPatientRepo{userPatient: full(7, models.RelationshipMother)}, wantStatus: http.StatusOK, wantBody: `"invites":[]`},
+		{name: "revoke an invite that is not pending", method: http.MethodDelete, path: "/api/v1/patients/3/invites/31", userPatients: &fakeUserPatientRepo{userPatient: full(7, models.RelationshipMother)}, invites: &fakePatientInviteRepo{getErr: apperrors.ErrPatientInviteNotFound}, wantStatus: http.StatusNotFound},
+		{name: "claim links the caller", method: http.MethodPost, path: "/api/v1/patients/claim", body: `{"code":"k7q2-m9xd"}`, userPatients: &fakeUserPatientRepo{getErr: apperrors.ErrUserPatientNotFound}, invites: &fakePatientInviteRepo{invite: pendingInvite}, wantStatus: http.StatusOK, wantBody: `"relationship":"father","accessLevel":"full"`},
+		{name: "claim without a code", method: http.MethodPost, path: "/api/v1/patients/claim", body: `{}`, userPatients: &fakeUserPatientRepo{}, wantStatus: http.StatusBadRequest},
+		{name: "claim an unknown code", method: http.MethodPost, path: "/api/v1/patients/claim", body: `{"code":"K7Q2M9XD"}`, userPatients: &fakeUserPatientRepo{}, invites: &fakePatientInviteRepo{getErr: apperrors.ErrPatientInviteNotFound}, wantStatus: http.StatusNotFound, wantBody: `"Invite code is invalid or expired"`},
+		{name: "claim a patient already linked", method: http.MethodPost, path: "/api/v1/patients/claim", body: `{"code":"K7Q2M9XD"}`, userPatients: &fakeUserPatientRepo{userPatient: full(7, models.RelationshipMother)}, invites: &fakePatientInviteRepo{invite: pendingInvite}, wantStatus: http.StatusConflict},
+		{name: "claim after too many wrong codes", method: http.MethodPost, path: "/api/v1/patients/claim", body: `{"code":"K7Q2M9XD"}`, userPatients: &fakeUserPatientRepo{}, attempts: &fakeInviteAttemptRepo{count: 5}, wantStatus: http.StatusTooManyRequests},
+		{name: "list members masks mobiles", method: http.MethodGet, path: "/api/v1/patients/3/members", userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother), readOnlyOther}}, wantStatus: http.StatusOK, wantBody: `"maskedMobile":"98******10"`},
+		{name: "list members without full access", method: http.MethodGet, path: "/api/v1/patients/3/members", userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{readOnly}}, wantStatus: http.StatusForbidden},
+		{name: "update a member's access", method: http.MethodPatch, path: "/api/v1/patients/3/members/8", body: `{"accessLevel":"read_only"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother), full(8, models.RelationshipFather)}}, wantStatus: http.StatusOK},
+		{name: "update the self link", method: http.MethodPatch, path: "/api/v1/patients/3/members/8", body: `{"accessLevel":"read_only"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother), full(8, models.RelationshipSelf)}}, wantStatus: http.StatusForbidden},
+		{name: "update an unknown member", method: http.MethodPatch, path: "/api/v1/patients/3/members/9", body: `{"accessLevel":"read_only"}`, userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother)}}, wantStatus: http.StatusNotFound},
+		{name: "revoke your own access", method: http.MethodDelete, path: "/api/v1/patients/3/members/7", userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother)}}, wantStatus: http.StatusBadRequest},
+		{name: "revoke a member", method: http.MethodDelete, path: "/api/v1/patients/3/members/8", userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother), readOnlyOther}}, wantStatus: http.StatusOK},
+		{name: "last full holder cannot leave", method: http.MethodDelete, path: "/api/v1/patients/3/membership", userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother), readOnlyOther}}, wantStatus: http.StatusConflict},
+		{name: "leave a patient", method: http.MethodDelete, path: "/api/v1/patients/3/membership", userPatients: &fakeUserPatientRepo{patientLinks: []*models.UserPatient{full(7, models.RelationshipMother), full(8, models.RelationshipFather)}}, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			invites := tt.invites
+			if invites == nil {
+				invites = &fakePatientInviteRepo{}
+			}
+			attempts := tt.attempts
+			if attempts == nil {
+				attempts = &fakeInviteAttemptRepo{}
+			}
+			router := newPatientSharingRouter(t, &fakePatientRepo{patient: savedPatient}, tt.userPatients, invites, attempts)
+
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer good-token")
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d, body = %s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %s, want it to contain %s", recorder.Body.String(), tt.wantBody)
 			}
 		})
 	}

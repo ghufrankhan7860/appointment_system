@@ -116,12 +116,59 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize user-patient repository: %w", err)
 	}
 
-	patientService, err := services.NewPatientService(patientRepository, userPatientRepository, txManager, logger)
+	userPatientHistoryRepository, err := repositories.NewUserPatientHistoryRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize user-patient history repository: %w", err)
+	}
+
+	patientInviteRepository, err := repositories.NewPatientInviteRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient invite repository: %w", err)
+	}
+
+	patientInviteAttemptRepository, err := repositories.NewPatientInviteAttemptRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient invite attempt repository: %w", err)
+	}
+
+	outboxRepository, err := repositories.NewOutboxRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize outbox repository: %w", err)
+	}
+
+	patientService, err := services.NewPatientService(patientRepository, userPatientRepository, userPatientHistoryRepository, txManager, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize patient service: %w", err)
 	}
 
-	patientController, err := controller.NewPatientController(patientService)
+	patientInviteService, err := services.NewPatientInviteService(
+		patientInviteRepository,
+		patientInviteAttemptRepository,
+		userPatientRepository,
+		userPatientHistoryRepository,
+		patientRepository,
+		outboxRepository,
+		txManager,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient invite service: %w", err)
+	}
+
+	patientMembershipService, err := services.NewPatientMembershipService(
+		userPatientRepository,
+		userRepository,
+		userPatientHistoryRepository,
+		outboxRepository,
+		txManager,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient membership service: %w", err)
+	}
+
+	patientController, err := controller.NewPatientController(patientService, patientInviteService, patientMembershipService)
 	if err != nil {
 		return nil, fmt.Errorf("initialize patient controller: %w", err)
 	}
@@ -184,11 +231,6 @@ func NewContainer(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize doctor service: %w", err)
-	}
-
-	outboxRepository, err := repositories.NewOutboxRepository(db)
-	if err != nil {
-		return nil, fmt.Errorf("initialize outbox repository: %w", err)
 	}
 
 	paymentRepository, err := repositories.NewPaymentRepository(db)

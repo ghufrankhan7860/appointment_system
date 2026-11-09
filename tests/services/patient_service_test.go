@@ -23,13 +23,16 @@ func validTestPatient() *models.Patient {
 
 func TestNewPatientServiceValidation(t *testing.T) {
 	tx := &fakeTxManager{}
-	if _, err := services.NewPatientService(nil, &fakeUserPatientRepo{}, tx, discardLogger); !errors.Is(err, apperrors.ErrNilPatientRepository) {
+	if _, err := services.NewPatientService(nil, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, tx, discardLogger); !errors.Is(err, apperrors.ErrNilPatientRepository) {
 		t.Fatalf("nil patients error = %v", err)
 	}
-	if _, err := services.NewPatientService(&fakePatientRepo{}, nil, tx, discardLogger); !errors.Is(err, apperrors.ErrNilUserPatientRepository) {
+	if _, err := services.NewPatientService(&fakePatientRepo{}, nil, &fakeUserPatientHistoryRepo{}, tx, discardLogger); !errors.Is(err, apperrors.ErrNilUserPatientRepository) {
 		t.Fatalf("nil links error = %v", err)
 	}
-	if _, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, nil, discardLogger); !errors.Is(err, apperrors.ErrNilTransactionManager) {
+	if _, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, nil, tx, discardLogger); !errors.Is(err, apperrors.ErrNilUserPatientHistoryRepository) {
+		t.Fatalf("nil history error = %v", err)
+	}
+	if _, err := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, nil, discardLogger); !errors.Is(err, apperrors.ErrNilTransactionManager) {
 		t.Fatalf("nil tx error = %v", err)
 	}
 }
@@ -78,7 +81,8 @@ func TestPatientServiceCreate(t *testing.T) {
 				createErr:    tt.linkErr,
 			}
 			tx := &fakeTxManager{}
-			service, err := services.NewPatientService(patients, links, tx, discardLogger)
+			history := &fakeUserPatientHistoryRepo{}
+			service, err := services.NewPatientService(patients, links, history, tx, discardLogger)
 			if err != nil {
 				t.Fatalf("NewPatientService error = %v", err)
 			}
@@ -114,6 +118,9 @@ func TestPatientServiceCreate(t *testing.T) {
 			if links.createInput.UserID != tt.actingUserID || links.createInput.PatientID != 10 {
 				t.Fatalf("Create link ids = %+v", links.createInput)
 			}
+			if len(history.entries) != 1 || history.entries[0].Reason != models.UserPatientChangeCreated || history.entries[0].PatientID != 10 {
+				t.Fatalf("Create history = %+v, want one created entry for patient 10", history.entries)
+			}
 		})
 	}
 }
@@ -122,7 +129,7 @@ func TestPatientServiceCreateLinkFailureLeavesNoOrphan(t *testing.T) {
 	patients := &fakePatientRepo{createResult: &models.Patient{ID: 99}}
 	links := &fakeUserPatientRepo{createErr: errors.New("link down")}
 	tx := &fakeTxManager{}
-	service, err := services.NewPatientService(patients, links, tx, discardLogger)
+	service, err := services.NewPatientService(patients, links, &fakeUserPatientHistoryRepo{}, tx, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPatientService error = %v", err)
 	}
@@ -140,7 +147,7 @@ func TestPatientServiceCreateLinkFailureLeavesNoOrphan(t *testing.T) {
 }
 
 func TestPatientServiceCreateCanceledContext(t *testing.T) {
-	service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
+	service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := service.Create(ctx, 7, validTestPatient(), models.RelationshipSelf); err == nil {
@@ -155,17 +162,18 @@ func TestPatientServiceGetByID(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{getResult: &models.Patient{ID: 10}},
 			&fakeUserPatientRepo{activeResult: activeLink},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
 		got, err := service.GetByID(context.Background(), 7, 10)
-		if err != nil || got.ID != 10 {
+		if err != nil || got.Patient.ID != 10 || got.Link.AccessLevel != models.AccessLevelFull {
 			t.Fatalf("GetByID = %+v, %v", got, err)
 		}
 	})
 
 	t.Run("missing ids", func(t *testing.T) {
-		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		if _, err := service.GetByID(context.Background(), 0, 10); !errors.Is(err, apperrors.ErrInvalidPatientInput) {
 			t.Fatalf("zero acting user error = %v", err)
 		}
@@ -178,6 +186,7 @@ func TestPatientServiceGetByID(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{getResult: &models.Patient{ID: 50}},
 			&fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -190,6 +199,7 @@ func TestPatientServiceGetByID(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{},
 			&fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -202,6 +212,7 @@ func TestPatientServiceGetByID(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{},
 			&fakeUserPatientRepo{activeErr: errors.New("db down")},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -214,6 +225,7 @@ func TestPatientServiceGetByID(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{getErr: apperrors.ErrPatientNotFound},
 			&fakeUserPatientRepo{activeResult: activeLink},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -226,6 +238,7 @@ func TestPatientServiceGetByID(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{getErr: errors.New("db down")},
 			&fakeUserPatientRepo{activeResult: activeLink},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -235,7 +248,7 @@ func TestPatientServiceGetByID(t *testing.T) {
 	})
 
 	t.Run("canceled context", func(t *testing.T) {
-		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		if _, err := service.GetByID(ctx, 7, 10); err == nil {
@@ -259,12 +272,12 @@ func TestPatientServiceList(t *testing.T) {
 				11: {ID: 11, Name: "Mother"},
 			},
 		}
-		service, _ := services.NewPatientService(patients, links, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(patients, links, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		got, err := service.List(context.Background(), 7, 20, 0)
 		if err != nil {
 			t.Fatalf("List error = %v", err)
 		}
-		if len(got) != 2 || got[0].ID != 10 || got[1].ID != 11 {
+		if len(got) != 2 || got[0].Patient.ID != 10 || got[1].Patient.ID != 11 || got[1].Link.PatientID != 11 {
 			t.Fatalf("List order = %+v", got)
 		}
 	})
@@ -273,6 +286,7 @@ func TestPatientServiceList(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{},
 			&fakeUserPatientRepo{listResult: nil},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -283,20 +297,21 @@ func TestPatientServiceList(t *testing.T) {
 	})
 
 	t.Run("zero acting user", func(t *testing.T) {
-		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		if _, err := service.List(context.Background(), 0, 20, 0); !errors.Is(err, apperrors.ErrInvalidPatientInput) {
 			t.Fatalf("zero user error = %v", err)
 		}
 	})
 
 	t.Run("dependency failures", func(t *testing.T) {
-		badLinks, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{listErr: errors.New("db down")}, &fakeTxManager{}, discardLogger)
+		badLinks, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{listErr: errors.New("db down")}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		if _, err := badLinks.List(context.Background(), 7, 20, 0); err == nil {
 			t.Fatalf("expected list links failure")
 		}
 		badPatients, _ := services.NewPatientService(
 			&fakePatientRepo{getByIDsErr: errors.New("db down")},
 			&fakeUserPatientRepo{listResult: []*models.UserPatient{{UserID: 7, PatientID: 10, Status: models.UserPatientStatusActive}}},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -307,7 +322,7 @@ func TestPatientServiceList(t *testing.T) {
 
 	t.Run("pagination clamped", func(t *testing.T) {
 		links := &fakeUserPatientRepo{listResult: nil}
-		service, _ := services.NewPatientService(&fakePatientRepo{}, links, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(&fakePatientRepo{}, links, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		if _, err := service.List(context.Background(), 7, 5000, -5); err != nil {
 			t.Fatalf("List clamp error = %v", err)
 		}
@@ -323,7 +338,7 @@ func TestPatientServiceList(t *testing.T) {
 	})
 
 	t.Run("canceled context", func(t *testing.T) {
-		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		if _, err := service.List(ctx, 7, 20, 0); err == nil {
@@ -340,7 +355,7 @@ func TestPatientServiceUpdate(t *testing.T) {
 	t.Run("success updates demographics only", func(t *testing.T) {
 		patients := &fakePatientRepo{updateResult: &models.Patient{ID: 10, Name: "Updated"}}
 		links := &fakeUserPatientRepo{activeResult: fullLink}
-		service, _ := services.NewPatientService(patients, links, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(patients, links, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 
 		input := validTestPatient()
 		input.ID = 10
@@ -358,7 +373,7 @@ func TestPatientServiceUpdate(t *testing.T) {
 	})
 
 	t.Run("validation", func(t *testing.T) {
-		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{activeResult: fullLink}, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{activeResult: fullLink}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		if _, err := service.Update(context.Background(), 7, nil); !errors.Is(err, apperrors.ErrNilPatientRequest) {
 			t.Fatalf("nil error = %v", err)
 		}
@@ -381,6 +396,7 @@ func TestPatientServiceUpdate(t *testing.T) {
 		service, _ := services.NewPatientService(
 			&fakePatientRepo{},
 			&fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -396,6 +412,7 @@ func TestPatientServiceUpdate(t *testing.T) {
 			service, _ := services.NewPatientService(
 				&fakePatientRepo{},
 				&fakeUserPatientRepo{activeResult: link},
+				&fakeUserPatientHistoryRepo{},
 				&fakeTxManager{},
 				discardLogger,
 			)
@@ -411,6 +428,7 @@ func TestPatientServiceUpdate(t *testing.T) {
 		notFound, _ := services.NewPatientService(
 			&fakePatientRepo{updateErr: apperrors.ErrPatientNotFound},
 			&fakeUserPatientRepo{activeResult: fullLink},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -422,6 +440,7 @@ func TestPatientServiceUpdate(t *testing.T) {
 		broken, _ := services.NewPatientService(
 			&fakePatientRepo{updateErr: errors.New("db down")},
 			&fakeUserPatientRepo{activeResult: fullLink},
+			&fakeUserPatientHistoryRepo{},
 			&fakeTxManager{},
 			discardLogger,
 		)
@@ -431,7 +450,7 @@ func TestPatientServiceUpdate(t *testing.T) {
 	})
 
 	t.Run("canceled context", func(t *testing.T) {
-		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeTxManager{}, discardLogger)
+		service, _ := services.NewPatientService(&fakePatientRepo{}, &fakeUserPatientRepo{}, &fakeUserPatientHistoryRepo{}, &fakeTxManager{}, discardLogger)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		input := validTestPatient()

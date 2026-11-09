@@ -11,5 +11,6 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	FindByMobile(ctx context.Context, mobileNo string) (*models.User, error)
 	GetByID(ctx context.Context, id uint64) (*models.User, error)
+	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*models.User, error)
 	ExistsByRole(ctx context.Context, role models.Role) (bool, error)
 }

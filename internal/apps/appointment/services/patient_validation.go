@@ -48,6 +48,23 @@ func validBloodType(bloodType models.BloodType) bool {
 	}
 }
 
+func validAccessLevel(accessLevel models.AccessLevel) bool {
+	switch accessLevel {
+	case models.AccessLevelFull, models.AccessLevelAppointmentsOnly, models.AccessLevelReadOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeInviteCode accepts a code as people retype it: any case, with
+// spaces or dashes between groups.
+func normalizeInviteCode(code string) string {
+	code = strings.ToUpper(code)
+
+	return strings.NewReplacer(" ", "", "-", "").Replace(code)
+}
+
 func validRelationship(relationship models.Relationship) bool {
 	switch relationship {
 	case models.RelationshipSelf, models.RelationshipFather,
