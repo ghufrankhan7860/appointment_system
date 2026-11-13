@@ -3,9 +3,11 @@ package services_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"appointment_system/internal/apps/appointment/apperrors"
+	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/services"
 )
@@ -108,6 +110,139 @@ func TestCallSessionServiceAppointmentCall(t *testing.T) {
 
 	if _, err := sessions.Authorize(ctx, "not-a-token"); !errors.Is(err, apperrors.ErrCallTokenInvalid) {
 		t.Fatalf("Authorize a bad token error = %v, want %v", err, apperrors.ErrCallTokenInvalid)
+	}
+}
+
+func TestCallSessionServiceChat(t *testing.T) {
+	f := newCallFixture(t)
+	calls := f.callService(t)
+	sessions := f.sessionService(t)
+	ctx := context.Background()
+
+	doctorJoin, err := calls.Open(ctx, callDoctorUserID, models.RoleDoctor, f.appointment.ID, "")
+	if err != nil {
+		t.Fatalf("Open doctor returned error: %v", err)
+	}
+	patientJoin, err := calls.Open(ctx, callPatientUserID, models.RolePatient, f.appointment.ID, "")
+	if err != nil {
+		t.Fatalf("Open patient returned error: %v", err)
+	}
+	doctorClaims, doctorPeer := connectCall(t, f, sessions, doctorJoin)
+	patientClaims, patientPeer := connectCall(t, f, sessions, patientJoin)
+	eventsBefore := len(f.events.events)
+
+	if err := sessions.Handle(ctx, patientClaims, models.CallSignal{Type: models.CallSignalChat, Text: "  Hello doctor \n"}); err != nil {
+		t.Fatalf("Handle chat returned error: %v", err)
+	}
+	toDoctor := doctorPeer.received(models.CallSignalChat)
+	toPatient := patientPeer.received(models.CallSignalChat)
+	if len(toDoctor) != 1 || len(toPatient) != 1 {
+		t.Fatalf("chat reached doctor %d and patient %d times, want once each", len(toDoctor), len(toPatient))
+	}
+	message := toDoctor[0]
+	if message.Text != "Hello doctor" || message.From != patientJoin.Participant.PeerID || message.MessageID == "" || toPatient[0].MessageID != message.MessageID {
+		t.Fatalf("chat = %+v, want the trimmed text from the patient under one id", message)
+	}
+	if len(f.events.events) != eventsBefore {
+		t.Fatalf("chat wrote %d call events, want nothing stored", len(f.events.events)-eventsBefore)
+	}
+
+	tests := []struct {
+		name   string
+		signal models.CallSignal
+	}{
+		{name: "empty message", signal: models.CallSignal{Type: models.CallSignalChat, Text: "   "}},
+		{name: "too long", signal: models.CallSignal{Type: models.CallSignalChat, Text: strings.Repeat("a", constant.MaxCallChatMessageLength+1)}},
+		{name: "unknown emoji", signal: models.CallSignal{Type: models.CallSignalChatReaction, MessageID: message.MessageID, Emoji: "🍕", Reacted: true}},
+		{name: "bad message id", signal: models.CallSignal{Type: models.CallSignalChatReaction, MessageID: "x", Emoji: "👍", Reacted: true}},
+		{name: "delete by the patient", signal: models.CallSignal{Type: models.CallSignalChatDelete, MessageID: message.MessageID}},
+		{name: "chat off by the patient", signal: models.CallSignal{Type: models.CallSignalChatSettings, ChatOff: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rejected := len(patientPeer.received(models.CallSignalError))
+			doctorSignals := len(doctorPeer.signals)
+			if err := sessions.Handle(ctx, patientClaims, tt.signal); err != nil {
+				t.Fatalf("Handle returned error: %v", err)
+			}
+			if len(patientPeer.received(models.CallSignalError)) != rejected+1 || len(doctorPeer.signals) != doctorSignals {
+				t.Fatalf("%s was not refused", tt.name)
+			}
+		})
+	}
+
+	if err := sessions.Handle(ctx, patientClaims, models.CallSignal{Type: models.CallSignalChatReaction, MessageID: message.MessageID, Emoji: "👍", Reacted: true}); err != nil {
+		t.Fatalf("Handle chat-reaction returned error: %v", err)
+	}
+	if reactions := doctorPeer.received(models.CallSignalChatReaction); len(reactions) != 1 || reactions[0].Emoji != "👍" || !reactions[0].Reacted || reactions[0].From != patientJoin.Participant.PeerID {
+		t.Fatalf("doctor reactions = %+v, want the patient's thumbs up", reactions)
+	}
+
+	if err := sessions.Handle(ctx, doctorClaims, models.CallSignal{Type: models.CallSignalChatSettings, ChatOff: true}); err != nil {
+		t.Fatalf("Handle chat-settings returned error: %v", err)
+	}
+	if settings := patientPeer.received(models.CallSignalChatSettings); len(settings) != 1 || !settings[0].ChatOff {
+		t.Fatalf("patient chat-settings = %+v, want chat off", settings)
+	}
+	rejected := len(patientPeer.received(models.CallSignalError))
+	if err := sessions.Handle(ctx, patientClaims, models.CallSignal{Type: models.CallSignalChat, Text: "still there?"}); err != nil {
+		t.Fatalf("Handle chat returned error: %v", err)
+	}
+	if len(patientPeer.received(models.CallSignalError)) != rejected+1 || len(doctorPeer.received(models.CallSignalChat)) != 1 {
+		t.Fatalf("the patient sent a message while chat was off")
+	}
+	if err := sessions.Handle(ctx, doctorClaims, models.CallSignal{Type: models.CallSignalChat, Text: "Please wait"}); err != nil {
+		t.Fatalf("Handle chat returned error: %v", err)
+	}
+	if len(patientPeer.received(models.CallSignalChat)) != 2 {
+		t.Fatalf("the doctor's message was not relayed while chat was off")
+	}
+
+	_, rejoined := connectCall(t, f, sessions, patientJoin)
+	if welcome := rejoined.received(models.CallSignalWelcome); len(welcome) != 1 || !welcome[0].ChatOff {
+		t.Fatalf("rejoined welcome = %+v, want chat off", welcome)
+	}
+
+	if err := sessions.Handle(ctx, doctorClaims, models.CallSignal{Type: models.CallSignalChatDelete, MessageID: message.MessageID}); err != nil {
+		t.Fatalf("Handle chat-delete returned error: %v", err)
+	}
+	if deleted := rejoined.received(models.CallSignalChatDelete); len(deleted) != 1 || deleted[0].MessageID != message.MessageID {
+		t.Fatalf("patient chat-delete = %+v, want the message removed", deleted)
+	}
+}
+
+func TestCallSessionServiceChatLobby(t *testing.T) {
+	f := newCallFixture(t)
+	rooms := f.codeRoomService(t)
+	sessions := f.sessionService(t)
+	ctx := context.Background()
+
+	room, code, err := rooms.Create(ctx, callDoctorUserID, "", 2, nil, nil)
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	hostJoin, err := rooms.JoinAsHost(ctx, callDoctorUserID, room.ID, "")
+	if err != nil {
+		t.Fatalf("JoinAsHost returned error: %v", err)
+	}
+	hostClaims, hostPeer := connectCall(t, f, sessions, hostJoin)
+	memberJoin, err := rooms.Join(ctx, "203.0.113.7", code, "Ravi", "")
+	if err != nil {
+		t.Fatalf("Join returned error: %v", err)
+	}
+	memberClaims, memberPeer := connectCall(t, f, sessions, memberJoin)
+
+	if err := sessions.Handle(ctx, memberClaims, models.CallSignal{Type: models.CallSignalChat, Text: "let me in"}); err != nil {
+		t.Fatalf("Handle chat returned error: %v", err)
+	}
+	if err := sessions.Handle(ctx, hostClaims, models.CallSignal{Type: models.CallSignalChat, Text: "One moment"}); err != nil {
+		t.Fatalf("Handle chat returned error: %v", err)
+	}
+	if len(memberPeer.received(models.CallSignalError)) != 1 || len(memberPeer.received(models.CallSignalChat)) != 0 {
+		t.Fatalf("a waiting member sent or saw chat")
+	}
+	if len(hostPeer.received(models.CallSignalChat)) != 1 {
+		t.Fatalf("host chat = %+v, want only the host's own message", hostPeer.received(models.CallSignalChat))
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
@@ -14,7 +15,8 @@ import (
 // relay: it passes offers, answers and ICE candidates between peers that are
 // both in the room, persists media and connection changes, and applies a code
 // room host's lobby and moderation actions. The database is the source of
-// truth for who is in a room; the hub only delivers messages.
+// truth for who is in a room; the hub only delivers messages. Chat is relayed
+// and never stored; a room's chat switch lives in this process's memory.
 type CallSessionService struct {
 	rooms        CallRoomRepository
 	participants CallParticipantRepository
@@ -25,6 +27,8 @@ type CallSessionService struct {
 	hub          CallHub
 	now          func() time.Time
 	logger       Logger
+	chatMu       sync.Mutex
+	chatOff      map[uint64]bool
 }
 
 func NewCallSessionService(
@@ -76,6 +80,7 @@ func NewCallSessionService(
 		hub:          hub,
 		now:          now,
 		logger:       logger,
+		chatOff:      make(map[uint64]bool),
 	}, nil
 }
 
@@ -288,6 +293,16 @@ func (css *CallSessionService) Handle(ctx context.Context, claims models.CallTok
 			return nil
 		}
 		return css.hostAction(ctx, room, participants, self, signal, now)
+	case models.CallSignalChat:
+		return css.chat(room.ID, participants, self, signal, now)
+	case models.CallSignalChatReaction:
+		css.chatReaction(room.ID, participants, self, signal, now)
+	case models.CallSignalChatDelete, models.CallSignalChatSettings:
+		if !moderatesChat(self) {
+			css.reject(room.ID, self, "only the host can do that")
+			return nil
+		}
+		css.moderateChat(room.ID, participants, self, signal, now)
 	default:
 		css.reject(room.ID, self, "unknown message type")
 	}
@@ -436,6 +451,7 @@ func (css *CallSessionService) endByHost(ctx context.Context, room *models.CallR
 	}
 
 	css.hub.CloseRoom(room.ID, models.CallSignal{Type: models.CallSignalEnded, Reason: string(models.CallEndReasonHostEnded)})
+	css.forgetChat(room.ID)
 	css.logger.InfoContext(ctx, "call room ended by host", "call_room_id", room.ID)
 
 	return nil
@@ -482,7 +498,7 @@ func (css *CallSessionService) welcome(roomID uint64, participants []*models.Cal
 		}
 	}
 
-	css.hub.Send(roomID, self.PeerID, models.CallSignal{Type: models.CallSignalWelcome, PeerID: self.PeerID, Peer: peerOf(self), Peers: peers})
+	css.hub.Send(roomID, self.PeerID, models.CallSignal{Type: models.CallSignalWelcome, PeerID: self.PeerID, Peer: peerOf(self), Peers: peers, ChatOff: css.isChatOff(roomID)})
 	css.hub.Broadcast(roomID, inRoomPeerIDs(participants, self.ID, now), models.CallSignal{Type: models.CallSignalPeerJoined, Peer: peerOf(self)})
 }
 
@@ -532,6 +548,7 @@ func (css *CallSessionService) load(
 		return nil, nil, nil, fmt.Errorf("get call room: %w", err)
 	}
 	if room.Status == models.CallRoomStatusEnded {
+		css.forgetChat(room.ID)
 		return nil, nil, nil, apperrors.ErrCallRoomNotFound
 	}
 

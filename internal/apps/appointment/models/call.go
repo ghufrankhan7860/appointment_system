@@ -211,7 +211,18 @@ const (
 	CallSignalHost       CallSignalType = "host"
 	CallSignalEnded      CallSignalType = "ended"
 	CallSignalError      CallSignalType = "error"
+	// Chat is relayed to everyone admitted and never stored: chat carries Text,
+	// chat-reaction a MessageID, Emoji and Reacted (false takes it back),
+	// chat-delete a MessageID, and chat-settings ChatOff. Only the room's
+	// moderator deletes messages and changes the settings.
+	CallSignalChat         CallSignalType = "chat"
+	CallSignalChatReaction CallSignalType = "chat-reaction"
+	CallSignalChatDelete   CallSignalType = "chat-delete"
+	CallSignalChatSettings CallSignalType = "chat-settings"
 )
+
+// CallChatReactions are the emoji a chat message can be reacted with.
+var CallChatReactions = []string{"👍", "❤️", "😂", "😮", "😢", "🙏"}
 
 type CallHostAction string
 
@@ -238,6 +249,12 @@ type CallSignal struct {
 	Peer      *CallSignalPeer
 	Peers     []CallSignalPeer
 	Reason    string
+	Text      string
+	MessageID string
+	Emoji     string
+	Reacted   bool
+	// ChatOff is the room's chat switch, on welcome and chat-settings.
+	ChatOff bool
 }
 
 // CallSignalPeer describes a participant to the others in the room.

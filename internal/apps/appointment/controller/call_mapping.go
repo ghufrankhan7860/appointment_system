@@ -70,6 +70,11 @@ func toCallSignal(message *call.CallSignalMessage) models.CallSignal {
 		State:     models.CallConnectionState(message.State),
 		Action:    models.CallHostAction(message.Action),
 		PeerID:    message.PeerID,
+		Text:      message.Text,
+		MessageID: message.MessageID,
+		Emoji:     message.Emoji,
+		Reacted:   message.Reacted,
+		ChatOff:   message.ChatOff,
 	}
 }
 
@@ -85,6 +90,11 @@ func toCallSignalMessage(signal models.CallSignal) call.CallSignalMessage {
 		Action:    string(signal.Action),
 		PeerID:    signal.PeerID,
 		Reason:    signal.Reason,
+		Text:      signal.Text,
+		MessageID: signal.MessageID,
+		Emoji:     signal.Emoji,
+		Reacted:   signal.Reacted,
+		ChatOff:   signal.ChatOff,
 	}
 	if signal.Peer != nil {
 		peer := toCallSignalPeerMessage(*signal.Peer)

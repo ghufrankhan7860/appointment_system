@@ -21,6 +21,11 @@ type CallSignalMessage struct {
 	Peer      *CallSignalPeerMessage  `json:"peer,omitempty"`
 	Peers     []CallSignalPeerMessage `json:"peers,omitempty"`
 	Reason    string                  `json:"reason,omitempty"`
+	Text      string                  `json:"text,omitempty"`
+	MessageID string                  `json:"messageId,omitempty"`
+	Emoji     string                  `json:"emoji,omitempty"`
+	Reacted   bool                    `json:"reacted,omitempty"`
+	ChatOff   bool                    `json:"chatOff,omitempty"`
 }
 
 type CallSignalPeerMessage struct {

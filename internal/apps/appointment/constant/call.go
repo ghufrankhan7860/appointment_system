@@ -72,6 +72,11 @@ const (
 	CallSignalBuffer = 32
 	// CallPeerIDBytes random bytes, hex encoded, make a peer id.
 	CallPeerIDBytes = 8
+	// MaxCallChatMessageLength bounds one chat message, in characters. Chat is
+	// relayed to the room and never stored.
+	MaxCallChatMessageLength = 2000
+	// CallChatMessageIDBytes random bytes, hex encoded, make a chat message id.
+	CallChatMessageIDBytes = 8
 	// MaxCallDisplayNameLength and MaxCallTitleLength bound the free text of a
 	// call.
 	MaxCallDisplayNameLength = 100
