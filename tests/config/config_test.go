@@ -92,6 +92,54 @@ func TestLoadRazorpayProvider(t *testing.T) {
 	}
 }
 
+func TestLoadPaymentMethods(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment string
+		methods     *string
+		wantMethods []string
+		wantErr     string
+	}{
+		{name: "razorpay is the default", environment: "development", wantMethods: []string{"razorpay"}},
+		{name: "every method in development", environment: "development", methods: ptr("razorpay, upi, clinic"), wantMethods: []string{"razorpay", "upi", "clinic"}},
+		{name: "an empty list allows none", environment: "development", methods: ptr(""), wantMethods: []string{}},
+		{name: "upi in production needs no razorpay keys", environment: "production", methods: ptr("upi"), wantMethods: []string{"upi"}},
+		{name: "upi and clinic in production", environment: "production", methods: ptr("upi,clinic"), wantMethods: []string{"upi", "clinic"}},
+		{name: "none mode in production", environment: "production", methods: ptr(""), wantMethods: []string{}},
+		{name: "razorpay in production still needs the gateway", environment: "production", methods: ptr("razorpay,upi"), wantErr: "not allowed in production"},
+		{name: "an unknown method is refused", environment: "development", methods: ptr("cash"), wantErr: "not supported"},
+		{name: "a repeated method is refused", environment: "development", methods: ptr("upi,upi"), wantErr: "twice"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("APP_ENV", tt.environment)
+			t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+			if tt.methods != nil {
+				t.Setenv("PAYMENT_METHODS", *tt.methods)
+			}
+
+			loaded, err := config.Load()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Load error = %v, want one containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			if !slices.Equal(loaded.Payment.Methods, tt.wantMethods) {
+				t.Fatalf("Load payment methods = %v, want %v", loaded.Payment.Methods, tt.wantMethods)
+			}
+		})
+	}
+}
+
+func ptr(value string) *string {
+	return &value
+}
+
 func TestLoadStorageProvider(t *testing.T) {
 	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
 

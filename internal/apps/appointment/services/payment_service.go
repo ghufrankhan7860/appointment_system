@@ -23,6 +23,8 @@ type PaymentService struct {
 	userPatients UserPatientRepository
 	doctors      DoctorRepository
 	gateway      PaymentGateway
+	methods      []models.PaymentMethod
+	storage      FileStorage
 	tx           TransactionManager
 	now          func() time.Time
 	logger       Logger
@@ -35,6 +37,8 @@ func NewPaymentService(
 	userPatients UserPatientRepository,
 	doctors DoctorRepository,
 	gateway PaymentGateway,
+	methods []models.PaymentMethod,
+	storage FileStorage,
 	tx TransactionManager,
 	now func() time.Time,
 	logger Logger,
@@ -57,6 +61,9 @@ func NewPaymentService(
 	if gateway == nil {
 		return nil, apperrors.ErrNilPaymentGateway
 	}
+	if storage == nil {
+		return nil, apperrors.ErrNilFileStorage
+	}
 	if tx == nil {
 		return nil, apperrors.ErrNilTransactionManager
 	}
@@ -74,6 +81,8 @@ func NewPaymentService(
 		userPatients: userPatients,
 		doctors:      doctors,
 		gateway:      gateway,
+		methods:      methods,
+		storage:      storage,
 		tx:           tx,
 		now:          now,
 		logger:       logger,
@@ -94,6 +103,10 @@ func (ps *PaymentService) Create(
 	}
 	if actingUserID == 0 || appointmentID == 0 {
 		return nil, nil, fmt.Errorf("create payment with missing ids: %w", apperrors.ErrInvalidPaymentInput)
+	}
+
+	if !ps.enabled(models.PaymentMethodRazorpay) {
+		return nil, nil, apperrors.ErrPaymentMethodUnavailable
 	}
 
 	appointment, err := ps.payableAppointment(ctx, actingUserID, appointmentID)
@@ -383,6 +396,12 @@ func (ps *PaymentService) ExpireUnpaid(ctx context.Context, limit int) (int, err
 			return expired, err
 		}
 
+		// A direct UPI payment never checked by the start is cancelled too.
+		reason, cancelReason := "payment not received in time", models.CancelReasonPaymentExpired
+		if appointment.PaymentStatus == models.AppointmentPaymentPendingVerification {
+			reason, cancelReason = "upi payment not checked before the start", models.CancelReasonPaymentUnverified
+		}
+
 		err := ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
 			if err := ps.appointments.CancelUnpaid(txCtx, appointment.ID, now); err != nil {
 				return err
@@ -391,14 +410,14 @@ func (ps *PaymentService) ExpireUnpaid(ctx context.Context, limit int) (int, err
 				AppointmentID: appointment.ID,
 				FromStatus:    models.AppointmentStatusScheduled,
 				ToStatus:      models.AppointmentStatusCancelled,
-				Reason:        "payment not received in time",
+				Reason:        reason,
 			}); err != nil {
 				return err
 			}
 
 			cancelled := appointment.Appointment
 			cancelled.Status = models.AppointmentStatusCancelled
-			cancelled.CancelReason = models.CancelReasonPaymentExpired
+			cancelled.CancelReason = cancelReason
 			return ps.outbox.Create(txCtx, appointmentEvent(models.OutboxEventAppointmentCancelled, &cancelled, 0))
 		})
 		if errors.Is(err, apperrors.ErrAppointmentNotModifiable) {
@@ -441,6 +460,10 @@ func (ps *PaymentService) ReconcileRefunds(ctx context.Context, limit int) (int,
 		if err != nil {
 			return settled, fmt.Errorf("get payment of refund %d: %w", refund.ID, err)
 		}
+		// The doctor or an admin closes a direct UPI refund by hand.
+		if isManualProvider(payment.Provider) {
+			continue
+		}
 		providerRefundID, status, err := ps.gateway.RefundStatus(ctx, payment)
 		if err != nil {
 			return settled, fmt.Errorf("get gateway status of refund %d: %w", refund.ID, err)
@@ -474,7 +497,7 @@ func (ps *PaymentService) capturePaidOrder(ctx context.Context, appointmentID ui
 		}
 		return fmt.Errorf("get active payment of unpaid appointment %d: %w", appointmentID, err)
 	}
-	if payment.Status != models.PaymentStatusCreated {
+	if payment.Status != models.PaymentStatusCreated || isManualProvider(payment.Provider) {
 		return nil
 	}
 
@@ -511,7 +534,9 @@ func (ps *PaymentService) settleCancelled(
 		return fmt.Errorf("get active payment of cancelled appointment: %w", err)
 	}
 
-	if payment.Status == models.PaymentStatusCaptured {
+	// A direct UPI payment the patient says they made is refunded too: the doctor
+	// either returns it or closes the refund as never received.
+	if payment.Status == models.PaymentStatusCaptured || payment.Status == models.PaymentStatusClaimed {
 		if err := ps.refund(ctx, payment, reason, actingUserID, ""); err != nil && !errors.Is(err, apperrors.ErrRefundAlreadyExists) {
 			return fmt.Errorf("refund cancelled appointment %d: %w", appointmentID, err)
 		}
@@ -715,6 +740,10 @@ func (ps *PaymentService) refund(
 		return err
 	}
 	ps.logger.InfoContext(ctx, "refund requested", "refund_id", requested.ID, "payment_id", payment.ID, "appointment_id", payment.AppointmentID, "reason", reason)
+	if isManualProvider(payment.Provider) {
+		// No gateway holds this money; the doctor or an admin closes the refund.
+		return nil
+	}
 
 	providerRefundID, status, err := ps.gateway.Refund(ctx, payment, requested)
 	if err != nil {
@@ -745,7 +774,7 @@ func (ps *PaymentService) settleRefund(
 	var err error
 	switch status {
 	case models.RefundStatusSucceeded:
-		err = ps.finishRefund(ctx, payment, refund.ID, providerRefundID, refund.Reason, actingUserID)
+		err = ps.finishRefund(ctx, payment, refund.ID, providerRefundID, refund.Reason, "", actingUserID)
 	case models.RefundStatusFailed:
 		err = ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
 			if err := ps.payments.FinishRefund(txCtx, refund.ID, models.RefundStatusFailed, providerRefundID); err != nil {
@@ -768,32 +797,39 @@ func (ps *PaymentService) settleRefund(
 }
 
 // finishRefund marks a requested refund succeeded and the payment and its
-// appointment refunded in one transaction.
+// appointment refunded in one transaction. The payment is captured, or claimed
+// for a direct UPI payment the doctor returned before checking it.
 func (ps *PaymentService) finishRefund(
 	ctx context.Context,
 	payment *models.Payment,
 	refundID uint64,
 	providerRefundID string,
 	reason models.RefundReason,
+	detail string,
 	actingUserID uint64,
 ) error {
+	fromAppointment := models.AppointmentPaymentPaid
+	if payment.Status == models.PaymentStatusClaimed {
+		fromAppointment = models.AppointmentPaymentPendingVerification
+	}
+
 	return ps.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
 		if err := ps.payments.FinishRefund(txCtx, refundID, models.RefundStatusSucceeded, providerRefundID); err != nil {
 			return err
 		}
-		if err := ps.payments.UpdateStatus(txCtx, payment.ID, models.PaymentStatusCaptured, models.PaymentStatusRefunded, "", nil); err != nil {
+		if err := ps.payments.UpdateStatus(txCtx, payment.ID, payment.Status, models.PaymentStatusRefunded, "", nil); err != nil {
 			return err
 		}
 		if err := ps.payments.CreateStatusChange(txCtx, &models.PaymentStatusChange{
 			PaymentID:       payment.ID,
 			ChangedByUserID: actingUserID,
-			FromStatus:      models.PaymentStatusCaptured,
+			FromStatus:      payment.Status,
 			ToStatus:        models.PaymentStatusRefunded,
-			Reason:          string(reason),
+			Reason:          reviewReason(string(reason), detail),
 		}); err != nil {
 			return err
 		}
-		if err := ps.appointments.SetPaymentStatus(txCtx, payment.AppointmentID, models.AppointmentPaymentPaid, models.AppointmentPaymentRefunded); err != nil &&
+		if err := ps.appointments.SetPaymentStatus(txCtx, payment.AppointmentID, fromAppointment, models.AppointmentPaymentRefunded); err != nil &&
 			!errors.Is(err, apperrors.ErrAppointmentNotModifiable) {
 			return err
 		}

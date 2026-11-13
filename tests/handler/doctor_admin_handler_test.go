@@ -65,7 +65,7 @@ func newDoctorAdminRouterWithSessions(t *testing.T, doctors *fakeDoctorRepo, ava
 	if err != nil {
 		t.Fatalf("NewDoctorService returned error: %v", err)
 	}
-	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, &fakeTxManager{}, time.Now, discardLogger)
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}

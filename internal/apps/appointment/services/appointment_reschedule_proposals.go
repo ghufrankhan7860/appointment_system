@@ -55,7 +55,7 @@ func (as *AppointmentService) ProposeReschedule(
 	if err := as.checkChangeable(&original.Appointment, nil, "rescheduled"); err != nil {
 		return nil, err
 	}
-	if original.PaymentStatus == models.AppointmentPaymentUnpaid {
+	if original.PaymentStatus == models.AppointmentPaymentUnpaid || original.PaymentStatus == models.AppointmentPaymentPendingVerification {
 		return nil, apperrors.Invalid(apperrors.ErrAppointmentNotModifiable, "", "appointment is awaiting payment; it can be rescheduled once paid")
 	}
 

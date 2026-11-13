@@ -33,6 +33,12 @@ type paymentRecord struct {
 	ProviderPaymentID *string    `gorm:"column:provider_payment_id"`
 	Status            string     `gorm:"column:status"`
 	CapturedAt        *time.Time `gorm:"column:captured_at"`
+	PayerReference    *string    `gorm:"column:payer_reference"`
+	ProofStorageKey   *string    `gorm:"column:proof_storage_key"`
+	ClaimedAt         *time.Time `gorm:"column:claimed_at"`
+	ReviewedByUserID  *uint64    `gorm:"column:reviewed_by_user_id"`
+	ReviewedAt        *time.Time `gorm:"column:reviewed_at"`
+	ReviewNote        string     `gorm:"column:review_note"`
 	CreatedAt         time.Time  `gorm:"column:created_at"`
 	UpdatedAt         time.Time  `gorm:"column:updated_at"`
 }
@@ -89,6 +95,10 @@ func (repo *PaymentRepository) Create(ctx context.Context, payment *models.Payme
 		Provider:        payment.Provider,
 		ProviderOrderID: payment.ProviderOrderID,
 		Status:          string(payment.Status),
+		CapturedAt:      payment.CapturedAt,
+		ReviewedByUserID: optionalUserID(payment.ReviewedByUserID),
+		ReviewedAt:      payment.ReviewedAt,
+		ReviewNote:      payment.ReviewNote,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -142,7 +152,7 @@ func (repo *PaymentRepository) GetActiveByAppointment(ctx context.Context, appoi
 	var record paymentRecord
 
 	if err := dbFromContext(ctx, repo.db).
-		Where("appointment_id = ? AND status IN ?", appointmentID, []string{string(models.PaymentStatusCreated), string(models.PaymentStatusCaptured)}).
+		Where("appointment_id = ? AND status IN ?", appointmentID, []string{string(models.PaymentStatusCreated), string(models.PaymentStatusCaptured), string(models.PaymentStatusClaimed)}).
 		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrPaymentNotFound
@@ -371,6 +381,119 @@ func (repo *PaymentRepository) ListRefunds(ctx context.Context, status models.Re
 	return refunds, nil
 }
 
+// Claim records that the payer says they paid a created direct UPI payment:
+// their UPI reference and optional screenshot. It only matches a created
+// payment, so a claim and an expiry cannot both win.
+func (repo *PaymentRepository) Claim(ctx context.Context, id uint64, reference string, proofStorageKey *string, claimedAt time.Time) error {
+	result := dbFromContext(ctx, repo.db).
+		Model(&paymentRecord{}).
+		Where("id = ? AND status = ?", id, string(models.PaymentStatusCreated)).
+		Updates(map[string]interface{}{
+			"status":            string(models.PaymentStatusClaimed),
+			"payer_reference":   reference,
+			"proof_storage_key": proofStorageKey,
+			"claimed_at":        claimedAt.UTC(),
+			"updated_at":        time.Now().UTC(),
+		})
+	if result.Error != nil {
+		return fmt.Errorf("claim payment: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return apperrors.ErrPaymentNotModifiable
+	}
+
+	return nil
+}
+
+// Review closes a claimed payment as captured or rejected and records who
+// checked it. It only matches a claimed payment, so two reviews cannot both win.
+func (repo *PaymentRepository) Review(
+	ctx context.Context,
+	id uint64,
+	toStatus models.PaymentStatus,
+	reviewedByUserID uint64,
+	note string,
+	reviewedAt time.Time,
+) error {
+	updates := map[string]interface{}{
+		"status":              string(toStatus),
+		"reviewed_by_user_id": reviewedByUserID,
+		"reviewed_at":         reviewedAt.UTC(),
+		"review_note":         note,
+		"updated_at":          time.Now().UTC(),
+	}
+	if toStatus == models.PaymentStatusCaptured {
+		updates["captured_at"] = reviewedAt.UTC()
+	}
+
+	result := dbFromContext(ctx, repo.db).
+		Model(&paymentRecord{}).
+		Where("id = ? AND status = ?", id, string(models.PaymentStatusClaimed)).
+		Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("review payment: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return apperrors.ErrPaymentNotModifiable
+	}
+
+	return nil
+}
+
+// ListClaimed returns direct UPI payments waiting for a check, oldest claim
+// first: the doctor's own when doctorID is set, every one when it is 0.
+func (repo *PaymentRepository) ListClaimed(ctx context.Context, doctorID uint64, limit int, offset int) ([]*models.Payment, error) {
+	var records []paymentRecord
+
+	query := dbFromContext(ctx, repo.db).Where("payments.status = ?", string(models.PaymentStatusClaimed))
+	if doctorID != 0 {
+		query = query.Joins("JOIN appointments ON appointments.id = payments.appointment_id").
+			Where("appointments.doctor_id = ?", doctorID)
+	}
+	if err := query.
+		Order("payments.claimed_at ASC, payments.id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list claimed payments: %w", err)
+	}
+
+	payments := make([]*models.Payment, 0, len(records))
+	for _, record := range records {
+		payments = append(payments, toPaymentModel(record))
+	}
+
+	return payments, nil
+}
+
+// ListManualRefunds returns refunds of direct UPI payments in status, oldest
+// first: those the doctor owes when doctorID is set, every one when it is 0.
+func (repo *PaymentRepository) ListManualRefunds(ctx context.Context, doctorID uint64, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error) {
+	var records []refundRecord
+
+	query := dbFromContext(ctx, repo.db).
+		Joins("JOIN payments ON payments.id = refunds.payment_id").
+		Where("refunds.status = ? AND payments.provider = ?", string(status), models.ProviderUPIDirect)
+	if doctorID != 0 {
+		query = query.Joins("JOIN appointments ON appointments.id = payments.appointment_id").
+			Where("appointments.doctor_id = ?", doctorID)
+	}
+	if err := query.
+		Order("refunds.created_at ASC, refunds.id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list manual refunds: %w", err)
+	}
+
+	refunds := make([]*models.Refund, 0, len(records))
+	for _, record := range records {
+		refunds = append(refunds, toRefundModel(record))
+	}
+
+	return refunds, nil
+}
+
 func toPaymentModel(record paymentRecord) *models.Payment {
 	payment := &models.Payment{
 		ID:              record.ID,
@@ -382,11 +505,21 @@ func toPaymentModel(record paymentRecord) *models.Payment {
 		ProviderOrderID: record.ProviderOrderID,
 		Status:          models.PaymentStatus(record.Status),
 		CapturedAt:      record.CapturedAt,
+		ProofStorageKey: record.ProofStorageKey,
+		ClaimedAt:       record.ClaimedAt,
+		ReviewedAt:      record.ReviewedAt,
+		ReviewNote:      record.ReviewNote,
 		CreatedAt:       record.CreatedAt,
 		UpdatedAt:       record.UpdatedAt,
 	}
 	if record.ProviderPaymentID != nil {
 		payment.ProviderPaymentID = *record.ProviderPaymentID
+	}
+	if record.PayerReference != nil {
+		payment.PayerReference = *record.PayerReference
+	}
+	if record.ReviewedByUserID != nil {
+		payment.ReviewedByUserID = *record.ReviewedByUserID
 	}
 
 	return payment

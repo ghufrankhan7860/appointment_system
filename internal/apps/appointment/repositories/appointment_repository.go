@@ -174,6 +174,10 @@ func (repo *AppointmentRepository) GetByID(ctx context.Context, id uint64) (*mod
 	return toAppointmentDetailsModel(record), nil
 }
 
+// awaitingPayment are the payment statuses of a booking whose slot is held until
+// its payment_due_at: unpaid, and a direct UPI payment the doctor has not checked.
+var awaitingPayment = []string{string(models.AppointmentPaymentUnpaid), string(models.AppointmentPaymentPendingVerification)}
+
 // MarkPaid records that a scheduled, unpaid appointment was paid. It only
 // matches a row that is still both, so a payment and an expiry cannot both win.
 func (repo *AppointmentRepository) MarkPaid(ctx context.Context, id uint64) error {
@@ -219,14 +223,15 @@ func (repo *AppointmentRepository) SetPaymentStatus(
 	return nil
 }
 
-// ListUnpaidDue returns scheduled, unpaid appointments whose payment was due
-// at or before dueBefore, oldest due first.
+// ListUnpaidDue returns scheduled appointments still waiting for their payment,
+// unpaid or with a direct UPI payment not yet checked, whose payment was due at
+// or before dueBefore, oldest due first.
 func (repo *AppointmentRepository) ListUnpaidDue(ctx context.Context, dueBefore time.Time, limit int) ([]*models.AppointmentDetails, error) {
 	var records []appointmentDetailsRecord
 
 	if err := repo.detailsQuery(ctx).
-		Where("appointments.status = ? AND appointments.payment_status = ? AND appointments.payment_due_at <= ?",
-			string(models.AppointmentStatusScheduled), string(models.AppointmentPaymentUnpaid), dueBefore.UTC()).
+		Where("appointments.status = ? AND appointments.payment_status IN ? AND appointments.payment_due_at <= ?",
+			string(models.AppointmentStatusScheduled), awaitingPayment, dueBefore.UTC()).
 		Order("appointments.payment_due_at ASC, appointments.id ASC").
 		Limit(limit).
 		Find(&records).Error; err != nil {
@@ -236,23 +241,86 @@ func (repo *AppointmentRepository) ListUnpaidDue(ctx context.Context, dueBefore 
 	return toAppointmentDetailsModels(records), nil
 }
 
-// CancelUnpaid cancels a scheduled, unpaid appointment whose payment was due at
-// or before dueBefore, as a system change with reason payment_expired. It only
-// matches a row that is still unpaid, so a payment and an expiry cannot both win.
+// CancelUnpaid cancels a scheduled appointment still waiting for its payment
+// whose payment was due at or before dueBefore, as a system change: reason
+// payment_expired when it was never paid, payment_unverified when a direct UPI
+// payment was never checked. It only matches a row still waiting, so a payment
+// and an expiry cannot both win.
 func (repo *AppointmentRepository) CancelUnpaid(ctx context.Context, id uint64, dueBefore time.Time) error {
 	now := time.Now().UTC()
 	result := dbFromContext(ctx, repo.db).
 		Model(&appointmentRecord{}).
-		Where("id = ? AND status = ? AND payment_status = ? AND payment_due_at <= ?",
-			id, string(models.AppointmentStatusScheduled), string(models.AppointmentPaymentUnpaid), dueBefore.UTC()).
+		Where("id = ? AND status = ? AND payment_status IN ? AND payment_due_at <= ?",
+			id, string(models.AppointmentStatusScheduled), awaitingPayment, dueBefore.UTC()).
 		Updates(map[string]interface{}{
-			"status":        string(models.AppointmentStatusCancelled),
-			"cancelled_at":  now,
-			"cancel_reason": string(models.CancelReasonPaymentExpired),
+			"status":       string(models.AppointmentStatusCancelled),
+			"cancelled_at": now,
+			"cancel_reason": gorm.Expr("CASE WHEN payment_status = ? THEN ? ELSE ? END",
+				string(models.AppointmentPaymentPendingVerification), string(models.CancelReasonPaymentUnverified), string(models.CancelReasonPaymentExpired)),
 			"updated_at":    now,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("cancel unpaid appointment: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return apperrors.ErrAppointmentNotModifiable
+	}
+
+	return nil
+}
+
+// SetPaymentDue moves a scheduled appointment's payment status from one value to
+// another and sets when its payment is due: the start for a direct UPI payment
+// waiting for a check, nil for a fee paid at the clinic.
+func (repo *AppointmentRepository) SetPaymentDue(
+	ctx context.Context,
+	id uint64,
+	fromStatus models.AppointmentPaymentStatus,
+	toStatus models.AppointmentPaymentStatus,
+	dueAt *time.Time,
+) error {
+	if dueAt != nil {
+		utc := dueAt.UTC()
+		dueAt = &utc
+	}
+	result := dbFromContext(ctx, repo.db).
+		Model(&appointmentRecord{}).
+		Where("id = ? AND status = ? AND payment_status = ?", id, string(models.AppointmentStatusScheduled), string(fromStatus)).
+		Updates(map[string]interface{}{
+			"payment_status": string(toStatus),
+			"payment_due_at": dueAt,
+			"updated_at":     time.Now().UTC(),
+		})
+	if result.Error != nil {
+		return fmt.Errorf("set appointment payment due: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return apperrors.ErrAppointmentNotModifiable
+	}
+
+	return nil
+}
+
+// CancelForRejectedPayment cancels a scheduled appointment whose direct UPI
+// payment the doctor or an admin found never arrived, with reason
+// payment_rejected. Nothing was paid, so its payment status goes back to unpaid.
+// It only matches a row still waiting for that check.
+func (repo *AppointmentRepository) CancelForRejectedPayment(ctx context.Context, id uint64, actingUserID uint64) error {
+	now := time.Now().UTC()
+	result := dbFromContext(ctx, repo.db).
+		Model(&appointmentRecord{}).
+		Where("id = ? AND status = ? AND payment_status = ?", id, string(models.AppointmentStatusScheduled), string(models.AppointmentPaymentPendingVerification)).
+		Updates(map[string]interface{}{
+			"status":               string(models.AppointmentStatusCancelled),
+			"cancelled_at":         now,
+			"cancelled_by_user_id": actingUserID,
+			"cancel_reason":        string(models.CancelReasonPaymentRejected),
+			"payment_status":       string(models.AppointmentPaymentUnpaid),
+			"payment_due_at":       nil,
+			"updated_at":           now,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("cancel appointment for rejected payment: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return apperrors.ErrAppointmentNotModifiable
@@ -507,7 +575,7 @@ func (repo *AppointmentRepository) ListDueForReminder(
 
 	if err := repo.detailsQuery(ctx).
 		Where("appointments.status = ? AND appointments.starts_at >= ? AND appointments.starts_at < ?", string(models.AppointmentStatusScheduled), from.UTC(), to.UTC()).
-		Where("appointments.payment_status IN ?", []string{string(models.AppointmentPaymentPaid), string(models.AppointmentPaymentWaived)}).
+		Where("appointments.payment_status IN ?", []string{string(models.AppointmentPaymentPaid), string(models.AppointmentPaymentWaived), string(models.AppointmentPaymentDueAtClinic)}).
 		Where("NOT EXISTS (SELECT 1 FROM appointment_reminders WHERE appointment_reminders.appointment_id = appointments.id AND appointment_reminders.reminder_window = ?)", string(window)).
 		Order("appointments.starts_at ASC, appointments.id ASC").
 		Limit(limit).

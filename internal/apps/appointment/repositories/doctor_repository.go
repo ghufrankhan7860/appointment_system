@@ -42,6 +42,8 @@ type doctorRecord struct {
 	VerificationStatus  string     `gorm:"column:verification_status"`
 	VerifiedAt          *time.Time `gorm:"column:verified_at"`
 	IsAcceptingPatients bool       `gorm:"column:is_accepting_patients"`
+	UPIID               string     `gorm:"column:upi_id"`
+	UPIQRStorageKey     *string    `gorm:"column:upi_qr_storage_key"`
 	CreatedAt           time.Time  `gorm:"column:created_at"`
 	UpdatedAt           time.Time  `gorm:"column:updated_at"`
 }
@@ -197,6 +199,28 @@ func (repo *DoctorRepository) Update(ctx context.Context, doctor *models.Doctor)
 	}
 
 	return repo.GetByID(ctx, doctor.ID)
+}
+
+// UpdateUPI sets where patients pay the doctor directly: the UPI ID, empty to
+// stop, and the storage key of their QR image, nil for none. Profile updates
+// never touch these.
+func (repo *DoctorRepository) UpdateUPI(ctx context.Context, id uint64, upiID string, qrStorageKey *string) error {
+	result := dbFromContext(ctx, repo.db).
+		Model(&doctorRecord{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"upi_id":             upiID,
+			"upi_qr_storage_key": qrStorageKey,
+			"updated_at":         time.Now().UTC(),
+		})
+	if result.Error != nil {
+		return fmt.Errorf("update doctor upi: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return apperrors.ErrDoctorNotFound
+	}
+
+	return nil
 }
 
 // UpdateStatus moves a doctor from one verification status to another. It only
@@ -490,6 +514,8 @@ func toDoctorModel(record doctorRecord) *models.Doctor {
 		VerificationStatus:  models.VerificationStatus(record.VerificationStatus),
 		VerifiedAt:          record.VerifiedAt,
 		IsAcceptingPatients: record.IsAcceptingPatients,
+		UPIID:               record.UPIID,
+		UPIQRStorageKey:     record.UPIQRStorageKey,
 		Specialities:        []models.Speciality{},
 		Tags:                []models.DoctorTag{},
 		ConsultationModes:   []models.ConsultationMode{},

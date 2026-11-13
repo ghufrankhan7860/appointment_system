@@ -23,6 +23,8 @@ type AppointmentRepository interface {
 	SetPaymentStatus(ctx context.Context, id uint64, fromStatus models.AppointmentPaymentStatus, toStatus models.AppointmentPaymentStatus) error
 	ListUnpaidDue(ctx context.Context, dueBefore time.Time, limit int) ([]*models.AppointmentDetails, error)
 	CancelUnpaid(ctx context.Context, id uint64, dueBefore time.Time) error
+	SetPaymentDue(ctx context.Context, id uint64, fromStatus models.AppointmentPaymentStatus, toStatus models.AppointmentPaymentStatus, dueAt *time.Time) error
+	CancelForRejectedPayment(ctx context.Context, id uint64, actingUserID uint64) error
 	CreateProposal(ctx context.Context, proposal *models.RescheduleProposal) (*models.RescheduleProposal, error)
 	GetPendingProposal(ctx context.Context, appointmentID uint64) (*models.RescheduleProposal, error)
 	ListExpiredProposals(ctx context.Context, now time.Time, limit int) ([]*models.RescheduleProposal, error)

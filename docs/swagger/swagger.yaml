@@ -70,6 +70,8 @@ definitions:
         type: array
       fullName:
         type: string
+      hasUpiQr:
+        type: boolean
       id:
         type: integer
       isAcceptingPatients:
@@ -92,6 +94,9 @@ definitions:
         items:
           type: string
         type: array
+      upiId:
+        example: drasha@okhdfcbank
+        type: string
       userId:
         type: integer
       verificationStatus:
@@ -177,33 +182,51 @@ definitions:
         type: integer
       capturedAt:
         type: string
+      claimedAt:
+        type: string
       createdAt:
         type: string
       currency:
         example: INR
         type: string
+      hasProof:
+        type: boolean
       id:
         type: integer
+      payerReference:
+        example: "412398765432"
+        type: string
       payerUserId:
         type: integer
       provider:
-        example: none
+        enum:
+        - none
+        - razorpay
+        - upi_direct
+        - clinic
+        example: upi_direct
         type: string
       providerOrderId:
-        example: none_order_12_1761040000000000000
+        example: upi_direct_12_a1b2c3d4e5f6
         type: string
       providerPaymentId:
         type: string
       refundPending:
         type: boolean
+      reviewNote:
+        type: string
+      reviewedAt:
+        type: string
       status:
         enum:
         - created
+        - claimed
         - captured
+        - rejected
         - failed
         - expired
         - refunded
-        example: created
+        example: claimed
         type: string
     type: object
   admin.ReviewDoctorRequest:
@@ -312,6 +335,8 @@ definitions:
         - payment_expired
         - proposal_declined
         - proposal_expired
+        - payment_unverified
+        - payment_rejected
         type: string
       cancelledAt:
         type: string
@@ -341,6 +366,8 @@ definitions:
       paymentStatus:
         enum:
         - unpaid
+        - pending_verification
+        - due_at_clinic
         - paid
         - refunded
         - waived
@@ -1131,6 +1158,8 @@ definitions:
         type: array
       fullName:
         type: string
+      hasUpiQr:
+        type: boolean
       id:
         type: integer
       isAcceptingPatients:
@@ -1153,6 +1182,9 @@ definitions:
         items:
           type: string
         type: array
+      upiId:
+        example: drasha@okhdfcbank
+        type: string
       verificationStatus:
         example: verified
         type: string
@@ -1328,6 +1360,12 @@ definitions:
     - registrationCouncil
     - registrationNumber
     - specialities
+    type: object
+  doctor.UpdateUPIRequest:
+    properties:
+      upiId:
+        example: drasha@okhdfcbank
+        type: string
     type: object
   dtos.ErrorResponse:
     properties:
@@ -1614,6 +1652,36 @@ definitions:
       name:
         type: string
     type: object
+  payment.ClaimResponse:
+    properties:
+      appointment:
+        $ref: '#/definitions/payment.PaymentAppointmentResponse'
+      payment:
+        $ref: '#/definitions/payment.PaymentResponse'
+    type: object
+  payment.CloseRefundRequest:
+    properties:
+      note:
+        example: Sent back by UPI, ref 412398765499
+        type: string
+      outcome:
+        enum:
+        - refunded
+        - not_received
+        example: refunded
+        type: string
+    required:
+    - outcome
+    type: object
+  payment.CreatePaymentRequest:
+    properties:
+      method:
+        enum:
+        - razorpay
+        - upi
+        example: upi
+        type: string
+    type: object
   payment.CreatePaymentResponse:
     properties:
       amount:
@@ -1623,6 +1691,8 @@ definitions:
         type: integer
       capturedAt:
         type: string
+      claimedAt:
+        type: string
       clientPayload:
         additionalProperties: {}
         type: object
@@ -1631,27 +1701,108 @@ definitions:
       currency:
         example: INR
         type: string
+      hasProof:
+        type: boolean
       id:
         type: integer
+      payerReference:
+        example: "412398765432"
+        type: string
       payerUserId:
         type: integer
       provider:
-        example: none
+        enum:
+        - none
+        - razorpay
+        - upi_direct
+        - clinic
+        example: upi_direct
         type: string
       providerOrderId:
-        example: none_order_12_1761040000000000000
+        example: upi_direct_12_a1b2c3d4e5f6
         type: string
       providerPaymentId:
+        type: string
+      reviewNote:
+        type: string
+      reviewedAt:
         type: string
       status:
         enum:
         - created
+        - claimed
         - captured
+        - rejected
         - failed
         - expired
         - refunded
-        example: created
+        example: claimed
         type: string
+    type: object
+  payment.ListClaimsResponse:
+    properties:
+      claims:
+        items:
+          $ref: '#/definitions/payment.ClaimResponse'
+        type: array
+    type: object
+  payment.ListManualRefundsResponse:
+    properties:
+      refunds:
+        items:
+          $ref: '#/definitions/payment.ManualRefundResponse'
+        type: array
+    type: object
+  payment.ManualRefundResponse:
+    properties:
+      appointment:
+        $ref: '#/definitions/payment.PaymentAppointmentResponse'
+      payment:
+        $ref: '#/definitions/payment.PaymentResponse'
+      refund:
+        $ref: '#/definitions/payment.RefundResponse'
+    type: object
+  payment.MarkCollectedRequest:
+    properties:
+      note:
+        example: Paid in cash
+        type: string
+    type: object
+  payment.PaymentAppointmentResponse:
+    properties:
+      doctorName:
+        type: string
+      id:
+        type: integer
+      mode:
+        example: video
+        type: string
+      patientName:
+        type: string
+      paymentStatus:
+        example: pending_verification
+        type: string
+      startsAt:
+        type: string
+      status:
+        example: scheduled
+        type: string
+    type: object
+  payment.PaymentOptionsResponse:
+    properties:
+      methods:
+        example:
+        - upi
+        - clinic
+        items:
+          enum:
+          - razorpay
+          - upi
+          - clinic
+          type: string
+        type: array
+      upi:
+        $ref: '#/definitions/payment.UPIDetailsResponse'
     type: object
   payment.PaymentResponse:
     properties:
@@ -1662,31 +1813,49 @@ definitions:
         type: integer
       capturedAt:
         type: string
+      claimedAt:
+        type: string
       createdAt:
         type: string
       currency:
         example: INR
         type: string
+      hasProof:
+        type: boolean
       id:
         type: integer
+      payerReference:
+        example: "412398765432"
+        type: string
       payerUserId:
         type: integer
       provider:
-        example: none
+        enum:
+        - none
+        - razorpay
+        - upi_direct
+        - clinic
+        example: upi_direct
         type: string
       providerOrderId:
-        example: none_order_12_1761040000000000000
+        example: upi_direct_12_a1b2c3d4e5f6
         type: string
       providerPaymentId:
+        type: string
+      reviewNote:
+        type: string
+      reviewedAt:
         type: string
       status:
         enum:
         - created
+        - claimed
         - captured
+        - rejected
         - failed
         - expired
         - refunded
-        example: created
+        example: claimed
         type: string
     type: object
   payment.RefundResponse:
@@ -1723,6 +1892,31 @@ definitions:
         - succeeded
         - failed
         example: requested
+        type: string
+    type: object
+  payment.RejectClaimRequest:
+    properties:
+      reason:
+        example: No payment with this reference reached my account
+        type: string
+    required:
+    - reason
+    type: object
+  payment.UPIDetailsResponse:
+    properties:
+      hasQr:
+        type: boolean
+      payeeName:
+        example: Dr. Asha Verma
+        type: string
+      upiId:
+        example: drasha@okhdfcbank
+        type: string
+    type: object
+  payment.VerifyClaimRequest:
+    properties:
+      note:
+        example: Seen in my bank app
         type: string
     type: object
   payment.VerifyPaymentRequest:
@@ -2250,6 +2444,125 @@ paths:
       summary: Verify a pending doctor
       tags:
       - admin
+  /admin/payments/{id}/claim/reject:
+    post:
+      consumes:
+      - application/json
+      description: Rejects a claimed direct UPI payment and cancels its booking with
+        reason payment_rejected. The reason is shown to the patient. A payment no
+        longer waiting for a check gets 409.
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/payment.RejectClaimRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Say a direct UPI payment never arrived, as an admin
+      tags:
+      - admin
+  /admin/payments/{id}/claim/verify:
+    post:
+      consumes:
+      - application/json
+      description: Captures a claimed direct UPI payment and marks the booking paid,
+        for a doctor who can't check it. A payment no longer waiting for a check gets
+        409.
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional note
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/payment.VerifyClaimRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Confirm a direct UPI payment arrived, as an admin
+      tags:
+      - admin
   /admin/payments/{id}/refund:
     post:
       consumes:
@@ -2320,6 +2633,53 @@ paths:
       security:
       - BearerAuth: []
       summary: Refund a payment
+      tags:
+      - admin
+  /admin/payments/claims:
+    get:
+      description: 'Every claimed direct UPI payment, oldest first, each with its
+        booking: the admin''s backup for doctors who don''t check their own. Limit
+        defaults to 20 and is capped at 100.'
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.ListClaimsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Direct UPI payments waiting for a check
       tags:
       - admin
   /admin/records/{id}/access-log:
@@ -2433,6 +2793,107 @@ paths:
       security:
       - BearerAuth: []
       summary: List refunds
+      tags:
+      - admin
+  /admin/refunds/{id}/close:
+    post:
+      consumes:
+      - application/json
+      description: 'Settles a refund of a direct UPI payment by hand: refunded when
+        the money was sent back, not_received when a payment that was never verified
+        never arrived.'
+      parameters:
+      - description: Refund ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Outcome
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/payment.CloseRefundRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Close a direct UPI refund, as an admin
+      tags:
+      - admin
+  /admin/refunds/manual:
+    get:
+      description: Every refund of a direct UPI payment still requested, oldest first,
+        each with its payment and booking. Limit defaults to 20 and is capped at 100.
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.ListManualRefundsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Direct UPI refunds still to be made
       tags:
       - admin
   /admin/specialities:
@@ -3206,19 +3667,158 @@ paths:
       summary: Get an appointment's payment
       tags:
       - payments
-  /appointments/{id}/payments:
-    post:
-      description: Opens a gateway order for an unpaid appointment and returns what
-        the client needs to pay it. Anyone with full or appointments_only access to
-        the patient can pay. The amount is the fee stored on the appointment. Asking
-        again while a payment is open returns the same one. The booking must be paid
-        before paymentDueAt, 10 minutes after booking, or it is cancelled.
+  /appointments/{id}/payment-options:
+    get:
+      description: 'Lists the payment methods the booking offers, as PAYMENT_METHODS
+        and the doctor allow: razorpay, upi (when the doctor set a UPI ID, with their
+        details) and clinic. When no online method can take the money, clinic is the
+        only one.'
       parameters:
       - description: Appointment ID
         in: path
         name: id
         required: true
         type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentOptionsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: How an appointment can be paid
+      tags:
+      - payments
+  /appointments/{id}/payment/clinic:
+    post:
+      description: Confirms an unpaid booking now, with its fee due at the clinic;
+        the doctor marks it collected at the visit. Only when clinic is one of the
+        booking's payment options. An open online payment is closed.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Pay for an appointment at the clinic
+      tags:
+      - payments
+  /appointments/{id}/payment/upi-qr:
+    get:
+      description: Streams the QR image the appointment's doctor uploaded, to its
+        patient side. 404 when the doctor has none.
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - image/jpeg
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Download the doctor's UPI QR for an appointment
+      tags:
+      - payments
+  /appointments/{id}/payments:
+    post:
+      description: 'Opens a payment for an unpaid appointment and returns what the
+        client needs to pay it: a gateway order for method razorpay (the default),
+        or a direct UPI payment to the doctor for method upi, which the payer then
+        claims with POST /payments/{id}/claim. The method must be one of GET /appointments/{id}/payment-options;
+        an open payment by the other method is closed. Anyone with full or appointments_only
+        access to the patient can pay. The amount is the fee stored on the appointment.
+        Asking again while a payment is open returns the same one. The booking must
+        be paid before paymentDueAt, 10 minutes after booking, or it is cancelled.'
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Payment method
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/payment.CreatePaymentRequest'
       produces:
       - application/json
       responses:
@@ -4331,6 +4931,61 @@ paths:
       summary: List the caller's appointments as a doctor for a day
       tags:
       - doctors
+  /doctors/me/appointments/{id}/collected:
+    post:
+      consumes:
+      - application/json
+      description: 'The appointment''s doctor records that the fee of a booking due
+        at the clinic was collected (cash or UPI at the desk): it is paid. Works on
+        a scheduled or completed appointment.'
+      parameters:
+      - description: Appointment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional note
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/payment.MarkCollectedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark a clinic fee collected
+      tags:
+      - doctors
   /doctors/me/appointments/{id}/complete:
     post:
       description: Marks one of the caller's scheduled appointments as completed.
@@ -5096,6 +5751,176 @@ paths:
       summary: List a patient's medical records as their doctor
       tags:
       - doctors
+  /doctors/me/payments/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: 'The appointment''s doctor rejects a claimed direct UPI payment:
+        the booking is cancelled with reason payment_rejected and its slot freed.
+        The reason is shown to the patient. A payment no longer waiting for a check
+        gets 409.'
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/payment.RejectClaimRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Say a direct UPI payment never arrived
+      tags:
+      - doctors
+  /doctors/me/payments/{id}/verify:
+    post:
+      consumes:
+      - application/json
+      description: 'The appointment''s doctor confirms a claimed direct UPI payment:
+        it is captured and the booking paid. A payment no longer waiting for a check
+        gets 409.'
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional note
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/payment.VerifyClaimRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Confirm a direct UPI payment arrived
+      tags:
+      - doctors
+  /doctors/me/payments/claims:
+    get:
+      description: The calling doctor's claimed direct UPI payments, oldest first,
+        each with its booking. Limit defaults to 20 and is capped at 100.
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.ListClaimsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Direct UPI payments waiting for my check
+      tags:
+      - doctors
   /doctors/me/records/{id}:
     put:
       consumes:
@@ -5293,6 +6118,278 @@ paths:
       summary: Finalize a medical record
       tags:
       - medical records
+  /doctors/me/refunds:
+    get:
+      description: Refunds of direct UPI payments to the calling doctor still to be
+        made, oldest first, each with its payment and booking. Limit defaults to 20
+        and is capped at 100.
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.ListManualRefundsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Direct UPI refunds I owe
+      tags:
+      - doctors
+  /doctors/me/refunds/{id}/close:
+    post:
+      consumes:
+      - application/json
+      description: 'The appointment''s doctor settles a refund of a direct UPI payment
+        by hand: refunded when they sent the money back (the payment and booking are
+        refunded), not_received when a payment that was never verified never arrived
+        (nothing to return).'
+      parameters:
+      - description: Refund ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Outcome
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/payment.CloseRefundRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Close a direct UPI refund
+      tags:
+      - doctors
+  /doctors/me/upi:
+    put:
+      consumes:
+      - application/json
+      description: Sets the calling doctor's UPI ID (name@bank), used for direct UPI
+        payments when PAYMENT_METHODS includes upi. An empty upiId stops them and
+        removes the QR.
+      parameters:
+      - description: UPI ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/doctor.UpdateUPIRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.DoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Set where patients pay me by UPI
+      tags:
+      - doctors
+  /doctors/me/upi-qr:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.DoctorResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove my UPI QR
+      tags:
+      - doctors
+    get:
+      description: The QR image the calling doctor uploaded. 404 when there is none.
+      produces:
+      - image/jpeg
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Download my UPI QR
+      tags:
+      - doctors
+    put:
+      consumes:
+      - multipart/form-data
+      description: Stores the calling doctor's UPI QR image (file, JPEG or PNG, up
+        to 5 MB), replacing the old one. The UPI ID must be set first.
+      parameters:
+      - description: QR image, JPEG or PNG
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/doctor.DoctorResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Upload my UPI QR
+      tags:
+      - doctors
   /patients:
     get:
       description: Lists the patients the caller has active access to. Limit defaults
@@ -6069,6 +7166,109 @@ paths:
       summary: Claim a patient with an invite code
       tags:
       - patients
+  /payments/{id}/claim:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Records the UPI reference (UTR) of a direct UPI payment to the
+        doctor, with an optional JPEG or PNG screenshot (proof, up to 5 MB), before
+        the booking's paymentDueAt. The booking then waits for the doctor's check
+        until the appointment starts, and is cancelled if nobody checks it by then.
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: UPI reference (UTR), 6 to 35 letters or digits
+        in: formData
+        name: reference
+        required: true
+        type: string
+      - description: Screenshot of the payment, JPEG or PNG
+        in: formData
+        name: proof
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/payment.PaymentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Say a direct UPI payment was made
+      tags:
+      - payments
+  /payments/{id}/proof:
+    get:
+      description: Streams the screenshot the payer sent with their claim, to the
+        appointment's doctor, an admin or the patient side. Anyone else gets 404.
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - image/jpeg
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Download a direct UPI payment's screenshot
+      tags:
+      - payments
   /payments/{id}/verify:
     post:
       consumes:

@@ -154,9 +154,7 @@ func (as *AppointmentService) Book(
 	paymentStatus := models.AppointmentPaymentWaived
 	var paymentDueAt *time.Time
 	if doctor.ConsultationFee > 0 {
-		paymentStatus = models.AppointmentPaymentUnpaid
-		dueAt := as.availability.now().Add(constant.PaymentHold)
-		paymentDueAt = &dueAt
+		paymentStatus, paymentDueAt = as.payments.bookingPayment(doctor, as.availability.now())
 	}
 
 	var created *models.Appointment
@@ -368,6 +366,12 @@ func (as *AppointmentService) Reschedule(
 			return err
 		}
 
+		// A direct UPI payment waiting for its check is due by the new start.
+		paymentDueAt := current.PaymentDueAt
+		if current.PaymentStatus == models.AppointmentPaymentPendingVerification {
+			startsAt := slot.StartsAt
+			paymentDueAt = &startsAt
+		}
 		created, err = as.insertBooking(txCtx, actingUserID, &models.Appointment{
 			PatientID:         current.PatientID,
 			DoctorID:          current.DoctorID,
@@ -380,7 +384,7 @@ func (as *AppointmentService) Reschedule(
 			RescheduledFromID: &current.ID,
 			IdempotencyKey:    idempotencyKey,
 			PaymentStatus:     current.PaymentStatus,
-			PaymentDueAt:      current.PaymentDueAt,
+			PaymentDueAt:      paymentDueAt,
 		}, models.OutboxEventAppointmentRescheduled)
 		if err != nil {
 			return err
@@ -597,7 +601,8 @@ func (as *AppointmentService) close(
 		return nil, apperrors.Invalid(apperrors.ErrAppointmentNotModifiable, "", "appointment has not started yet")
 	}
 	if toStatus == models.AppointmentStatusCompleted &&
-		appointment.PaymentStatus != models.AppointmentPaymentPaid && appointment.PaymentStatus != models.AppointmentPaymentWaived {
+		appointment.PaymentStatus != models.AppointmentPaymentPaid && appointment.PaymentStatus != models.AppointmentPaymentWaived &&
+		appointment.PaymentStatus != models.AppointmentPaymentDueAtClinic {
 		return nil, apperrors.Invalid(apperrors.ErrPaymentPending, "", fmt.Sprintf("payment is %s for this appointment", appointment.PaymentStatus))
 	}
 

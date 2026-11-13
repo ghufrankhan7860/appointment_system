@@ -1,0 +1,3 @@
+ALTER TABLE doctors
+ADD COLUMN upi_id VARCHAR(100) NOT NULL DEFAULT '',
+ADD COLUMN upi_qr_storage_key VARCHAR(255) NULL;

@@ -294,3 +294,72 @@ func (ac *AdminController) RevokeUserSessions(ctx context.Context, request *admi
 
 	return &admin.RevokeUserSessionsResponse{Revoked: revoked}, nil
 }
+
+func (ac *AdminController) ListPaymentClaims(ctx context.Context, request *payment.ListClaimsRequest) (*payment.ListClaimsResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	claims, err := ac.paymentService.ListClaims(ctx, userID, models.RoleAdmin, request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	return toListClaimsResponse(claims), nil
+}
+
+func (ac *AdminController) VerifyPaymentClaim(ctx context.Context, request *payment.VerifyClaimRequest) (*payment.PaymentResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	verifiedPayment, err := ac.paymentService.VerifyClaim(ctx, userID, models.RoleAdmin, request.ID, request.Note)
+	if err != nil {
+		return nil, err
+	}
+
+	response := toPaymentResponse(verifiedPayment)
+
+	return &response, nil
+}
+
+func (ac *AdminController) RejectPaymentClaim(ctx context.Context, request *payment.RejectClaimRequest) (*payment.PaymentResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rejectedPayment, err := ac.paymentService.RejectClaim(ctx, userID, models.RoleAdmin, request.ID, request.Reason)
+	if err != nil {
+		return nil, err
+	}
+
+	response := toPaymentResponse(rejectedPayment)
+
+	return &response, nil
+}
+
+func (ac *AdminController) ListManualRefunds(ctx context.Context, request *payment.ListManualRefundsRequest) (*payment.ListManualRefundsResponse, error) {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	refunds, err := ac.paymentService.ListManualRefunds(ctx, userID, models.RoleAdmin, request.Limit, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	return toListManualRefundsResponse(refunds), nil
+}
+
+func (ac *AdminController) CloseRefund(ctx context.Context, request *payment.CloseRefundRequest) error {
+	userID, err := actingUserID(ctx)
+	if err != nil {
+		return err
+	}
+
+	return ac.paymentService.CloseManualRefund(ctx, userID, models.RoleAdmin, request.ID, request.Outcome == "refunded", request.Note)
+}

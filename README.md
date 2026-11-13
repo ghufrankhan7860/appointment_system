@@ -974,11 +974,47 @@ Payments (require `Authorization: Bearer <jwtToken>`):
 
 ```text
 
-POST /appointments/:id/payments    patient  open a payment for an unpaid booking; returns the gateway clientPayload
+POST /appointments/:id/payments    patient  open a payment for an unpaid booking with {method?: razorpay|upi}; returns the clientPayload
 
 GET  /appointments/:id/payment     any      the appointment's latest payment (patient side, its doctor, admins)
 
 POST /payments/:id/verify          patient  confirm a payment with {providerPaymentId, signature?}
+
+GET  /appointments/:id/payment-options  patient  the methods this booking can be paid by, with the doctor's UPI details
+
+POST /appointments/:id/payment/clinic   patient  pay at the clinic instead: the booking is confirmed as due_at_clinic
+
+GET  /appointments/:id/payment/upi-qr   patient  the doctor's UPI QR image
+
+POST /payments/:id/claim                patient  "I've paid" for a direct UPI payment (multipart: reference, proof?)
+
+GET  /payments/:id/proof                any      the claim's screenshot (patient side, its doctor, admins)
+
+PUT  /doctors/me/upi                    doctor   set or clear the UPI ID patients pay at ({upiId})
+
+GET|PUT|DELETE /doctors/me/upi-qr       doctor   the doctor's UPI QR image (PUT is multipart: file)
+
+GET  /doctors/me/payments/claims        doctor   direct UPI payments waiting for a check, oldest first
+
+POST /doctors/me/payments/:id/verify    doctor   the money arrived ({note?}): the booking is paid
+
+POST /doctors/me/payments/:id/reject    doctor   the money never arrived ({reason}): the booking is cancelled
+
+POST /doctors/me/appointments/:id/collected  doctor  the fee was collected at the clinic ({note?})
+
+GET  /doctors/me/refunds                doctor   direct UPI refunds the doctor still owes
+
+POST /doctors/me/refunds/:id/close      doctor   {outcome: refunded|not_received, note?}
+
+GET  /admin/payments/claims             admin    every claim waiting for a check
+
+POST /admin/payments/:id/claim/verify   admin    verify a claim as backup ({note?})
+
+POST /admin/payments/:id/claim/reject   admin    reject a claim as backup ({reason})
+
+GET  /admin/refunds/manual              admin    every direct UPI refund still owed
+
+POST /admin/refunds/:id/close           admin    close a direct UPI refund ({outcome, note?})
 
 POST /webhooks/payment             gateway  Razorpay's signed callback; no token, X-Razorpay-Signature instead
 
@@ -1170,7 +1206,7 @@ Rules:
 - `make expire-payments` cancels bookings still unpaid after `paymentDueAt` with cancel reason `payment_expired`, which frees the slot. Lateness is judged on when the payer paid, as the gateway reports it, not on when the server heard of it. A payment made after the hold is refunded automatically and verify returns `409` (`details: the booking expired before the payment arrived; the payment is being refunded`). Payment and expiry use conditional updates, so when they race exactly one wins.
 - Cancelling a paid appointment refunds it in full (`patient_cancelled` or `doctor_cancelled`); cancelling an unpaid one expires its open payment.
 - Rescheduling keeps the payment: the new appointment takes over the payment status, due time and payments.
-- A doctor can complete an appointment only when it is `paid` or `waived` (`422 Payment is pending` otherwise). Reminders are sent only for paid or free appointments.
+- A doctor can complete an appointment only when it is `paid`, `waived` or `due_at_clinic` (`422 Payment is pending` otherwise). Reminders are sent only for paid, free or pay-at-clinic appointments. A doctor cannot propose a new time while the payment is `unpaid` or `pending_verification`.
 - Admins refund a captured payment in full with `POST /admin/payments/:id/refund`. A refund is recorded as `requested` before the gateway is called and settled with its answer, so no gateway call holds a database transaction open.
 - A refund the gateway is still processing stays `requested`: the refund route answers `202` with `refundPending: true` and the payment stays `captured` until the gateway's refund webhook, or `make reconcile-refunds`, marks the payment and the appointment `refunded`. A gateway error also leaves it `requested`, because the gateway may have received it.
 - A refund the gateway refuses is `failed`, the refund route answers `409`, and a `refund.failed` event is written. Refunding the payment again retries it. `GET /admin/refunds?status=failed` lists them.
@@ -1180,6 +1216,36 @@ Gateways sit behind the `PaymentGateway` port in `services/`; `PAYMENT_PROVIDER`
 
 - `none` (`adapters/payment/none`) moves no money: its `clientPayload` includes the `signature` to verify with, so the whole flow can be run from Swagger. It is refused when `APP_ENV` is production.
 - `razorpay` (`adapters/payment/razorpay`) uses [Razorpay Standard Checkout](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/) through the official `razorpay-go` SDK. See **Razorpay** below.
+
+### Payments: methods
+
+`PAYMENT_METHODS` lists the ways a booking can be paid, comma-separated, in any combination: `razorpay` (the gateway above), `upi` (paid straight to the doctor's UPI ID and checked by hand) and `clinic` (paid at the visit). It defaults to `razorpay`. An empty value is none mode: every booking is paid at the clinic. Unknown or repeated entries stop the server at startup.
+
+- The gateway is built and checked only when `razorpay` is listed: then `PAYMENT_PROVIDER=razorpay` with its keys is required in production, as before. Without it, production starts with no Razorpay keys, and `POST /appointments/:id/payments` with method `razorpay` is `409`.
+- `GET /appointments/:id/payment-options` gives the methods a booking offers: `razorpay` when listed, `upi` when listed and the doctor has set a UPI ID, `clinic` when listed. When no online method applies (none mode, or `upi` alone and a doctor with no UPI ID), `clinic` is the only one, whatever the list says.
+- Locally, `make up-upi`, `make up-clinic`, `make up-upi-clinic`, `make up-all` and `make up-none` start the Docker stack with that list (`make up` keeps `razorpay`, or takes `PAYMENT_METHODS` from the shell). Switching recreates only the api container. The local stack runs `PAYMENT_PROVIDER=none`, which the web client can't pay through, so `razorpay` needs the Razorpay test settings in the shell (see **Razorpay**).
+- A booking that can be paid online starts `unpaid` with the 10-minute hold. A booking that can only be paid at the clinic is `due_at_clinic` at once, with no hold.
+
+Direct UPI:
+
+1. The doctor sets a UPI ID (`PUT /doctors/me/upi`, `name@bank`) and may upload a QR image (`PUT /doctors/me/upi-qr`). Clearing the UPI ID removes the QR.
+2. `POST /appointments/:id/payments` with `{"method":"upi"}` opens a `created` payment with provider `upi_direct`. Its `clientPayload` has `upiId`, `payeeName`, `amount` (rupees), `note`, `hasQr` and `upiLink`, a `upi://pay` link with the amount fixed that UPI apps open. An open payment by another method is expired first, so the patient can switch.
+3. Within the hold the patient sends `POST /payments/:id/claim` with the UPI reference (UTR, 6 to 35 letters or digits; spaces are dropped) and an optional screenshot. The payment becomes `claimed` and the booking `pending_verification`, with `paymentDueAt` moved to the start: the slot stays held until then.
+4. The doctor, or an admin as backup, checks their bank app. Verify captures the payment and marks the booking `paid`. Reject needs a reason: the payment is `rejected` and the booking cancelled with `payment_rejected` and back to `unpaid`, which frees the slot. The reason is shown to the patient.
+5. `make expire-payments` cancels a claim still unchecked at the start with `payment_unverified`.
+
+Pay at the clinic:
+
+- `POST /appointments/:id/payment/clinic` turns an `unpaid` booking `due_at_clinic` when `clinic` is offered. The booking is confirmed and its open online payment expired.
+- The doctor records the fee with `POST /doctors/me/appointments/:id/collected`, before or after the visit: a captured payment with provider `clinic` is written and the booking becomes `paid`.
+- `due_at_clinic` counts as settled for the video call window, completing the visit and reschedule proposals. `pending_verification` does not.
+
+Refunds of direct UPI payments:
+
+- Cancelling a booking whose UPI payment is `captured` or `claimed`, or expiring an unchecked claim, writes a `requested` refund with no gateway call. `make reconcile-refunds` leaves it alone.
+- The doctor sends the money back and closes it with `POST /doctors/me/refunds/:id/close`: `refunded` marks the payment and the booking refunded; `not_received`, only for a claim never verified, fails the refund and rejects the claim. Admins can close them too (`/admin/refunds/:id/close`).
+- Screenshots and QR images are JPEG or PNG of at most 5 MB, checked by content, and stored through `STORAGE_PROVIDER`. They are served with `Cache-Control: no-store`.
+- Outbox events: `payment.claimed` and `payment.rejected`, besides the ones above.
 
 ### Razorpay
 
@@ -1288,6 +1354,7 @@ make cover                 # coverage of the application code, run from tests/
 | `make db` | Start Postgres and apply migrations |
 | `make run` | Run the API locally with Swagger (`go run -tags swagger .`) |
 | `make up` / `make down` | Build and start / stop the whole Docker stack |
+| `make up-upi` / `up-clinic` / `up-upi-clinic` / `up-all` / `up-none` | `make up` with `PAYMENT_METHODS` set to `upi`, `clinic`, `upi,clinic`, all three, or empty (see **Payments: methods**) |
 | `make down-v` | Stop the stack and delete the database volume |
 | `make db-reset` | Delete the database volume, then start Postgres and migrate again |
 | `make migrate` | Apply pending migrations |
@@ -1334,7 +1401,7 @@ go run .
 
 The `migrate` service applies every ordered migration in `migrations/` (`000001` onwards) and skips the ones already applied, so it is safe to run again after pulling new migrations. Schema migrations are explicit and are not run automatically when the application starts.
 
-Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only; `razorpay` needs the three `RAZORPAY_*` settings (see **Razorpay**). `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
+Copy `envs/.env.example` for the local settings. `JWT_SECRET` must be at least 32 characters and must be replaced outside local development. `PAYMENT_PROVIDER` defaults to `none`, which is for local development only; `razorpay` needs the three `RAZORPAY_*` settings (see **Razorpay**). `PAYMENT_METHODS` (default `razorpay`) picks how bookings can be paid; see **Payments: methods**. `STORAGE_PROVIDER=local` with `STORAGE_LOCAL_DIR` keeps uploaded medical files on disk; outside development, put that folder on a persistent volume.
 
 Logs always go to stdout through `log/slog`. Set `LOG_FILE` to a path (for example `var/log/appointment.log`) to also append every line to that file; its folder is created when missing, and empty `LOG_FILE` writes no file. The file is not rotated, so rotate it with logrotate (`copytruncate`) or prune it to the retention below; in Docker, put its folder on a volume or the file is lost with the container. `LOG_FORMAT` is `json` (default, for production, where the container runtime or a collector ships them) or `text` (local), `LOG_LEVEL` is `debug`, `info` (default), `warn` or `error`, and `LOG_SOURCE=true` adds the file and line. Every line logged during a request carries `correlation_id` (also returned as `X-Correlation-ID`) and, once authenticated, `user_id` and `role`. Each request writes one `request served` line with the route pattern, never the raw path; a 500 line carries the real error. Services log domain events with IDs only, and the keys `password`, `token`, `email`, `mobile`, `notes`, `diagnosis` and similar are redacted. Never log free text or personal data. Request lines hold `client_ip` and admin lines are an audit trail next to medical data, so keep logs for at most 30 days unless a legal hold requires longer.
 

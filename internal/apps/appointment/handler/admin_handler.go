@@ -5,6 +5,7 @@ import (
 	"appointment_system/internal/apps/appointment/authz"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/dtos/admin"
+	"appointment_system/internal/apps/appointment/dtos/payment"
 	"appointment_system/middleware"
 	"errors"
 	"log/slog"
@@ -58,6 +59,11 @@ func (ah *AdminHandler) RegisterRoutes(router *gin.RouterGroup) {
 	adminRoutes.POST("/specialities", authz.RequirePermission(authz.PermSpecialityManage), ah.CreateSpeciality)
 	adminRoutes.POST("/payments/:id/refund", authz.RequirePermission(authz.PermPaymentRefund), ah.RefundPayment)
 	adminRoutes.GET("/refunds", authz.RequirePermission(authz.PermPaymentRefund), ah.ListRefunds)
+	adminRoutes.GET("/refunds/manual", authz.RequirePermission(authz.PermPaymentRefund), ah.ListManualRefunds)
+	adminRoutes.POST("/refunds/:id/close", authz.RequirePermission(authz.PermPaymentRefund), ah.CloseRefund)
+	adminRoutes.GET("/payments/claims", authz.RequirePermission(authz.PermPaymentRefund), ah.ListPaymentClaims)
+	adminRoutes.POST("/payments/:id/claim/verify", authz.RequirePermission(authz.PermPaymentRefund), ah.VerifyPaymentClaim)
+	adminRoutes.POST("/payments/:id/claim/reject", authz.RequirePermission(authz.PermPaymentRefund), ah.RejectPaymentClaim)
 	adminRoutes.GET("/users/:id/sessions", authz.RequirePermission(authz.PermSessionManage), ah.ListUserSessions)
 	adminRoutes.DELETE("/users/:id/sessions/:sessionId", authz.RequirePermission(authz.PermSessionManage), ah.RevokeUserSession)
 	adminRoutes.POST("/users/:id/sessions/revoke-all", authz.RequirePermission(authz.PermSessionManage), ah.RevokeUserSessions)
@@ -832,5 +838,288 @@ func (ah *AdminHandler) RevokeUserSessions(ctx *gin.Context) {
 		"success": true,
 		"data":    response,
 		"message": "Sessions revoked successfully",
+	})
+}
+
+// ListPaymentClaims godoc
+// @Summary Direct UPI payments waiting for a check
+// @Description Every claimed direct UPI payment, oldest first, each with its booking: the admin's backup for doctors who don't check their own. Limit defaults to 20 and is capped at 100.
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Param limit query int false "Page size"
+// @Param offset query int false "Page offset"
+// @Success 200 {object} dtos.SuccessResponse{data=payment.ListClaimsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/payments/claims [get]
+func (ah *AdminHandler) ListPaymentClaims(ctx *gin.Context) {
+	var listClaimsRequest payment.ListClaimsRequest
+	if err := ctx.ShouldBindQuery(&listClaimsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := ah.adminController.ListPaymentClaims(ctx.Request.Context(), &listClaimsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list payment claims"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Payment claims retrieved successfully",
+	})
+}
+
+// VerifyPaymentClaim godoc
+// @Summary Confirm a direct UPI payment arrived, as an admin
+// @Description Captures a claimed direct UPI payment and marks the booking paid, for a doctor who can't check it. A payment no longer waiting for a check gets 409.
+// @Tags admin
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path int true "Payment ID"
+// @Param request body payment.VerifyClaimRequest false "Optional note"
+// @Success 200 {object} dtos.SuccessResponse{data=payment.PaymentResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 409 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/payments/{id}/claim/verify [post]
+func (ah *AdminHandler) VerifyPaymentClaim(ctx *gin.Context) {
+	var verifyClaimRequest payment.VerifyClaimRequest
+	if ctx.Request.ContentLength != 0 {
+		if err := ctx.ShouldBindJSON(&verifyClaimRequest); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request payload",
+				"details": bindErrorDetail(err),
+			})
+			return
+		}
+	}
+	if err := ctx.ShouldBindUri(&verifyClaimRequest); err != nil || verifyClaimRequest.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payment id"})
+		return
+	}
+
+	response, err := ah.adminController.VerifyPaymentClaim(ctx.Request.Context(), &verifyClaimRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPaymentInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request",
+				"details": apperrors.Reason(err),
+			})
+		case errors.Is(err, apperrors.ErrPaymentNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Payment not found"})
+		case errors.Is(err, apperrors.ErrPaymentNotModifiable):
+			ctx.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "Payment is not waiting for a check",
+				"details": apperrors.Reason(err),
+			})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to verify payment"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Payment verified",
+	})
+}
+
+// RejectPaymentClaim godoc
+// @Summary Say a direct UPI payment never arrived, as an admin
+// @Description Rejects a claimed direct UPI payment and cancels its booking with reason payment_rejected. The reason is shown to the patient. A payment no longer waiting for a check gets 409.
+// @Tags admin
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path int true "Payment ID"
+// @Param request body payment.RejectClaimRequest true "Reason"
+// @Success 200 {object} dtos.SuccessResponse{data=payment.PaymentResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 409 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/payments/{id}/claim/reject [post]
+func (ah *AdminHandler) RejectPaymentClaim(ctx *gin.Context) {
+	var rejectClaimRequest payment.RejectClaimRequest
+	if err := ctx.ShouldBindJSON(&rejectClaimRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+	if err := ctx.ShouldBindUri(&rejectClaimRequest); err != nil || rejectClaimRequest.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payment id"})
+		return
+	}
+
+	response, err := ah.adminController.RejectPaymentClaim(ctx.Request.Context(), &rejectClaimRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPaymentInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request",
+				"details": apperrors.Reason(err),
+			})
+		case errors.Is(err, apperrors.ErrPaymentNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Payment not found"})
+		case errors.Is(err, apperrors.ErrPaymentNotModifiable):
+			ctx.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "Payment is not waiting for a check",
+				"details": apperrors.Reason(err),
+			})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to reject payment"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Payment rejected and booking cancelled",
+	})
+}
+
+// ListManualRefunds godoc
+// @Summary Direct UPI refunds still to be made
+// @Description Every refund of a direct UPI payment still requested, oldest first, each with its payment and booking. Limit defaults to 20 and is capped at 100.
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Param limit query int false "Page size"
+// @Param offset query int false "Page offset"
+// @Success 200 {object} dtos.SuccessResponse{data=payment.ListManualRefundsResponse}
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/refunds/manual [get]
+func (ah *AdminHandler) ListManualRefunds(ctx *gin.Context) {
+	var listManualRefundsRequest payment.ListManualRefundsRequest
+	if err := ctx.ShouldBindQuery(&listManualRefundsRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid query parameters",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+
+	response, err := ah.adminController.ListManualRefunds(ctx.Request.Context(), &listManualRefundsRequest)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to list refunds"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+		"message": "Refunds retrieved successfully",
+	})
+}
+
+// CloseRefund godoc
+// @Summary Close a direct UPI refund, as an admin
+// @Description Settles a refund of a direct UPI payment by hand: refunded when the money was sent back, not_received when a payment that was never verified never arrived.
+// @Tags admin
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path int true "Refund ID"
+// @Param request body payment.CloseRefundRequest true "Outcome"
+// @Success 200 {object} dtos.SuccessResponse
+// @Failure 400 {object} dtos.ErrorResponse
+// @Failure 401 {object} dtos.ErrorResponse
+// @Failure 403 {object} dtos.ErrorResponse
+// @Failure 404 {object} dtos.ErrorResponse
+// @Failure 409 {object} dtos.ErrorResponse
+// @Failure 500 {object} dtos.ErrorResponse
+// @Router /admin/refunds/{id}/close [post]
+func (ah *AdminHandler) CloseRefund(ctx *gin.Context) {
+	var closeRefundRequest payment.CloseRefundRequest
+	if err := ctx.ShouldBindJSON(&closeRefundRequest); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid request payload",
+			"details": bindErrorDetail(err),
+		})
+		return
+	}
+	if err := ctx.ShouldBindUri(&closeRefundRequest); err != nil || closeRefundRequest.ID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid refund id"})
+		return
+	}
+
+	if err := ah.adminController.CloseRefund(ctx.Request.Context(), &closeRefundRequest); err != nil {
+		switch {
+		case errors.Is(err, apperrors.ErrPrincipalNotFound):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "Unauthorized"})
+		case errors.Is(err, apperrors.ErrInvalidPaymentInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Invalid request",
+				"details": apperrors.Reason(err),
+			})
+		case errors.Is(err, apperrors.ErrRefundNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Refund not found"})
+		case errors.Is(err, apperrors.ErrPaymentNotModifiable):
+			ctx.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "Refund cannot be closed this way",
+				"details": apperrors.Reason(err),
+			})
+		default:
+			_ = ctx.Error(err)
+			ctx.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to close refund"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Refund closed",
 	})
 }

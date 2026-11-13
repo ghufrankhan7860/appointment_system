@@ -49,6 +49,24 @@ func newTestAppointmentAndPaymentServices(
 ) (*services.AppointmentService, *services.PaymentService) {
 	t.Helper()
 
+	return newTestServicesWithMethods(t, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, doctors, appointments, outbox, userPatients, payments, gateway, now)
+}
+
+// newTestServicesWithMethods builds the services with PAYMENT_METHODS set to methods.
+func newTestServicesWithMethods(
+	t *testing.T,
+	methods []models.PaymentMethod,
+	storage *fakeFileStorage,
+	doctors *fakeDoctorRepo,
+	appointments *fakeAppointmentRepo,
+	outbox *fakeOutboxRepo,
+	userPatients *fakeUserPatientRepo,
+	payments *fakePaymentRepo,
+	gateway *fakeGateway,
+	now time.Time,
+) (*services.AppointmentService, *services.PaymentService) {
+	t.Helper()
+
 	mondayMorning := &models.AvailabilityRule{DayOfWeek: time.Monday, StartMinute: 9 * 60, EndMinute: 11 * 60, Mode: models.ConsultationModeInPerson}
 	availability, err := services.NewAvailabilityService(
 		doctors,
@@ -63,7 +81,7 @@ func newTestAppointmentAndPaymentServices(
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
 
-	paymentService, err := services.NewPaymentService(payments, appointments, outbox, userPatients, doctors, gateway, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
+	paymentService, err := services.NewPaymentService(payments, appointments, outbox, userPatients, doctors, gateway, methods, storage, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
@@ -90,7 +108,7 @@ func TestNewAppointmentServiceValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, time.Now, discardLogger)
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}

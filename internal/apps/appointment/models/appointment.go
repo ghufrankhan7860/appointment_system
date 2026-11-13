@@ -33,6 +33,10 @@ const (
 	CancelReasonPaymentExpired   CancelReason = "payment_expired"
 	CancelReasonProposalDeclined CancelReason = "proposal_declined"
 	CancelReasonProposalExpired  CancelReason = "proposal_expired"
+	// A direct UPI payment the doctor never checked before the start, or said
+	// never arrived.
+	CancelReasonPaymentUnverified CancelReason = "payment_unverified"
+	CancelReasonPaymentRejected   CancelReason = "payment_rejected"
 )
 
 // Appointment is a booked visit of a patient with a doctor. StartsAt and EndsAt
@@ -120,6 +124,9 @@ const (
 	OutboxAggregatePayment     = "payment"
 	OutboxEventPaymentCaptured = "payment.captured"
 	OutboxEventPaymentRefunded = "payment.refunded"
+	// A patient says they paid the doctor by UPI, and the doctor checked it.
+	OutboxEventPaymentClaimed  = "payment.claimed"
+	OutboxEventPaymentRejected = "payment.rejected"
 	// OutboxEventRefundFailed tells admins a refund did not go through, so
 	// they can retry it.
 	OutboxEventRefundFailed = "refund.failed"

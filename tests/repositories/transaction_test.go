@@ -2,6 +2,7 @@ package repositories_test
 
 import (
 	"appointment_system/config"
+	"appointment_system/internal/apps/appointment/adapters/storage/local"
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/repositories"
@@ -164,4 +165,16 @@ func TestGORMTransactionManager(t *testing.T) {
 			t.Fatalf("WithinTransaction error = nil, want an error for a nil function")
 		}
 	})
+}
+
+// newTestFileStorage is local file storage in a directory removed after the test.
+func newTestFileStorage(t *testing.T) *local.Storage {
+	t.Helper()
+
+	storage, err := local.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("local.New returned error: %v", err)
+	}
+
+	return storage
 }

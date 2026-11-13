@@ -1,8 +1,10 @@
 package handler_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -526,7 +528,7 @@ func (f *fakePaymentRepo) GetLatestByAppointment(ctx context.Context, appointmen
 }
 
 func (f *fakePaymentRepo) GetActiveByAppointment(ctx context.Context, appointmentID uint64) (*models.Payment, error) {
-	if f.payment == nil || (f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured) {
+	if f.payment == nil || (f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured && f.payment.Status != models.PaymentStatusClaimed) {
 		return nil, apperrors.ErrPaymentNotFound
 	}
 	found := *f.payment
@@ -1069,4 +1071,108 @@ func (f *fakeCallPeer) received(signalType models.CallSignalType) []models.CallS
 		}
 	}
 	return signals
+}
+
+func (f *fakeDoctorRepo) UpdateUPI(ctx context.Context, id uint64, upiID string, qrStorageKey *string) error {
+	if f.doctor == nil || f.doctor.ID != id {
+		return apperrors.ErrDoctorNotFound
+	}
+	f.doctor.UPIID = upiID
+	f.doctor.UPIQRStorageKey = qrStorageKey
+	return nil
+}
+
+func (f *fakeAppointmentRepo) SetPaymentDue(ctx context.Context, id uint64, fromStatus models.AppointmentPaymentStatus, toStatus models.AppointmentPaymentStatus, dueAt *time.Time) error {
+	if f.byID != nil {
+		if f.byID.PaymentStatus != fromStatus || f.byID.Status != models.AppointmentStatusScheduled {
+			return apperrors.ErrAppointmentNotModifiable
+		}
+		f.byID.PaymentStatus = toStatus
+		f.byID.PaymentDueAt = dueAt
+	}
+	return nil
+}
+
+func (f *fakeAppointmentRepo) CancelForRejectedPayment(ctx context.Context, id uint64, actingUserID uint64) error {
+	if f.byID != nil {
+		if f.byID.PaymentStatus != models.AppointmentPaymentPendingVerification || f.byID.Status != models.AppointmentStatusScheduled {
+			return apperrors.ErrAppointmentNotModifiable
+		}
+		f.byID.Status = models.AppointmentStatusCancelled
+		f.byID.CancelReason = models.CancelReasonPaymentRejected
+		f.byID.PaymentStatus = models.AppointmentPaymentUnpaid
+		f.byID.PaymentDueAt = nil
+	}
+	return nil
+}
+
+func (f *fakePaymentRepo) Claim(ctx context.Context, id uint64, reference string, proofStorageKey *string, claimedAt time.Time) error {
+	if f.payment == nil || f.payment.ID != id || f.payment.Status != models.PaymentStatusCreated {
+		return apperrors.ErrPaymentNotModifiable
+	}
+	f.payment.Status = models.PaymentStatusClaimed
+	f.payment.PayerReference = reference
+	f.payment.ProofStorageKey = proofStorageKey
+	f.payment.ClaimedAt = &claimedAt
+	return nil
+}
+
+func (f *fakePaymentRepo) Review(ctx context.Context, id uint64, toStatus models.PaymentStatus, reviewedByUserID uint64, note string, reviewedAt time.Time) error {
+	if f.payment == nil || f.payment.ID != id || f.payment.Status != models.PaymentStatusClaimed {
+		return apperrors.ErrPaymentNotModifiable
+	}
+	f.payment.Status = toStatus
+	f.payment.ReviewedByUserID = reviewedByUserID
+	f.payment.ReviewNote = note
+	f.payment.ReviewedAt = &reviewedAt
+	return nil
+}
+
+func (f *fakePaymentRepo) ListClaimed(ctx context.Context, doctorID uint64, limit int, offset int) ([]*models.Payment, error) {
+	if f.payment == nil || f.payment.Status != models.PaymentStatusClaimed {
+		return []*models.Payment{}, nil
+	}
+	found := *f.payment
+	return []*models.Payment{&found}, nil
+}
+
+func (f *fakePaymentRepo) ListManualRefunds(ctx context.Context, doctorID uint64, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error) {
+	refunds := []*models.Refund{}
+	for _, refund := range f.refunds {
+		if refund.Status == status {
+			found := *refund
+			refunds = append(refunds, &found)
+		}
+	}
+	return refunds, nil
+}
+
+// fakeFileStorage keeps uploaded payment images in memory.
+type fakeFileStorage struct {
+	files map[string][]byte
+}
+
+func (f *fakeFileStorage) Put(ctx context.Context, key string, content io.Reader, contentType string) error {
+	data, err := io.ReadAll(content)
+	if err != nil {
+		return err
+	}
+	if f.files == nil {
+		f.files = map[string][]byte{}
+	}
+	f.files[key] = data
+	return nil
+}
+
+func (f *fakeFileStorage) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	data, ok := f.files[key]
+	if !ok {
+		return nil, apperrors.ErrStoredFileNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func (f *fakeFileStorage) Delete(ctx context.Context, key string) error {
+	delete(f.files, key)
+	return nil
 }

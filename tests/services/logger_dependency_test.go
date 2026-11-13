@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"appointment_system/internal/apps/appointment/apperrors"
+	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/services"
 )
 
 func TestNewServicesRequireLogger(t *testing.T) {
 	availability := newTestAvailability(t)
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, time.Now, discardLogger)
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestNewServicesRequireLogger(t *testing.T) {
 			return err
 		}},
 		{name: "payment", new: func() error {
-			_, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, time.Now, nil)
+			_, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, nil)
 			return err
 		}},
 		{name: "appointment", new: func() error {

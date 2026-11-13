@@ -6,11 +6,17 @@ GO_TAGS = swagger
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy create-admin cover consumer reminders expire-payments expire-proposals reconcile-refunds purge-sessions expire-calls
+.PHONY: help up up-upi up-clinic up-upi-clinic up-all up-none down down-v restart build logs ps db db-down migrate db-reset run test vet swagger tidy create-admin cover consumer reminders expire-payments expire-proposals reconcile-refunds purge-sessions expire-calls
 
 help:
 	@echo Docker:
 	@echo   make up        build and start postgres, migrate and api in the background
+	@echo                  payments: razorpay, or PAYMENT_METHODS from the shell
+	@echo   make up-upi         same, payments: upi only
+	@echo   make up-clinic      same, payments: clinic only
+	@echo   make up-upi-clinic  same, payments: upi and clinic, production without Razorpay
+	@echo   make up-all         same, payments: razorpay, upi and clinic
+	@echo   make up-none        same, payments: none, every booking paid at the clinic
 	@echo   make down      stop and remove the containers
 	@echo   make down-v    stop and remove the containers and volumes, deletes database data
 	@echo   make restart   down, then up
@@ -39,8 +45,18 @@ help:
 	@echo   make purge-sessions   delete sessions ended more than 90 days ago, once
 	@echo   make expire-calls     end call rooms whose time is over, once
 
-up: export GO_BUILD_TAGS = $(GO_TAGS)
-up:
+# The up-* variants set PAYMENT_METHODS for the api container (deploy/compose.yaml
+# passes it through); running one recreates the api with the new methods.
+UP_VARIANTS = up-upi up-clinic up-upi-clinic up-all up-none
+
+up-upi: export PAYMENT_METHODS = upi
+up-clinic: export PAYMENT_METHODS = clinic
+up-upi-clinic: export PAYMENT_METHODS = upi,clinic
+up-all: export PAYMENT_METHODS = razorpay,upi,clinic
+up-none: export PAYMENT_METHODS =
+
+up $(UP_VARIANTS): export GO_BUILD_TAGS = $(GO_TAGS)
+up $(UP_VARIANTS):
 	$(COMPOSE) up --build -d --wait
 
 down:

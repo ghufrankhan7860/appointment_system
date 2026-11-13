@@ -277,6 +277,9 @@ type fakeDoctorRepo struct {
 	searchCalls  int
 	listStatus   models.VerificationStatus
 	listLimit    int
+
+	upiID    string
+	upiQRKey *string
 }
 
 func (f *fakeDoctorRepo) Create(ctx context.Context, doctor *models.Doctor) (*models.Doctor, error) {
@@ -667,6 +670,7 @@ type fakeAppointmentRepo struct {
 	unpaidDue       []*models.AppointmentDetails
 	cancelUnpaidErr error
 	cancelUnpaidIDs []uint64
+	paymentDueAt    *time.Time
 
 	due      map[models.ReminderWindow][]*models.AppointmentDetails
 	dueFrom  map[models.ReminderWindow]time.Time
@@ -835,8 +839,9 @@ type fakePaymentRepo struct {
 	refundErr error
 	finished  []models.RefundStatus
 
-	listedStatus models.RefundStatus
-	listedLimit  int
+	listedStatus   models.RefundStatus
+	listedLimit    int
+	listedDoctorID uint64
 }
 
 func (f *fakePaymentRepo) Create(ctx context.Context, payment *models.Payment) (*models.Payment, error) {
@@ -868,7 +873,7 @@ func (f *fakePaymentRepo) GetLatestByAppointment(ctx context.Context, appointmen
 
 func (f *fakePaymentRepo) GetActiveByAppointment(ctx context.Context, appointmentID uint64) (*models.Payment, error) {
 	if f.payment == nil || (f.payment.AppointmentID != 0 && f.payment.AppointmentID != appointmentID) ||
-		(f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured) {
+		(f.payment.Status != models.PaymentStatusCreated && f.payment.Status != models.PaymentStatusCaptured && f.payment.Status != models.PaymentStatusClaimed) {
 		return nil, apperrors.ErrPaymentNotFound
 	}
 	found := *f.payment
@@ -1540,4 +1545,86 @@ func (f *fakeCallPeer) received(signalType models.CallSignalType) []models.CallS
 		}
 	}
 	return signals
+}
+
+func (f *fakeDoctorRepo) UpdateUPI(ctx context.Context, id uint64, upiID string, qrStorageKey *string) error {
+	f.upiID = upiID
+	f.upiQRKey = qrStorageKey
+	for _, doctor := range []*models.Doctor{f.byUserID, f.byID} {
+		if doctor != nil {
+			doctor.UPIID = upiID
+			doctor.UPIQRStorageKey = qrStorageKey
+		}
+	}
+	return nil
+}
+
+func (f *fakeAppointmentRepo) SetPaymentDue(ctx context.Context, id uint64, fromStatus models.AppointmentPaymentStatus, toStatus models.AppointmentPaymentStatus, dueAt *time.Time) error {
+	if f.byID != nil && (f.byID.PaymentStatus != fromStatus || f.byID.Status != models.AppointmentStatusScheduled) {
+		return apperrors.ErrAppointmentNotModifiable
+	}
+	f.paymentStatusTo = toStatus
+	f.paymentDueAt = dueAt
+	if f.byID != nil {
+		f.byID.PaymentStatus = toStatus
+		f.byID.PaymentDueAt = dueAt
+	}
+	return nil
+}
+
+func (f *fakeAppointmentRepo) CancelForRejectedPayment(ctx context.Context, id uint64, actingUserID uint64) error {
+	if f.byID != nil && (f.byID.PaymentStatus != models.AppointmentPaymentPendingVerification || f.byID.Status != models.AppointmentStatusScheduled) {
+		return apperrors.ErrAppointmentNotModifiable
+	}
+	f.cancelledIDs = append(f.cancelledIDs, id)
+	f.cancelReason = models.CancelReasonPaymentRejected
+	if f.byID != nil {
+		f.byID.Status = models.AppointmentStatusCancelled
+		f.byID.PaymentStatus = models.AppointmentPaymentUnpaid
+		f.byID.PaymentDueAt = nil
+	}
+	return nil
+}
+
+func (f *fakePaymentRepo) Claim(ctx context.Context, id uint64, reference string, proofStorageKey *string, claimedAt time.Time) error {
+	if f.payment == nil || f.payment.ID != id || f.payment.Status != models.PaymentStatusCreated {
+		return apperrors.ErrPaymentNotModifiable
+	}
+	f.payment.Status = models.PaymentStatusClaimed
+	f.payment.PayerReference = reference
+	f.payment.ProofStorageKey = proofStorageKey
+	f.payment.ClaimedAt = &claimedAt
+	return nil
+}
+
+func (f *fakePaymentRepo) Review(ctx context.Context, id uint64, toStatus models.PaymentStatus, reviewedByUserID uint64, note string, reviewedAt time.Time) error {
+	if f.payment == nil || f.payment.ID != id || f.payment.Status != models.PaymentStatusClaimed {
+		return apperrors.ErrPaymentNotModifiable
+	}
+	f.payment.Status = toStatus
+	f.payment.ReviewedByUserID = reviewedByUserID
+	f.payment.ReviewNote = note
+	f.payment.ReviewedAt = &reviewedAt
+	return nil
+}
+
+func (f *fakePaymentRepo) ListClaimed(ctx context.Context, doctorID uint64, limit int, offset int) ([]*models.Payment, error) {
+	f.listedDoctorID = doctorID
+	if f.payment == nil || f.payment.Status != models.PaymentStatusClaimed {
+		return []*models.Payment{}, nil
+	}
+	found := *f.payment
+	return []*models.Payment{&found}, nil
+}
+
+func (f *fakePaymentRepo) ListManualRefunds(ctx context.Context, doctorID uint64, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error) {
+	f.listedDoctorID = doctorID
+	refunds := []*models.Refund{}
+	for _, refund := range f.refunds {
+		if refund.Status == status {
+			found := *refund
+			refunds = append(refunds, &found)
+		}
+	}
+	return refunds, nil
 }
