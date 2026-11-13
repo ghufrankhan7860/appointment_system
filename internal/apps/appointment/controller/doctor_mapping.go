@@ -50,6 +50,8 @@ func toDoctorResponse(profile *models.Doctor) doctor.DoctorResponse {
 		VerificationStatus:  string(profile.VerificationStatus),
 		VerifiedAt:          profile.VerifiedAt,
 		IsAcceptingPatients: profile.IsAcceptingPatients,
+		UPIID:               profile.UPIID,
+		HasUPIQR:            profile.UPIQRStorageKey != nil,
 	}
 }
 

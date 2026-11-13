@@ -109,6 +109,7 @@ func run() error {
 		return fmt.Errorf("initialize transaction manager: %w", err)
 	}
 	paymentGateway, err := appointment.NewPaymentGateway(appointment.PaymentSettings{
+		Methods:               config.Payment.Methods,
 		Provider:              config.Payment.Provider,
 		RazorpayKeyID:         config.Payment.RazorpayKeyID,
 		RazorpayKeySecret:     config.Payment.RazorpayKeySecret,
@@ -116,6 +117,10 @@ func run() error {
 	})
 	if err != nil {
 		return fmt.Errorf("initialize payment gateway: %w", err)
+	}
+	fileStorage, err := appointment.NewFileStorage(config.Storage.Provider, config.Storage.LocalDir)
+	if err != nil {
+		return fmt.Errorf("initialize file storage: %w", err)
 	}
 
 	availabilityService, err := services.NewAvailabilityService(
@@ -137,6 +142,8 @@ func run() error {
 		userPatientRepository,
 		doctorRepository,
 		paymentGateway,
+		appointment.PaymentMethods(config.Payment.Methods),
+		fileStorage,
 		txManager,
 		time.Now,
 		logger,

@@ -17,9 +17,9 @@ type AppointmentResponse struct {
 	SlotDurationMin int             `json:"slotDurationMin" example:"30"`
 	Notes           string          `json:"notes" example:"Fever since Monday"`
 	CancelledAt     *time.Time      `json:"cancelledAt,omitempty"`
-	CancelReason    string          `json:"cancelReason,omitempty" enums:"patient_request,doctor_request,admin,rescheduled,doctor_suspended,payment_expired,proposal_declined,proposal_expired"`
+	CancelReason    string          `json:"cancelReason,omitempty" enums:"patient_request,doctor_request,admin,rescheduled,doctor_suspended,payment_expired,proposal_declined,proposal_expired,payment_unverified,payment_rejected"`
 	RescheduledFrom *uint64         `json:"rescheduledFromId,omitempty" example:"49"`
-	PaymentStatus   string          `json:"paymentStatus" enums:"unpaid,paid,refunded,waived" example:"unpaid"`
+	PaymentStatus   string          `json:"paymentStatus" enums:"unpaid,pending_verification,due_at_clinic,paid,refunded,waived" example:"unpaid"`
 	PaymentDueAt    *time.Time      `json:"paymentDueAt,omitempty"`
 	Doctor          DoctorSummary   `json:"doctor"`
 	Patient         PatientSummary  `json:"patient"`

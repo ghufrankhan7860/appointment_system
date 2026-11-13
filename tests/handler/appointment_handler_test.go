@@ -31,7 +31,7 @@ func newAppointmentRouter(
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	paymentService, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, userPatients, doctors, none.New(), &fakeTxManager{}, time.Now, discardLogger)
+	paymentService, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, userPatients, doctors, none.New(), []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}

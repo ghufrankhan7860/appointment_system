@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,13 @@ const (
 	// Razorpay key ids start with the mode they belong to.
 	razorpayTestKeyPrefix = "rzp_test_"
 	razorpayLiveKeyPrefix = "rzp_live_"
+	// The payment methods PAYMENT_METHODS can list. Razorpay collects through the
+	// gateway; upi is the doctor's own UPI, checked by the doctor; clinic is paid at
+	// the visit. defaultPaymentMethods keeps the gateway-only behaviour.
+	paymentMethodRazorpay = "razorpay"
+	paymentMethodUPI      = "upi"
+	paymentMethodClinic   = "clinic"
+	defaultPaymentMethods = paymentMethodRazorpay
 	// storageProviderLocal keeps uploads on the local disk under StorageConfig.LocalDir.
 	storageProviderLocal = "local"
 	defaultStorageDir    = "var/storage"
@@ -117,6 +125,9 @@ type DatabaseConfig struct {
 }
 
 type PaymentConfig struct {
+	// Methods are the ways a patient can settle a booking: razorpay, upi and
+	// clinic. Empty means none, and every booking with a fee is paid at the clinic.
+	Methods []string
 	// Provider selects the payment gateway adapter.
 	Provider string
 	// The Razorpay settings are required when Provider is razorpay. The key id
@@ -190,6 +201,7 @@ func Load() (Config, error) {
 			TokenTTL:  constant.AccessTokenTTL,
 		},
 		Payment: PaymentConfig{
+			Methods:               splitList(env("PAYMENT_METHODS", defaultPaymentMethods)),
 			Provider:              env("PAYMENT_PROVIDER", paymentProviderNone),
 			RazorpayKeyID:         env("RAZORPAY_KEY_ID", ""),
 			RazorpayKeySecret:     env("RAZORPAY_KEY_SECRET", ""),
@@ -278,9 +290,17 @@ func Load() (Config, error) {
 		}
 	}
 
-	switch config.Payment.Provider {
-	case paymentProviderNone:
-	case paymentProviderRazorpay:
+	if err := validatePaymentMethods(config.Payment.Methods); err != nil {
+		return Config{}, err
+	}
+	// The gateway is only built, and only checked, when razorpay is a method.
+	switch {
+	case !slices.Contains(config.Payment.Methods, paymentMethodRazorpay):
+	case config.Payment.Provider == paymentProviderNone:
+		if isProductionEnvironment() {
+			return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q takes no money and is not allowed in production; remove %q from PAYMENT_METHODS or set the Razorpay keys", paymentProviderNone, paymentMethodRazorpay)
+		}
+	case config.Payment.Provider == paymentProviderRazorpay:
 		if config.Payment.RazorpayKeyID == "" || config.Payment.RazorpayKeySecret == "" {
 			return Config{}, fmt.Errorf("RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required for the %q payment provider", paymentProviderRazorpay)
 		}
@@ -315,11 +335,26 @@ func Load() (Config, error) {
 	if config.Storage.Provider == storageProviderLocal && config.Storage.LocalDir == "" {
 		return Config{}, fmt.Errorf("STORAGE_LOCAL_DIR is required for the %q storage provider", storageProviderLocal)
 	}
-	if config.Payment.Provider == paymentProviderNone && isProductionEnvironment() {
-		return Config{}, fmt.Errorf("PAYMENT_PROVIDER %q takes no money and is not allowed in production", paymentProviderNone)
+	return config, nil
+}
+
+// validatePaymentMethods accepts each known method at most once; an empty list
+// is valid and means every booking with a fee is paid at the clinic.
+func validatePaymentMethods(methods []string) error {
+	seen := make(map[string]bool, len(methods))
+	for _, method := range methods {
+		switch method {
+		case paymentMethodRazorpay, paymentMethodUPI, paymentMethodClinic:
+		default:
+			return fmt.Errorf("PAYMENT_METHODS entry %q is not supported; use %q, %q or %q", method, paymentMethodRazorpay, paymentMethodUPI, paymentMethodClinic)
+		}
+		if seen[method] {
+			return fmt.Errorf("PAYMENT_METHODS lists %q twice", method)
+		}
+		seen[method] = true
 	}
 
-	return config, nil
+	return nil
 }
 
 func env(name, fallback string) string {

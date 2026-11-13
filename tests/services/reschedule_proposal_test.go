@@ -37,6 +37,14 @@ func TestAppointmentServiceProposeReschedule(t *testing.T) {
 	unpaid := func() *models.AppointmentDetails {
 		return unpaidAt(nineAM, dayBefore.Add(5*time.Minute))
 	}
+	claimed := func() *models.AppointmentDetails {
+		return pendingAt(nineAM)
+	}
+	atClinic := func() *models.AppointmentDetails {
+		appointment := scheduledAt(nineAM, models.AppointmentStatusScheduled)
+		appointment.PaymentStatus = models.AppointmentPaymentDueAtClinic
+		return appointment
+	}
 	proposed := func() *models.AppointmentDetails {
 		return scheduledAt(nineAM, models.AppointmentStatusRescheduleProposed)
 	}
@@ -55,6 +63,8 @@ func TestAppointmentServiceProposeReschedule(t *testing.T) {
 		{name: "doctor of another appointment", role: models.RoleDoctor, doctor: otherDoctor, wantErr: apperrors.ErrAppointmentNotFound},
 		{name: "unknown reason", role: models.RoleDoctor, doctor: ownDoctor, reason: "bored", wantErr: apperrors.ErrInvalidAppointmentInput},
 		{name: "booking still awaiting payment", role: models.RoleDoctor, doctor: ownDoctor, appointment: unpaid, wantErr: apperrors.ErrAppointmentNotModifiable},
+		{name: "a upi claim still waiting for a check", role: models.RoleDoctor, doctor: ownDoctor, appointment: claimed, wantErr: apperrors.ErrAppointmentNotModifiable},
+		{name: "a booking paid at the clinic can move", role: models.RoleDoctor, doctor: ownDoctor, appointment: atClinic},
 		{name: "a proposal is already waiting", role: models.RoleDoctor, doctor: ownDoctor, appointment: proposed, wantErr: apperrors.ErrAppointmentNotModifiable},
 		{name: "its own current time is not free", role: models.RoleDoctor, doctor: ownDoctor, startsAt: nineAM, wantErr: apperrors.ErrSlotNotAvailable},
 		{name: "time between slots", role: models.RoleDoctor, doctor: ownDoctor, startsAt: nineAM.Add(70 * time.Minute), wantErr: apperrors.ErrSlotNotAvailable},
@@ -94,9 +104,13 @@ func TestAppointmentServiceProposeReschedule(t *testing.T) {
 				t.Fatalf("ProposeReschedule status updates = %v, want the original held as reschedule_proposed", appointments.statusUpdates)
 			}
 			placeholder := appointments.created[0]
+			wantPayment := models.AppointmentPaymentPaid
+			if tt.appointment != nil {
+				wantPayment = tt.appointment().PaymentStatus
+			}
 			if placeholder.Status != models.AppointmentStatusRescheduleProposed || !placeholder.StartsAt.Equal(tt.startsAt) ||
 				placeholder.BookedByUserID != 7 || placeholder.RescheduledFromID == nil || *placeholder.RescheduledFromID != 50 ||
-				placeholder.PaymentStatus != models.AppointmentPaymentPaid || placeholder.ConsultationFee != 40000 {
+				placeholder.PaymentStatus != wantPayment || placeholder.ConsultationFee != 40000 {
 				t.Fatalf("ProposeReschedule placeholder = %+v, want the offered time held for the original booker with the original payment", placeholder)
 			}
 			created := appointments.createdProposal
@@ -126,7 +140,7 @@ func TestAppointmentServiceProposalExpiresAfterTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}

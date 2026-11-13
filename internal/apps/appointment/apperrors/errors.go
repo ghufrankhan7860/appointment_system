@@ -180,6 +180,8 @@ var (
 	ErrWebhookIgnored            = errors.New("payment webhook has nothing to apply")
 	ErrProviderPaymentUsed       = errors.New("gateway payment id already confirmed another payment")
 	ErrInvalidPaymentInput       = errors.New("invalid payment input")
+	ErrPaymentMethodUnavailable  = errors.New("payment method is not available for this booking")
+	ErrPaymentImageNotFound      = errors.New("payment image not found")
 )
 
 var (

@@ -11,6 +11,10 @@ const (
 	AppointmentPaymentPaid     AppointmentPaymentStatus = "paid"
 	AppointmentPaymentRefunded AppointmentPaymentStatus = "refunded"
 	AppointmentPaymentWaived   AppointmentPaymentStatus = "waived"
+	// PendingVerification: the patient says they paid the doctor by UPI and the
+	// doctor has not checked yet. DueAtClinic: the fee is collected at the visit.
+	AppointmentPaymentPendingVerification AppointmentPaymentStatus = "pending_verification"
+	AppointmentPaymentDueAtClinic         AppointmentPaymentStatus = "due_at_clinic"
 )
 
 // PaymentStatus is the state of one attempt to collect an appointment's fee.
@@ -22,7 +26,43 @@ const (
 	PaymentStatusFailed   PaymentStatus = "failed"
 	PaymentStatusExpired  PaymentStatus = "expired"
 	PaymentStatusRefunded PaymentStatus = "refunded"
+	// Claimed: a direct UPI payment the payer says they made; Rejected: the doctor
+	// or an admin found it never arrived.
+	PaymentStatusClaimed  PaymentStatus = "claimed"
+	PaymentStatusRejected PaymentStatus = "rejected"
 )
+
+// PaymentMethod is how a patient settles a booking. Which ones exist is set by
+// PAYMENT_METHODS; razorpay goes through the gateway, upi straight to the
+// doctor, clinic at the visit.
+type PaymentMethod string
+
+const (
+	PaymentMethodRazorpay PaymentMethod = "razorpay"
+	PaymentMethodUPI      PaymentMethod = "upi"
+	PaymentMethodClinic   PaymentMethod = "clinic"
+)
+
+// The providers of payments that move no money through the gateway: a direct
+// UPI payment to the doctor, and a fee collected at the clinic.
+const (
+	ProviderUPIDirect = "upi_direct"
+	ProviderClinic    = "clinic"
+)
+
+// PaymentOptions are the methods a booking can be settled with, and the
+// doctor's UPI details when upi is one of them.
+type PaymentOptions struct {
+	Methods []PaymentMethod
+	UPI     *DoctorUPI
+}
+
+// DoctorUPI is what a patient needs to pay the doctor directly.
+type DoctorUPI struct {
+	UPIID     string
+	PayeeName string
+	HasQR     bool
+}
 
 type RefundReason string
 
@@ -55,6 +95,14 @@ type Payment struct {
 	ProviderPaymentID string
 	Status            PaymentStatus
 	CapturedAt        *time.Time
+	// The claim of a direct UPI payment: the payer's UPI reference, their
+	// optional screenshot, and who checked it.
+	PayerReference   string
+	ProofStorageKey  *string
+	ClaimedAt        *time.Time
+	ReviewedByUserID uint64
+	ReviewedAt       *time.Time
+	ReviewNote       string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }

@@ -10,6 +10,7 @@ package appointment
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,7 @@ import (
 	"appointment_system/internal/apps/appointment/constant"
 	"appointment_system/internal/apps/appointment/controller"
 	"appointment_system/internal/apps/appointment/handler"
+	"appointment_system/internal/apps/appointment/models"
 	"appointment_system/internal/apps/appointment/repositories"
 	"appointment_system/internal/apps/appointment/services"
 	"appointment_system/internal/apps/appointment/utils"
@@ -244,6 +246,11 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize payment repository: %w", err)
 	}
 
+	fileStorage, err := NewFileStorage(storageProvider, storageLocalDir)
+	if err != nil {
+		return nil, fmt.Errorf("initialize file storage: %w", err)
+	}
+
 	paymentGateway, err := NewPaymentGateway(paymentSettings)
 	if err != nil {
 		return nil, fmt.Errorf("initialize payment gateway: %w", err)
@@ -256,6 +263,8 @@ func NewContainer(
 		userPatientRepository,
 		doctorRepository,
 		paymentGateway,
+		PaymentMethods(paymentSettings.Methods),
+		fileStorage,
 		txManager,
 		time.Now,
 		logger,
@@ -334,11 +343,6 @@ func NewContainer(
 	medicalRecordRepository, err := repositories.NewMedicalRecordRepository(db)
 	if err != nil {
 		return nil, fmt.Errorf("initialize medical record repository: %w", err)
-	}
-
-	fileStorage, err := NewFileStorage(storageProvider, storageLocalDir)
-	if err != nil {
-		return nil, fmt.Errorf("initialize file storage: %w", err)
 	}
 
 	medicalRecordService, err := services.NewMedicalRecordService(
@@ -518,19 +522,36 @@ func NewFileStorage(provider string, localDir string) (services.FileStorage, err
 	}
 }
 
-// PaymentSettings are the values the payment gateway adapters need. The
-// Razorpay fields are used only when Provider is razorpay.
+// PaymentSettings are the payment methods PAYMENT_METHODS turns on and the
+// values the gateway adapters need. The Razorpay fields are used only when
+// razorpay is a method and Provider is razorpay.
 type PaymentSettings struct {
+	Methods               []string
 	Provider              string
 	RazorpayKeyID         string
 	RazorpayKeySecret     string
 	RazorpayWebhookSecret string
 }
 
+// PaymentMethods turns the PAYMENT_METHODS values, already validated by config,
+// into payment methods.
+func PaymentMethods(values []string) []models.PaymentMethod {
+	methods := make([]models.PaymentMethod, 0, len(values))
+	for _, value := range values {
+		methods = append(methods, models.PaymentMethod(value))
+	}
+
+	return methods
+}
+
 // NewPaymentGateway returns the adapter for the configured provider. Config
 // validation has already rejected unknown providers. Jobs that move money use
 // it too, so they pick the same gateway as the API.
 func NewPaymentGateway(settings PaymentSettings) (services.PaymentGateway, error) {
+	// Without razorpay no booking can open a gateway order, so no keys are needed.
+	if !slices.Contains(settings.Methods, string(models.PaymentMethodRazorpay)) {
+		return none.New(), nil
+	}
 	switch settings.Provider {
 	case none.ProviderName:
 		return none.New(), nil

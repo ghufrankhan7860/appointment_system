@@ -76,6 +76,7 @@ func Execute() error {
 		config.Auth.TokenTTL,
 		config.App.Location,
 		appointment.PaymentSettings{
+			Methods:               config.Payment.Methods,
 			Provider:              config.Payment.Provider,
 			RazorpayKeyID:         config.Payment.RazorpayKeyID,
 			RazorpayKeySecret:     config.Payment.RazorpayKeySecret,

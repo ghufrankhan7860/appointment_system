@@ -55,14 +55,15 @@ func callRole(
 	return models.CallRolePatientSide, nil
 }
 
-// checkCallWindow allows a call only for a scheduled appointment that is paid
-// or free, from constant.CallJoinLeadTime before its start until
+// checkCallWindow allows a call only for a scheduled appointment that is paid,
+// free or due at the clinic, from constant.CallJoinLeadTime before its start until
 // constant.CallJoinGrace after its end.
 func checkCallWindow(appointment *models.Appointment, now time.Time) error {
 	if appointment.Status != models.AppointmentStatusScheduled {
 		return apperrors.Invalid(apperrors.ErrCallNotOpen, "", fmt.Sprintf("appointment is %s; only a scheduled appointment has a call", appointment.Status))
 	}
-	if appointment.PaymentStatus != models.AppointmentPaymentPaid && appointment.PaymentStatus != models.AppointmentPaymentWaived {
+	if appointment.PaymentStatus != models.AppointmentPaymentPaid && appointment.PaymentStatus != models.AppointmentPaymentWaived &&
+		appointment.PaymentStatus != models.AppointmentPaymentDueAtClinic {
 		return apperrors.Invalid(apperrors.ErrCallNotOpen, "", fmt.Sprintf("payment is %s for this appointment", appointment.PaymentStatus))
 	}
 	if now.Before(appointment.StartsAt.Add(-constant.CallJoinLeadTime)) {

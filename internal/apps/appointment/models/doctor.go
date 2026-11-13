@@ -54,6 +54,10 @@ type Doctor struct {
 	VerificationStatus  VerificationStatus
 	VerifiedAt          *time.Time
 	IsAcceptingPatients bool
+	// UPIID is where patients pay the doctor directly, when the upi method is on;
+	// UPIQRStorageKey is their optional QR image.
+	UPIID           string
+	UPIQRStorageKey *string
 	Specialities        []Speciality
 	Tags                []DoctorTag
 	ConsultationModes   []ConsultationMode

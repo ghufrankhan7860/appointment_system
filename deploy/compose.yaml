@@ -55,6 +55,8 @@ services:
             RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
             RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
             RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+            # Empty (PAYMENT_METHODS= ) is none mode: every booking is paid at the clinic.
+            PAYMENT_METHODS: ${PAYMENT_METHODS-razorpay}
         ports:
             - "8080:8080"
         volumes:

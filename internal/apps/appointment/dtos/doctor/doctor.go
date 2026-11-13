@@ -41,4 +41,6 @@ type DoctorResponse struct {
 	VerificationStatus  string               `json:"verificationStatus" example:"verified"`
 	VerifiedAt          *time.Time           `json:"verifiedAt"`
 	IsAcceptingPatients bool                 `json:"isAcceptingPatients"`
+	UPIID               string               `json:"upiId" example:"drasha@okhdfcbank"`
+	HasUPIQR            bool                 `json:"hasUpiQr"`
 }

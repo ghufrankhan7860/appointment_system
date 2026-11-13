@@ -21,4 +21,8 @@ type PaymentRepository interface {
 	GetRefundByID(ctx context.Context, id uint64) (*models.Refund, error)
 	GetRequestedRefundByPayment(ctx context.Context, paymentID uint64) (*models.Refund, error)
 	ListRefunds(ctx context.Context, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error)
+	Claim(ctx context.Context, id uint64, reference string, proofStorageKey *string, claimedAt time.Time) error
+	Review(ctx context.Context, id uint64, toStatus models.PaymentStatus, reviewedByUserID uint64, note string, reviewedAt time.Time) error
+	ListClaimed(ctx context.Context, doctorID uint64, limit int, offset int) ([]*models.Payment, error)
+	ListManualRefunds(ctx context.Context, doctorID uint64, status models.RefundStatus, limit int, offset int) ([]*models.Refund, error)
 }
