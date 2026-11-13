@@ -21,12 +21,8 @@
 	}
 }
 
-# TEMPORARY until Razorpay activates live mode: medappoint.in serves the staging
-# stack (test keys, staging database) so the reviewer sees a working site. Switch
-# back to `import app api-production web-production` and run deploy-edge.ps1
-# once production is deployed with live keys.
 medappoint.in {
-	import app api-staging web-staging
+	import app api-production web-production
 }
 
 www.medappoint.in {

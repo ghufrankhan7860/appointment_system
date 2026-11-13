@@ -1454,8 +1454,6 @@ internet ─▶ edge Caddy :80/:443 (appointment-edge, /home/ubuntu/edge)
                                        everything else ─▶ web-staging:80        (appointment-web, /home/ubuntu/web)
 ```
 
-Until Razorpay activates live mode, `medappoint.in` temporarily serves the staging stack (test keys, staging database) so Razorpay can review a working site; `deploy/edge/Caddyfile` marks the line to switch back once production runs with live keys.
-
 The api and web containers join the shared `appointment-edge` network under those aliases; Postgres and the consumer stay on their own project network, so staging cannot reach the production database. Production Postgres listens on server-local `127.0.0.1:5433` (staging `5432`) for an SSH tunnel.
 
 | Script | Deploys | Env file |
