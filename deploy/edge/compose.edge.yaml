@@ -1,5 +1,5 @@
 # The edge Caddy on the EC2 host: the only container that publishes ports. It
-# serves medappoint.in (production) and staging.medappoint.in (staging) over
+# serves medappoint.in (production) and mak.medappoint.in (MAK Health Center) over
 # HTTPS and reaches each stack's api and web over appointment-edge by alias.
 # deploy-edge.ps1 ships it to /home/ubuntu/edge; staging and production deploys
 # never touch it, so it changes only when a domain or route changes.
