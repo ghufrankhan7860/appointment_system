@@ -414,7 +414,7 @@ func TestPaymentServiceMarkCollected(t *testing.T) {
 			outbox := &fakeOutboxRepo{}
 			_, service := newTestServicesWithMethods(t, []models.PaymentMethod{models.PaymentMethodClinic}, &fakeFileStorage{}, &fakeDoctorRepo{byUserID: tt.doctor}, appointments, outbox, &fakeUserPatientRepo{}, payments, &fakeGateway{}, nineAM)
 
-			collected, err := service.MarkCollected(context.Background(), 11, 50, "cash")
+			collected, err := service.MarkCollected(context.Background(), 11, models.RoleDoctor, 50, "cash")
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("MarkCollected error = %v, want %v", err, tt.wantErr)

@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -31,6 +32,16 @@ func NewOpaqueToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf[:]), nil
+}
+
+// NewURLToken returns size random bytes from crypto/rand as unpadded base64url,
+// short and safe in a URL path.
+func NewURLToken(size int) (string, error) {
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 // NewCode returns length characters drawn uniformly from alphabet with

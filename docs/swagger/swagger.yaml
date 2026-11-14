@@ -325,6 +325,12 @@ definitions:
     properties:
       bookedBy:
         $ref: '#/definitions/appointment.BookedBySummary'
+      bookedVia:
+        enum:
+        - app
+        - desk
+        example: app
+        type: string
       cancelReason:
         enum:
         - patient_request
@@ -980,6 +986,134 @@ definitions:
         - audio
         - video
         example: audio
+        type: string
+    type: object
+  desk.BookAtDeskRequest:
+    properties:
+      mode:
+        enum:
+        - in_person
+        - video
+        - phone
+        example: in_person
+        type: string
+      notes:
+        example: Fever since Monday
+        type: string
+      patientId:
+        example: 3
+        type: integer
+      startsAt:
+        example: "2026-10-26T09:00:00+05:30"
+        type: string
+    required:
+    - mode
+    - patientId
+    - startsAt
+    type: object
+  desk.ClaimCodeResponse:
+    properties:
+      code:
+        example: K7Q2M9XD
+        type: string
+      expiresAt:
+        type: string
+      relationship:
+        example: self
+        type: string
+    type: object
+  desk.CreateClaimCodeRequest:
+    properties:
+      relationship:
+        enum:
+        - self
+        - father
+        - mother
+        - spouse
+        - child
+        - sibling
+        - guardian
+        - caregiver
+        - other
+        example: self
+        type: string
+    required:
+    - relationship
+    type: object
+  desk.CreateWalkInRequest:
+    properties:
+      bloodType:
+        enum:
+        - A+
+        - A-
+        - B+
+        - B-
+        - AB+
+        - AB-
+        - O+
+        - O-
+        example: O+
+        type: string
+      contact:
+        example: "9876543210"
+        maxLength: 30
+        type: string
+      dateOfBirth:
+        example: "1990-01-02"
+        type: string
+      gender:
+        enum:
+        - Male
+        - Female
+        - Other
+        - Unknown
+        example: Female
+        type: string
+      name:
+        example: Asha Verma
+        type: string
+    required:
+    - bloodType
+    - dateOfBirth
+    - gender
+    - name
+    type: object
+  desk.DeskPatientResponse:
+    properties:
+      bloodType:
+        example: O+
+        type: string
+      contact:
+        example: "9876543210"
+        type: string
+      dateOfBirth:
+        example: "1990-01-02"
+        type: string
+      gender:
+        example: Female
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  desk.LookupPassRequest:
+    properties:
+      code:
+        example: K7Q2-M9XD
+        type: string
+    required:
+    - code
+    type: object
+  desk.PatientPassResponse:
+    properties:
+      code:
+        example: K7Q2M9XD
+        type: string
+      expiresAt:
+        type: string
+      token:
+        example: m2Rk9vQp0bW3xYzA1cDe4f
         type: string
     type: object
   doctor.AvailabilityRuleRequest:
@@ -2105,6 +2239,85 @@ definitions:
       weightKg:
         example: 64.5
         type: number
+    type: object
+  staff.GetStaffMeResponse:
+    properties:
+      doctor:
+        $ref: '#/definitions/doctor.DoctorResponse'
+      joinedAt:
+        type: string
+    type: object
+  staff.JoinStaffRequest:
+    properties:
+      inviteCode:
+        example: K7Q2-M9XD
+        type: string
+    required:
+    - inviteCode
+    type: object
+  staff.ListStaffInvitesResponse:
+    properties:
+      invites:
+        items:
+          $ref: '#/definitions/staff.StaffInviteResponse'
+        type: array
+    type: object
+  staff.ListStaffResponse:
+    properties:
+      staff:
+        items:
+          $ref: '#/definitions/staff.StaffMemberResponse'
+        type: array
+    type: object
+  staff.RegisterStaffRequest:
+    properties:
+      email:
+        example: ravi@example.com
+        type: string
+      inviteCode:
+        example: K7Q2-M9XD
+        type: string
+      mobileNo:
+        example: "9876543210"
+        type: string
+      name:
+        example: Ravi Kumar
+        type: string
+      password:
+        maxLength: 72
+        minLength: 8
+        type: string
+    required:
+    - email
+    - inviteCode
+    - mobileNo
+    - name
+    - password
+    type: object
+  staff.StaffInviteResponse:
+    properties:
+      code:
+        example: K7Q2M9XD
+        type: string
+      createdAt:
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: integer
+    type: object
+  staff.StaffMemberResponse:
+    properties:
+      email:
+        type: string
+      joinedAt:
+        type: string
+      mobileNo:
+        type: string
+      name:
+        type: string
+      userId:
+        type: integer
     type: object
 info:
   contact: {}
@@ -4308,6 +4521,55 @@ paths:
       summary: Register an account
       tags:
       - auth
+  /auth/register-staff:
+    post:
+      consumes:
+      - application/json
+      description: Creates a staff account (a doctor's compounder or receptionist)
+        with the invite code the doctor gave. The account works for that doctor at
+        once. Wrong codes are limited per IP address.
+      parameters:
+      - description: Account details and invite code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/staff.RegisterStaffRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.RegisterResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      summary: Sign up as clinic staff
+      tags:
+      - staff
   /auth/sessions:
     get:
       description: The caller's active sessions, one per device login, most recently
@@ -5530,6 +5792,238 @@ paths:
       summary: List who joined my code room
       tags:
       - calls
+  /doctors/me/desk/appointments:
+    post:
+      consumes:
+      - application/json
+      description: 'For a doctor or their staff: books a free slot of the desk''s
+        doctor for a patient the desk has seen (pass shown, walk-in added, or already
+        in the doctor''s patient list). The fee is paid at the clinic, so the booking
+        is confirmed at once (paymentStatus due_at_clinic, or waived without a fee)
+        and bookedVia is desk. Send an Idempotency-Key to retry safely.'
+      parameters:
+      - description: Client key; a retry with the same key and body returns the first
+          booking
+        in: header
+        name: Idempotency-Key
+        type: string
+      - description: Booking details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/desk.BookAtDeskRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/appointment.AppointmentResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Book at the clinic desk
+      tags:
+      - desk
+  /doctors/me/desk/lookup:
+    post:
+      consumes:
+      - application/json
+      description: 'For a doctor or their staff: finds the patient behind a scanned
+        pass token or a typed pass code, and lets the desk book for them from now
+        on. Wrong codes are limited per user.'
+      parameters:
+      - description: Pass token or code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/desk.LookupPassRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/desk.DeskPatientResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Find a patient by their clinic pass
+      tags:
+      - desk
+  /doctors/me/desk/patients:
+    post:
+      consumes:
+      - application/json
+      description: 'For a doctor or their staff: adds a patient who has no app, so
+        the desk can book for them. Nobody holds the patient until someone redeems
+        a claim code from POST /doctors/me/desk/patients/{id}/claim-code.'
+      parameters:
+      - description: Patient details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/desk.CreateWalkInRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/desk.DeskPatientResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a walk-in patient
+      tags:
+      - desk
+  /doctors/me/desk/patients/{id}/claim-code:
+    post:
+      consumes:
+      - application/json
+      description: 'For a doctor or their staff: a one-time code with which the walk-in,
+        or whoever looks after them, takes the patient over in the app (at /claim).
+        Only for a walk-in this desk added that nobody holds yet. Works for 48 hours.'
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Redeemer's relationship to the patient
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/desk.CreateClaimCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/desk.ClaimCodeResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a claim code for a walk-in
+      tags:
+      - desk
   /doctors/me/overrides:
     post:
       consumes:
@@ -6221,6 +6715,203 @@ paths:
       summary: Close a direct UPI refund
       tags:
       - doctors
+  /doctors/me/staff:
+    get:
+      description: Lists the staff working for the calling doctor, oldest first.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/staff.ListStaffResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List clinic staff
+      tags:
+      - staff
+  /doctors/me/staff/{userId}:
+    delete:
+      description: Ends a staff member's work for the calling doctor and signs them
+        out on every device. Their account stays and can join another doctor.
+      parameters:
+      - description: Staff user ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove a staff member
+      tags:
+      - staff
+  /doctors/me/staff/invites:
+    get:
+      description: Lists the calling doctor's staff invites that are pending and not
+        expired, without their codes.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/staff.ListStaffInvitesResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List pending staff invites
+      tags:
+      - staff
+    post:
+      description: Creates a one-time staff invite code for the calling doctor, who
+        must be verified. The code is returned only in this response and works for
+        48 hours; at most 5 can be pending.
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/staff.StaffInviteResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Invite clinic staff
+      tags:
+      - staff
+  /doctors/me/staff/invites/{id}:
+    delete:
+      description: Cancels one of the calling doctor's pending staff invites.
+      parameters:
+      - description: Invite ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke a staff invite
+      tags:
+      - staff
   /doctors/me/upi:
     put:
       consumes:
@@ -7057,6 +7748,55 @@ paths:
       summary: Leave a patient
       tags:
       - patients
+  /patients/{id}/pass:
+    post:
+      description: 'Returns a new pass for a patient the caller can book for: a token
+        for the QR the clinic desk scans and a short code it can type instead. It
+        works for 10 minutes and replaces the patient''s previous pass. Requires full
+        or appointments_only access.'
+      parameters:
+      - description: Patient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/desk.PatientPassResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a patient's clinic pass
+      tags:
+      - desk
   /patients/{id}/records:
     get:
       description: Lists the patient's finalized records, newest first. Needs full
@@ -7411,6 +8151,97 @@ paths:
       summary: List specialities
       tags:
       - doctors
+  /staff/me:
+    get:
+      description: Returns the doctor the calling staff account works for. 404 when
+        it works for no doctor now (it was removed); join another with POST /staff/me/join.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/staff.GetStaffMeResponse'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get the doctor a staff account works for
+      tags:
+      - staff
+  /staff/me/join:
+    post:
+      consumes:
+      - application/json
+      description: Links a staff account that works for no doctor now to the doctor
+        whose invite code it gives. Wrong codes are limited per IP address.
+      parameters:
+      - description: Invite code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/staff.JoinStaffRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dtos.SuccessResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/staff.GetStaffMeResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dtos.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Join a doctor as staff
+      tags:
+      - staff
   /webhooks/payment:
     post:
       consumes:

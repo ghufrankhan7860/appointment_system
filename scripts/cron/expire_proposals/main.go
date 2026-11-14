@@ -135,12 +135,26 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize availability service: %w", err)
 	}
+	staffRepository, err := repositories.NewStaffRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize staff repository: %w", err)
+	}
+	clinicPatientRepository, err := repositories.NewClinicPatientRepository(store.DB)
+	if err != nil {
+		return fmt.Errorf("initialize clinic patient repository: %w", err)
+	}
+	clinicActor, err := services.NewClinicActor(doctorRepository, staffRepository, clinicPatientRepository)
+	if err != nil {
+		return fmt.Errorf("initialize clinic actor: %w", err)
+	}
+
 	paymentService, err := services.NewPaymentService(
 		paymentRepository,
 		appointmentRepository,
 		outboxRepository,
 		userPatientRepository,
 		doctorRepository,
+		clinicActor,
 		paymentGateway,
 		appointment.PaymentMethods(config.Payment.Methods),
 		fileStorage,
@@ -164,6 +178,7 @@ func run() error {
 		outboxRepository,
 		userPatientRepository,
 		doctorRepository,
+		clinicActor,
 		availabilityService,
 		paymentService,
 		callRoomRepository,

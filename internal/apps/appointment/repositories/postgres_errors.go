@@ -31,6 +31,10 @@ const (
 	userPatientSelfUnique           uniqueConstraint = "idx_user_patient_patient_id_self_unique"
 	callRoomAppointmentLiveUnique   uniqueConstraint = "idx_call_rooms_appointment_id_live_unique"
 	callRoomJoinCodeLiveUnique      uniqueConstraint = "idx_call_rooms_join_code_hash_live_unique"
+	staffInviteCodeHashUnique       uniqueConstraint = "idx_doctor_staff_invites_code_hash_unique"
+	doctorStaffActiveUnique         uniqueConstraint = "idx_doctor_staff_user_id_active_unique"
+	patientPassTokenHashUnique      uniqueConstraint = "idx_patient_passes_token_hash_unique"
+	patientPassCodeHashUnique       uniqueConstraint = "idx_patient_passes_code_hash_unique"
 )
 
 func (constraint uniqueConstraint) ViolatedBy(err error) bool {

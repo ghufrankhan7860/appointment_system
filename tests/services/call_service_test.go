@@ -517,11 +517,11 @@ func TestAppointmentServiceClosingEndsCall(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewAvailabilityService returned error: %v", err)
 			}
-			payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, outbox, &fakeUserPatientRepo{}, doctors, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, func() time.Time { return tt.now }, discardLogger)
+			payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, outbox, &fakeUserPatientRepo{}, doctors, newTestClinicActor(doctors), &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, func() time.Time { return tt.now }, discardLogger)
 			if err != nil {
 				t.Fatalf("NewPaymentService returned error: %v", err)
 			}
-			service, err := services.NewAppointmentService(appointments, outbox, &fakeUserPatientRepo{}, doctors, availability, payments, rooms, events, &fakeTxManager{}, discardLogger)
+			service, err := services.NewAppointmentService(appointments, outbox, &fakeUserPatientRepo{}, doctors, newTestClinicActor(doctors), availability, payments, rooms, events, &fakeTxManager{}, discardLogger)
 			if err != nil {
 				t.Fatalf("NewAppointmentService returned error: %v", err)
 			}

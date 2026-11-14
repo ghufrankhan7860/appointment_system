@@ -8,6 +8,9 @@ const (
 	RolePatient Role = "patient"
 	RoleDoctor  Role = "doctor"
 	RoleAdmin   Role = "admin"
+	// RoleStaff is a doctor's compounder or receptionist: books and manages
+	// that one doctor's appointments, never their medical records.
+	RoleStaff Role = "staff"
 )
 
 type User struct {

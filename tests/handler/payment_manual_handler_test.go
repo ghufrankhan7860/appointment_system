@@ -34,7 +34,7 @@ func newManualPaymentRouter(
 	gin.SetMode(gin.TestMode)
 
 	methods := []models.PaymentMethod{models.PaymentMethodUPI, models.PaymentMethodClinic}
-	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, doctors, none.New(), methods, storage, &fakeTxManager{}, time.Now, discardLogger)
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, doctors, newTestClinicActor(doctors), none.New(), methods, storage, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}

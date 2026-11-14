@@ -436,6 +436,7 @@ func (ps *PaymentService) ListClaims(
 func (ps *PaymentService) MarkCollected(
 	ctx context.Context,
 	actingUserID uint64,
+	actingRole models.Role,
 	appointmentID uint64,
 	note string,
 ) (*models.Payment, error) {
@@ -451,7 +452,10 @@ func (ps *PaymentService) MarkCollected(
 	if err != nil {
 		return nil, err
 	}
-	if err := ps.checkDoctorOf(ctx, actingUserID, models.RoleDoctor, appointment); err != nil {
+	if actingRole != models.RoleDoctor && actingRole != models.RoleStaff {
+		return nil, apperrors.ErrDoctorRoleRequired
+	}
+	if err := ps.checkDoctorOf(ctx, actingUserID, actingRole, appointment); err != nil {
 		if errors.Is(err, apperrors.ErrPaymentNotFound) {
 			return nil, apperrors.ErrAppointmentNotFound
 		}
@@ -878,26 +882,25 @@ func (ps *PaymentService) checkDoctorOf(
 	if actingRole == models.RoleAdmin {
 		return nil
 	}
-	if actingRole == models.RoleDoctor {
-		doctor, err := ps.doctors.GetByUserID(ctx, actingUserID)
-		if err != nil && !errors.Is(err, apperrors.ErrDoctorNotFound) {
-			return fmt.Errorf("get own doctor profile: %w", err)
-		}
-		if err == nil && doctor.ID == appointment.DoctorID {
-			return nil
-		}
+	desk, err := ps.clinic.IsDeskOf(ctx, actingUserID, actingRole, appointment.DoctorID)
+	if err != nil {
+		return fmt.Errorf("check clinic desk: %w", err)
+	}
+	if desk {
+		return nil
 	}
 
 	return apperrors.ErrPaymentNotFound
 }
 
-// reviewScope is the doctor whose claims and refunds a list shows: the acting
-// doctor's, or 0 (every doctor) for an admin.
+// reviewScope is the doctor whose claims and refunds a list shows: the desk
+// doctor's (the acting doctor, or a staff member's doctor), or 0 (every doctor)
+// for an admin.
 func (ps *PaymentService) reviewScope(ctx context.Context, actingUserID uint64, actingRole models.Role) (uint64, error) {
 	if actingRole == models.RoleAdmin {
 		return 0, nil
 	}
-	doctor, err := ps.ownDoctor(ctx, actingUserID, actingRole)
+	doctor, err := ps.clinic.DeskDoctor(ctx, actingUserID, actingRole)
 	if err != nil {
 		return 0, err
 	}

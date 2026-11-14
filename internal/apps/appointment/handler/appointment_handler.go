@@ -49,6 +49,9 @@ func (ah *AppointmentHandler) RegisterRoutes(router *gin.RouterGroup) {
 
 	book := authz.RequirePermission(authz.PermAppointmentBook)
 	manage := authz.RequirePermission(authz.PermAppointmentManage)
+	// The doctor's day, offering a new time and the patient list are the clinic
+	// desk's (doctor or staff); completing a visit stays the doctor's.
+	desk := authz.RequirePermission(authz.PermAppointmentDesk)
 
 	appointments := router.Group("/appointments", authenticate)
 	appointments.POST("", book, ah.Book)
@@ -60,13 +63,13 @@ func (ah *AppointmentHandler) RegisterRoutes(router *gin.RouterGroup) {
 	appointments.POST("/:id/reschedule-proposal/accept", book, ah.AcceptReschedule)
 	appointments.POST("/:id/reschedule-proposal/decline", book, ah.DeclineReschedule)
 
-	doctorAppointments := router.Group("/doctors/me/appointments", authenticate, manage)
-	doctorAppointments.GET("", ah.ListForDoctor)
-	doctorAppointments.POST("/:id/complete", ah.Complete)
-	doctorAppointments.POST("/:id/no-show", ah.MarkNoShow)
-	doctorAppointments.POST("/:id/reschedule-proposals", ah.ProposeReschedule)
+	doctorAppointments := router.Group("/doctors/me/appointments", authenticate)
+	doctorAppointments.GET("", desk, ah.ListForDoctor)
+	doctorAppointments.POST("/:id/complete", manage, ah.Complete)
+	doctorAppointments.POST("/:id/no-show", manage, ah.MarkNoShow)
+	doctorAppointments.POST("/:id/reschedule-proposals", desk, ah.ProposeReschedule)
 
-	router.GET("/doctors/me/patients", authenticate, authz.RequirePermission(authz.PermPatientView), ah.ListPatients)
+	router.GET("/doctors/me/patients", authenticate, desk, ah.ListPatients)
 }
 
 // Book godoc

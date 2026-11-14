@@ -24,6 +24,9 @@ const (
 	PermPatientView         Permission = "patient:view"
 	PermSessionManage       Permission = "session:manage"
 	PermCallHost            Permission = "call:host"
+	// PermAppointmentDesk is the clinic desk: the doctor or their staff booking
+	// for a patient and running the doctor's day (list, cancel, move visits).
+	PermAppointmentDesk Permission = "appointment:desk"
 )
 
 var rolePermissions = map[models.Role][]Permission{
@@ -40,6 +43,7 @@ var rolePermissions = map[models.Role][]Permission{
 	models.RoleDoctor: {
 		PermDoctorProfileManage,
 		PermAppointmentManage,
+		PermAppointmentDesk,
 		PermRecordWrite,
 		PermPatientView,
 		PermCallHost,
@@ -48,6 +52,11 @@ var rolePermissions = map[models.Role][]Permission{
 	models.RolePatient: {
 		PermAppointmentBook,
 		PermPaymentPay,
+	},
+	// Staff run one doctor's desk; never records, calls or the doctor's profile.
+	models.RoleStaff: {
+		PermAppointmentDesk,
+		PermPaymentVerify,
 	},
 }
 

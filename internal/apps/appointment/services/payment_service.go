@@ -22,6 +22,7 @@ type PaymentService struct {
 	outbox       OutboxRepository
 	userPatients UserPatientRepository
 	doctors      DoctorRepository
+	clinic       *ClinicActor
 	gateway      PaymentGateway
 	methods      []models.PaymentMethod
 	storage      FileStorage
@@ -36,6 +37,7 @@ func NewPaymentService(
 	outbox OutboxRepository,
 	userPatients UserPatientRepository,
 	doctors DoctorRepository,
+	clinic *ClinicActor,
 	gateway PaymentGateway,
 	methods []models.PaymentMethod,
 	storage FileStorage,
@@ -57,6 +59,9 @@ func NewPaymentService(
 	}
 	if doctors == nil {
 		return nil, apperrors.ErrNilDoctorRepository
+	}
+	if clinic == nil {
+		return nil, apperrors.ErrNilClinicActor
 	}
 	if gateway == nil {
 		return nil, apperrors.ErrNilPaymentGateway
@@ -80,6 +85,7 @@ func NewPaymentService(
 		outbox:       outbox,
 		userPatients: userPatients,
 		doctors:      doctors,
+		clinic:       clinic,
 		gateway:      gateway,
 		methods:      methods,
 		storage:      storage,
@@ -888,17 +894,15 @@ func (ps *PaymentService) checkCanSee(
 	actingRole models.Role,
 	appointment *models.AppointmentDetails,
 ) error {
-	switch actingRole {
-	case models.RoleAdmin:
+	if actingRole == models.RoleAdmin {
 		return nil
-	case models.RoleDoctor:
-		doctor, err := ps.doctors.GetByUserID(ctx, actingUserID)
-		if err != nil && !errors.Is(err, apperrors.ErrDoctorNotFound) {
-			return fmt.Errorf("get own doctor profile: %w", err)
-		}
-		if err == nil && doctor.ID == appointment.DoctorID {
-			return nil
-		}
+	}
+	desk, err := ps.clinic.IsDeskOf(ctx, actingUserID, actingRole, appointment.DoctorID)
+	if err != nil {
+		return fmt.Errorf("check clinic desk: %w", err)
+	}
+	if desk {
+		return nil
 	}
 
 	if _, err := ps.userPatients.GetActiveByUserAndPatient(ctx, actingUserID, appointment.PatientID); err != nil {

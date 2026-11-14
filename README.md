@@ -1022,6 +1022,34 @@ POST /webhooks/payment             gateway  Razorpay's signed callback; no token
 
 See **Payments** below for the rules.
 
+Clinic staff and the clinic desk (`desk` is a doctor or that doctor's staff):
+
+```text
+
+POST   /auth/register-staff                         public   staff sign-up with a doctor's invite ({name, email, password, mobileNo, inviteCode})
+
+GET    /staff/me                                    staff    the doctor the staff account works for (404 when none)
+
+POST   /staff/me/join                               staff    join a doctor with a new invite ({inviteCode})
+
+POST   /doctors/me/staff/invites                    doctor   a one-time staff invite code (verified doctors); GET lists pending, DELETE /:id revokes
+
+GET    /doctors/me/staff                            doctor   current staff; DELETE /doctors/me/staff/:userId removes one and signs them out
+
+POST   /patients/:id/pass                           patient  a clinic pass: {token, code, expiresAt}, 10 minutes, replaces the old one
+
+POST   /doctors/me/desk/lookup                      desk     find the patient behind a scanned token or typed code ({code})
+
+POST   /doctors/me/desk/patients                    desk     add a walk-in who has no app ({name, gender, dateOfBirth, bloodType, contact?})
+
+POST   /doctors/me/desk/patients/:id/claim-code     desk     a code for the walk-in to take the patient over in the app ({relationship})
+
+POST   /doctors/me/desk/appointments                desk     book a free slot for a patient the desk has seen ({patientId, startsAt, mode, notes?})
+
+```
+
+See **Clinic staff and desk booking** below for the rules.
+
 Medical records (require `Authorization: Bearer <jwtToken>`):
 
 ```text
@@ -1167,7 +1195,7 @@ All times are wall-clock times in the clinic timezone, `APP_TIMEZONE` (default `
 
 Rules:
 
-- Booking needs an active `user_patient` link with `full` or `appointments_only` access; no link is `404`, `read_only` is `403`. Only accounts with the `patient` role can book (`appointment:book`).
+- Booking needs an active `user_patient` link with `full` or `appointments_only` access; no link is `404`, `read_only` is `403`. Only accounts with the `patient` role can book this way (`appointment:book`); the doctor and their staff book at the clinic desk instead (see **Clinic staff and desk booking**).
 - A time that is not a free slot is `422`. Losing a race for the same slot is `409` (`details: that time was just booked by someone else`).
 - Any active link, including `read_only`, can view the patient's appointments; the appointment's doctor can view it too. Anyone else gets `404`.
 - Only a `scheduled` appointment that has not started can be cancelled; anything else is `409`. The patient side must cancel at least 2 hours before the start (`422` after that); the doctor can cancel until the start. `cancelReason` records who cancelled (`patient_request`, `doctor_request`).
@@ -1268,6 +1296,34 @@ Setup (test mode first):
 - The Docker stack passes the three `RAZORPAY_*` values through from the shell. Run `make expire-payments` and `make reconcile-refunds` with the same settings, because they ask Razorpay too.
 - Outside production `RAZORPAY_KEY_ID` must start with `rzp_test_`, and in production with `rzp_live_`, so a local run cannot take real money and production cannot take test money. Keep both secrets out of the repository and out of logs.
 - Test payments: UPI `success@razorpay` or `failure@razorpay`, or one of Razorpay's test cards.
+
+### Clinic staff and desk booking
+
+A doctor can add staff (a compounder or receptionist) who run the doctor's clinic desk with them. The desk books for a patient at the clinic: the patient shows a QR from their app, or the desk adds them as a walk-in.
+
+Staff accounts:
+
+- The `staff` role belongs to one doctor at a time (`doctor_staff`, one active row per account). A verified doctor creates a one-time invite code (`POST /doctors/me/staff/invites`, 8 characters, 48 hours, at most 5 pending); the staff member signs up with it at `POST /auth/register-staff`, which creates the account and its link in one transaction. Staff sign-up never goes through `/auth/register`.
+- Wrong invite codes are capped at 10 per hour per client IP (`staff_invite_attempts`), since staff use them before they have an account; then `429`.
+- Removing staff (`DELETE /doctors/me/staff/:userId`) ends the link and revokes their sessions; every desk request checks the link, so access ends at once. The account can join another doctor with `POST /staff/me/join`.
+- Staff have `appointment:desk` and `payment:verify`: the doctor's day (`GET /doctors/me/appointments`), the patient list, cancelling (as the doctor's side, reason `doctor_request`), offering a new time, booking at the desk, and the Payments page (UPI claims, fees collected at the clinic, UPI refunds). They never get medical records, calls, the doctor's profile, availability or UPI settings, or complete / no-show, which stay doctor-only (`appointment:manage`, `record:*`, `call:host`, `doctor:profile`).
+- `services.ClinicActor` resolves "whose desk is this" for every desk action, so these rules live in one place.
+
+The patient's pass:
+
+- `POST /patients/:id/pass` (patient side with `full` or `appointments_only` access) returns a `token` and an 8-character `code`, valid for 10 minutes. The app shows the token in a QR (a link to the desk page) and the code under it for a desk without a camera. A new pass replaces the patient's old one; only hashes are stored (`patient_passes`).
+- `POST /doctors/me/desk/lookup` takes either. A live pass records the patient in `clinic_patients` (source `pass`) and returns the patient's name, gender, date of birth, blood group and contact. Wrong values are capped at 10 per hour per desk user (`patient_pass_attempts`); then `429`.
+
+Walk-ins:
+
+- `POST /doctors/me/desk/patients` creates a patient no account holds yet and records it in `clinic_patients` (source `walk_in`). `contact` is stored as the patient's contact number (`emergency_contact`).
+- `POST /doctors/me/desk/patients/:id/claim-code` gives the walk-in, or whoever looks after them (`relationship`), a full-access invite redeemed at `/claim` in the app. Only the desk that added the walk-in, and only while nobody holds the patient (`409` otherwise).
+
+Booking at the desk (`POST /doctors/me/desk/appointments`):
+
+- The patient must be known to the desk: shown their pass, added as a walk-in, or already in the doctor's patient list (a counted booking). Anyone else is `404`.
+- Same slot rules as patients: only free slots, with `Idempotency-Key` support. The fee is paid at the clinic, whatever `PAYMENT_METHODS` says: `paymentStatus` is `due_at_clinic` (or `waived` for no fee) with no hold, `bookedVia` is `desk`, and `booked_by_user_id` is the staff member or doctor. Appointment responses carry `bookedVia` (`app` or `desk`).
+- The booking shows in the patient's app for everyone linked to the patient, who can cancel or reschedule it under the usual rules.
 
 ### Medical records
 

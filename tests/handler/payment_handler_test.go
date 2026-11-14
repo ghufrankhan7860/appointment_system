@@ -38,7 +38,7 @@ func newPaymentRouterWithGateway(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, &fakeDoctorRepo{}, gateway, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, userPatients, &fakeDoctorRepo{}, newTestClinicActor(&fakeDoctorRepo{}), gateway, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}

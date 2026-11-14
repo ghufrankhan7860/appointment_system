@@ -29,6 +29,8 @@ www.medappoint.in {
 	redir https://medappoint.in{uri} permanent
 }
 
+# MAK Health Center production (makhealthcenter_backend and makhealthcenter_frontend, deploy/), until the
+# clinic has its own domain. medappoint staging was retired on 2026-11-15.
 staging.medappoint.in {
-	import app api-staging web-staging
+	import app api-mak web-mak
 }

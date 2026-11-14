@@ -31,7 +31,7 @@ func (as *AppointmentService) ProposeReschedule(
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("propose reschedule context: %w", err)
 	}
-	if err := validateDoctorActor(actingUserID, actingRole); err != nil {
+	if err := validateDeskActor(actingUserID, actingRole); err != nil {
 		return nil, err
 	}
 	if appointmentID == 0 {
@@ -112,6 +112,7 @@ func (as *AppointmentService) ProposeReschedule(
 			PatientNotes:      original.PatientNotes,
 			RescheduledFromID: &original.ID,
 			PaymentStatus:     original.PaymentStatus,
+			BookedVia:         original.BookedVia,
 		})
 		if err != nil {
 			return err

@@ -231,8 +231,12 @@ func (pc *PaymentController) MarkCollected(ctx context.Context, request *payment
 	if err != nil {
 		return nil, err
 	}
+	role, err := actingRole(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	collectedPayment, err := pc.paymentService.MarkCollected(ctx, userID, request.ID, request.Note)
+	collectedPayment, err := pc.paymentService.MarkCollected(ctx, userID, role, request.ID, request.Note)
 	if err != nil {
 		return nil, err
 	}

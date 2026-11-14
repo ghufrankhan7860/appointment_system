@@ -21,6 +21,7 @@ type AppointmentResponse struct {
 	RescheduledFrom *uint64         `json:"rescheduledFromId,omitempty" example:"49"`
 	PaymentStatus   string          `json:"paymentStatus" enums:"unpaid,pending_verification,due_at_clinic,paid,refunded,waived" example:"unpaid"`
 	PaymentDueAt    *time.Time      `json:"paymentDueAt,omitempty"`
+	BookedVia       string          `json:"bookedVia" enums:"app,desk" example:"app"`
 	Doctor          DoctorSummary   `json:"doctor"`
 	Patient         PatientSummary  `json:"patient"`
 	BookedBy        BookedBySummary `json:"bookedBy"`

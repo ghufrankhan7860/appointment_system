@@ -140,11 +140,11 @@ func TestAppointmentServiceProposalExpiresAfterTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, newTestClinicActor(&fakeDoctorRepo{}), &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound}, &fakeDoctorRepo{byID: doctor, byUserID: doctor}, availabilityService, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
+	service, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{activeErr: apperrors.ErrUserPatientNotFound}, &fakeDoctorRepo{byID: doctor, byUserID: doctor}, newTestClinicActor(&fakeDoctorRepo{byID: doctor, byUserID: doctor}), availabilityService, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}

@@ -42,6 +42,8 @@ type Container struct {
 	PaymentHandler       *handler.PaymentHandler
 	MedicalRecordHandler *handler.MedicalRecordHandler
 	CallHandler          *handler.CallHandler
+	StaffHandler         *handler.StaffHandler
+	DeskHandler          *handler.DeskHandler
 
 	callHub *memory.Hub
 }
@@ -246,6 +248,21 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize payment repository: %w", err)
 	}
 
+	staffRepository, err := repositories.NewStaffRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize staff repository: %w", err)
+	}
+
+	clinicPatientRepository, err := repositories.NewClinicPatientRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize clinic patient repository: %w", err)
+	}
+
+	clinicActor, err := services.NewClinicActor(doctorRepository, staffRepository, clinicPatientRepository)
+	if err != nil {
+		return nil, fmt.Errorf("initialize clinic actor: %w", err)
+	}
+
 	fileStorage, err := NewFileStorage(storageProvider, storageLocalDir)
 	if err != nil {
 		return nil, fmt.Errorf("initialize file storage: %w", err)
@@ -262,6 +279,7 @@ func NewContainer(
 		outboxRepository,
 		userPatientRepository,
 		doctorRepository,
+		clinicActor,
 		paymentGateway,
 		PaymentMethods(paymentSettings.Methods),
 		fileStorage,
@@ -303,6 +321,7 @@ func NewContainer(
 		outboxRepository,
 		userPatientRepository,
 		doctorRepository,
+		clinicActor,
 		availabilityService,
 		paymentService,
 		callRoomRepository,
@@ -473,6 +492,77 @@ func NewContainer(
 		return nil, fmt.Errorf("initialize call handler: %w", err)
 	}
 
+	staffInviteRepository, err := repositories.NewStaffInviteRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize staff invite repository: %w", err)
+	}
+
+	staffInviteAttemptRepository, err := repositories.NewStaffInviteAttemptRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize staff invite attempt repository: %w", err)
+	}
+
+	staffService, err := services.NewStaffService(
+		userRepository,
+		doctorRepository,
+		staffRepository,
+		staffInviteRepository,
+		staffInviteAttemptRepository,
+		sessionRepository,
+		txManager,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize staff service: %w", err)
+	}
+
+	staffController, err := controller.NewStaffController(staffService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize staff controller: %w", err)
+	}
+
+	staffHandler, err := handler.NewStaffHandler(staffController, tokenGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("initialize staff handler: %w", err)
+	}
+
+	patientPassRepository, err := repositories.NewPatientPassRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient pass repository: %w", err)
+	}
+
+	patientPassAttemptRepository, err := repositories.NewPatientPassAttemptRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize patient pass attempt repository: %w", err)
+	}
+
+	deskService, err := services.NewDeskService(
+		clinicActor,
+		patientRepository,
+		userPatientRepository,
+		patientPassRepository,
+		patientPassAttemptRepository,
+		clinicPatientRepository,
+		patientInviteService,
+		txManager,
+		time.Now,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize desk service: %w", err)
+	}
+
+	deskController, err := controller.NewDeskController(deskService, appointmentService)
+	if err != nil {
+		return nil, fmt.Errorf("initialize desk controller: %w", err)
+	}
+
+	deskHandler, err := handler.NewDeskHandler(deskController, tokenGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("initialize desk handler: %w", err)
+	}
+
 	return &Container{
 		AuthHandler:          authHandler,
 		PatientHandler:       patientHandler,
@@ -482,6 +572,8 @@ func NewContainer(
 		PaymentHandler:       paymentHandler,
 		MedicalRecordHandler: medicalRecordHandler,
 		CallHandler:          callHandler,
+		StaffHandler:         staffHandler,
+		DeskHandler:          deskHandler,
 		callHub:              callHub,
 	}, nil
 }
@@ -495,6 +587,8 @@ func (c *Container) RegisterRoutes(router *gin.RouterGroup) {
 	c.PaymentHandler.RegisterRoutes(router)
 	c.MedicalRecordHandler.RegisterRoutes(router)
 	c.CallHandler.RegisterRoutes(router)
+	c.StaffHandler.RegisterRoutes(router)
+	c.DeskHandler.RegisterRoutes(router)
 }
 
 // Close closes the open call sockets. The HTTP server's shutdown does not,

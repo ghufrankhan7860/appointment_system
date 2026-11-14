@@ -147,11 +147,11 @@ func TestAppointmentServiceProposalFlowsOnPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(paymentRepository, fixture.appointments, outbox, userPatients, doctors, none.New(), []models.PaymentMethod{models.PaymentMethodRazorpay}, newTestFileStorage(t), txManager, time.Now, discardLogger)
+	payments, err := services.NewPaymentService(paymentRepository, fixture.appointments, outbox, userPatients, doctors, newTestClinicActor(t, db, doctors), none.New(), []models.PaymentMethod{models.PaymentMethodRazorpay}, newTestFileStorage(t), txManager, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(fixture.appointments, outbox, userPatients, doctors, availability, payments, newTestCallRoomRepository(t, db), newTestCallEventRepository(t, db), txManager, discardLogger)
+	service, err := services.NewAppointmentService(fixture.appointments, outbox, userPatients, doctors, newTestClinicActor(t, db, doctors), availability, payments, newTestCallRoomRepository(t, db), newTestCallEventRepository(t, db), txManager, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}

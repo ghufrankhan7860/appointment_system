@@ -65,11 +65,11 @@ func newDoctorAdminRouterWithSessions(t *testing.T, doctors *fakeDoctorRepo, ava
 	if err != nil {
 		t.Fatalf("NewDoctorService returned error: %v", err)
 	}
-	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, gateway, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
+	paymentService, err := services.NewPaymentService(payments, appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, newTestClinicActor(doctors), gateway, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	appointmentService, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, availabilityService, paymentService, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
+	appointmentService, err := services.NewAppointmentService(appointments, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, doctors, newTestClinicActor(doctors), availabilityService, paymentService, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}

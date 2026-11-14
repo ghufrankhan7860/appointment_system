@@ -11,6 +11,7 @@ import (
 
 	"appointment_system/internal/apps/appointment/apperrors"
 	"appointment_system/internal/apps/appointment/models"
+	"appointment_system/internal/apps/appointment/services"
 )
 
 // discardLogger satisfies the services and handlers that log.
@@ -112,6 +113,10 @@ func (f *fakeRoleTokenVerifier) Verify(token string) (uint64, string, uint64, er
 		return 11, "doctor", 32, nil
 	case "patient-token":
 		return 7, "patient", 33, nil
+	case "staff-token":
+		return 40, "staff", 34, nil
+	case "unlinked-staff-token":
+		return 41, "staff", 35, nil
 	default:
 		return 0, "", 0, errors.New("invalid token")
 	}
@@ -1175,4 +1180,245 @@ func (f *fakeFileStorage) Open(ctx context.Context, key string) (io.ReadCloser, 
 func (f *fakeFileStorage) Delete(ctx context.Context, key string) error {
 	delete(f.files, key)
 	return nil
+}
+
+// newTestClinicActor resolves desk users against doctors, with no staff and no
+// clinic patients; staff tests build their own. A nil doctors (constructor
+// tests) gets an empty fake, so the service under test reports its own nil.
+func newTestClinicActor(doctors services.DoctorRepository) *services.ClinicActor {
+	if doctors == nil {
+		doctors = &fakeDoctorRepo{}
+	}
+	actor, err := services.NewClinicActor(doctors, &fakeStaffRepo{}, &fakeClinicPatientRepo{})
+	if err != nil {
+		panic(err)
+	}
+	return actor
+}
+
+type fakeStaffRepo struct {
+	active    map[uint64]*models.DoctorStaff
+	members   []*models.StaffMember
+	createErr error
+	removed   []uint64
+}
+
+func (f *fakeStaffRepo) Create(ctx context.Context, staff *models.DoctorStaff) (*models.DoctorStaff, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	if f.active == nil {
+		f.active = map[uint64]*models.DoctorStaff{}
+	}
+	if _, ok := f.active[staff.UserID]; ok {
+		return nil, apperrors.ErrStaffAlreadyLinked
+	}
+	created := *staff
+	created.ID = uint64(len(f.active) + 1)
+	created.Status = models.StaffStatusActive
+	created.CreatedAt = time.Now()
+	f.active[staff.UserID] = &created
+	return &created, nil
+}
+
+func (f *fakeStaffRepo) GetActiveByUser(ctx context.Context, userID uint64) (*models.DoctorStaff, error) {
+	link, ok := f.active[userID]
+	if !ok {
+		return nil, apperrors.ErrStaffNotFound
+	}
+	found := *link
+	return &found, nil
+}
+
+func (f *fakeStaffRepo) ListActiveByDoctor(ctx context.Context, doctorID uint64) ([]*models.StaffMember, error) {
+	return f.members, nil
+}
+
+func (f *fakeStaffRepo) Remove(ctx context.Context, doctorID uint64, userID uint64, removedByUserID uint64, removedAt time.Time) error {
+	link, ok := f.active[userID]
+	if !ok || link.DoctorID != doctorID {
+		return apperrors.ErrStaffNotFound
+	}
+	delete(f.active, userID)
+	f.removed = append(f.removed, userID)
+	return nil
+}
+
+type fakeStaffInviteRepo struct {
+	invites   []*models.StaffInvite
+	createErr []error
+	redeemed  []uint64
+}
+
+func (f *fakeStaffInviteRepo) Create(ctx context.Context, invite *models.StaffInvite) (*models.StaffInvite, error) {
+	if len(f.createErr) > 0 {
+		err := f.createErr[0]
+		f.createErr = f.createErr[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
+	created := *invite
+	created.ID = uint64(len(f.invites) + 1)
+	created.CreatedAt = time.Now()
+	f.invites = append(f.invites, &created)
+	found := created
+	return &found, nil
+}
+
+func (f *fakeStaffInviteRepo) GetByCodeHashForUpdate(ctx context.Context, codeHash string) (*models.StaffInvite, error) {
+	for _, invite := range f.invites {
+		if invite.CodeHash == codeHash {
+			found := *invite
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrStaffInviteNotFound
+}
+
+func (f *fakeStaffInviteRepo) ListPendingByDoctor(ctx context.Context, doctorID uint64, now time.Time) ([]*models.StaffInvite, error) {
+	pending := []*models.StaffInvite{}
+	for _, invite := range f.invites {
+		if invite.DoctorID == doctorID && invite.Status == models.StaffInviteStatusPending && invite.ExpiresAt.After(now) {
+			pending = append(pending, invite)
+		}
+	}
+	return pending, nil
+}
+
+func (f *fakeStaffInviteRepo) CountPendingByDoctor(ctx context.Context, doctorID uint64, now time.Time) (int64, error) {
+	pending, _ := f.ListPendingByDoctor(ctx, doctorID, now)
+	return int64(len(pending)), nil
+}
+
+func (f *fakeStaffInviteRepo) MarkRedeemed(ctx context.Context, id uint64, redeemedByUserID uint64, redeemedAt time.Time) error {
+	return f.setStatus(id, models.StaffInviteStatusRedeemed, func(invite *models.StaffInvite) {
+		invite.RedeemedByUserID = &redeemedByUserID
+		f.redeemed = append(f.redeemed, redeemedByUserID)
+	})
+}
+
+func (f *fakeStaffInviteRepo) Revoke(ctx context.Context, doctorID uint64, id uint64) error {
+	for _, invite := range f.invites {
+		if invite.ID == id && invite.DoctorID != doctorID {
+			return apperrors.ErrStaffInviteNotFound
+		}
+	}
+	return f.setStatus(id, models.StaffInviteStatusRevoked, nil)
+}
+
+func (f *fakeStaffInviteRepo) MarkExpired(ctx context.Context, id uint64) error {
+	return f.setStatus(id, models.StaffInviteStatusExpired, nil)
+}
+
+func (f *fakeStaffInviteRepo) setStatus(id uint64, status models.StaffInviteStatus, also func(*models.StaffInvite)) error {
+	for _, invite := range f.invites {
+		if invite.ID == id && invite.Status == models.StaffInviteStatusPending {
+			invite.Status = status
+			if also != nil {
+				also(invite)
+			}
+			return nil
+		}
+	}
+	return apperrors.ErrStaffInviteNotFound
+}
+
+type fakeStaffInviteAttemptRepo struct {
+	failed map[string]int64
+}
+
+func (f *fakeStaffInviteAttemptRepo) Create(ctx context.Context, clientIP string, at time.Time) error {
+	if f.failed == nil {
+		f.failed = map[string]int64{}
+	}
+	f.failed[clientIP]++
+	return nil
+}
+
+func (f *fakeStaffInviteAttemptRepo) CountSince(ctx context.Context, clientIP string, since time.Time) (int64, error) {
+	return f.failed[clientIP], nil
+}
+
+func (f *fakeStaffInviteAttemptRepo) DeleteBefore(ctx context.Context, clientIP string, before time.Time) error {
+	return nil
+}
+
+type fakePatientPassRepo struct {
+	passes map[uint64]*models.PatientPass
+}
+
+func (f *fakePatientPassRepo) Replace(ctx context.Context, pass *models.PatientPass) (*models.PatientPass, error) {
+	if f.passes == nil {
+		f.passes = map[uint64]*models.PatientPass{}
+	}
+	stored := *pass
+	stored.ID = pass.PatientID
+	f.passes[pass.PatientID] = &stored
+	found := stored
+	return &found, nil
+}
+
+func (f *fakePatientPassRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*models.PatientPass, error) {
+	for _, pass := range f.passes {
+		if pass.TokenHash == tokenHash {
+			found := *pass
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrPatientPassInvalid
+}
+
+func (f *fakePatientPassRepo) GetByCodeHash(ctx context.Context, codeHash string) (*models.PatientPass, error) {
+	for _, pass := range f.passes {
+		if pass.CodeHash == codeHash {
+			found := *pass
+			return &found, nil
+		}
+	}
+	return nil, apperrors.ErrPatientPassInvalid
+}
+
+type fakePatientPassAttemptRepo struct {
+	failed map[uint64]int64
+}
+
+func (f *fakePatientPassAttemptRepo) Create(ctx context.Context, userID uint64, at time.Time) error {
+	if f.failed == nil {
+		f.failed = map[uint64]int64{}
+	}
+	f.failed[userID]++
+	return nil
+}
+
+func (f *fakePatientPassAttemptRepo) CountSince(ctx context.Context, userID uint64, since time.Time) (int64, error) {
+	return f.failed[userID], nil
+}
+
+func (f *fakePatientPassAttemptRepo) DeleteBefore(ctx context.Context, userID uint64, before time.Time) error {
+	return nil
+}
+
+type fakeClinicPatientRepo struct {
+	seen map[[2]uint64]*models.ClinicPatient
+}
+
+func (f *fakeClinicPatientRepo) Add(ctx context.Context, clinicPatient *models.ClinicPatient) error {
+	if f.seen == nil {
+		f.seen = map[[2]uint64]*models.ClinicPatient{}
+	}
+	key := [2]uint64{clinicPatient.DoctorID, clinicPatient.PatientID}
+	if _, ok := f.seen[key]; !ok {
+		stored := *clinicPatient
+		f.seen[key] = &stored
+	}
+	return nil
+}
+
+func (f *fakeClinicPatientRepo) Get(ctx context.Context, doctorID uint64, patientID uint64) (*models.ClinicPatient, error) {
+	found, ok := f.seen[[2]uint64{doctorID, patientID}]
+	if !ok {
+		return nil, apperrors.ErrPatientNotAtClinic
+	}
+	return found, nil
 }

@@ -39,6 +39,15 @@ const (
 	CancelReasonPaymentRejected   CancelReason = "payment_rejected"
 )
 
+// BookedVia says where a booking was made: in the app by the patient side, or
+// at the clinic desk by the doctor or their staff.
+type BookedVia string
+
+const (
+	BookedViaApp  BookedVia = "app"
+	BookedViaDesk BookedVia = "desk"
+)
+
 // Appointment is a booked visit of a patient with a doctor. StartsAt and EndsAt
 // are instants, not clinic wall-clock minutes. ConsultationFee (paise) and
 // SlotDurationMin are copied from the doctor at booking time, so later profile
@@ -65,6 +74,7 @@ type Appointment struct {
 	IdempotencyKey    string
 	PaymentStatus     AppointmentPaymentStatus
 	PaymentDueAt      *time.Time
+	BookedVia         BookedVia
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }

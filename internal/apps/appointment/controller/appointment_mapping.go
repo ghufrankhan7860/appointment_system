@@ -44,6 +44,7 @@ func toAppointmentResponse(details *models.AppointmentDetails, location *time.Lo
 		CancelReason:    string(details.CancelReason),
 		RescheduledFrom: details.RescheduledFromID,
 		PaymentStatus:   string(details.PaymentStatus),
+		BookedVia:       string(details.BookedVia),
 		Doctor: appointment.DoctorSummary{
 			ID:         details.DoctorID,
 			Name:       details.DoctorName,

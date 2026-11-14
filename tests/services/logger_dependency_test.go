@@ -12,11 +12,11 @@ import (
 
 func TestNewServicesRequireLogger(t *testing.T) {
 	availability := newTestAvailability(t)
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, newTestClinicActor(&fakeDoctorRepo{}), &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	appointments, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, availability, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
+	appointments, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, newTestClinicActor(&fakeDoctorRepo{}), availability, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}
@@ -46,11 +46,11 @@ func TestNewServicesRequireLogger(t *testing.T) {
 			return err
 		}},
 		{name: "payment", new: func() error {
-			_, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, nil)
+			_, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, newTestClinicActor(&fakeDoctorRepo{}), &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, nil)
 			return err
 		}},
 		{name: "appointment", new: func() error {
-			_, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, availability, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, nil)
+			_, err := services.NewAppointmentService(&fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, newTestClinicActor(&fakeDoctorRepo{}), availability, payments, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, nil)
 			return err
 		}},
 		{name: "doctor verification", new: func() error {

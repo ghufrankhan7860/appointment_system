@@ -29,6 +29,7 @@ type AppointmentService struct {
 	outbox       OutboxRepository
 	userPatients UserPatientRepository
 	doctors      DoctorRepository
+	clinic       *ClinicActor
 	availability *AvailabilityService
 	payments     *PaymentService
 	callRooms    CallRoomRepository
@@ -42,6 +43,7 @@ func NewAppointmentService(
 	outbox OutboxRepository,
 	userPatients UserPatientRepository,
 	doctors DoctorRepository,
+	clinic *ClinicActor,
 	availability *AvailabilityService,
 	payments *PaymentService,
 	callRooms CallRoomRepository,
@@ -60,6 +62,9 @@ func NewAppointmentService(
 	}
 	if doctors == nil {
 		return nil, apperrors.ErrNilDoctorRepository
+	}
+	if clinic == nil {
+		return nil, apperrors.ErrNilClinicActor
 	}
 	if availability == nil {
 		return nil, apperrors.ErrNilAvailabilityService
@@ -85,6 +90,7 @@ func NewAppointmentService(
 		outbox:       outbox,
 		userPatients: userPatients,
 		doctors:      doctors,
+		clinic:       clinic,
 		availability: availability,
 		payments:     payments,
 		callRooms:    callRooms,
@@ -385,6 +391,7 @@ func (as *AppointmentService) Reschedule(
 			IdempotencyKey:    idempotencyKey,
 			PaymentStatus:     current.PaymentStatus,
 			PaymentDueAt:      paymentDueAt,
+			BookedVia:         current.BookedVia,
 		}, models.OutboxEventAppointmentRescheduled)
 		if err != nil {
 			return err
@@ -464,8 +471,9 @@ func (as *AppointmentService) List(
 	return appointments, nil
 }
 
-// ListForDoctor returns the acting doctor's appointments in any status on one
-// clinic date, earliest first.
+// ListForDoctor returns the appointments in any status on one clinic date,
+// earliest first, of the doctor whose desk the acting user runs: their own for
+// a doctor, their doctor's for staff.
 func (as *AppointmentService) ListForDoctor(
 	ctx context.Context,
 	actingUserID uint64,
@@ -475,16 +483,9 @@ func (as *AppointmentService) ListForDoctor(
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("list doctor appointments context: %w", err)
 	}
-	if err := validateDoctorActor(actingUserID, actingRole); err != nil {
-		return nil, err
-	}
-
-	doctor, err := as.doctors.GetByUserID(ctx, actingUserID)
+	doctor, err := as.clinic.DeskDoctor(ctx, actingUserID, actingRole)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrDoctorNotFound) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("get own doctor profile: %w", err)
+		return nil, err
 	}
 
 	date = utils.CivilDate(date)
@@ -497,7 +498,7 @@ func (as *AppointmentService) ListForDoctor(
 	return appointments, nil
 }
 
-// ListPatients returns the acting doctor's patients: everyone with a booking
+// ListPatients returns the desk doctor's patients (see ListForDoctor): everyone with a booking
 // that counts (completed, no-show, or scheduled and not an unpaid hold), the
 // soonest next visit first. A non-empty query matches the patient's name.
 func (as *AppointmentService) ListPatients(
@@ -511,16 +512,9 @@ func (as *AppointmentService) ListPatients(
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("list doctor patients context: %w", err)
 	}
-	if err := validateDoctorActor(actingUserID, actingRole); err != nil {
-		return nil, err
-	}
-
-	doctor, err := as.doctors.GetByUserID(ctx, actingUserID)
+	doctor, err := as.clinic.DeskDoctor(ctx, actingUserID, actingRole)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrDoctorNotFound) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("get own doctor profile: %w", err)
+		return nil, err
 	}
 
 	limit, offset = clampPagination(limit, offset)
@@ -792,8 +786,9 @@ func (as *AppointmentService) replayAfterClash(
 }
 
 // accessible loads an appointment and checks that the acting user may see it.
-// The link is nil when the acting user is the appointment's doctor. Anyone
-// else gets ErrAppointmentNotFound, so appointment IDs are not revealed.
+// The link is nil when the acting user is the appointment's doctor or that
+// doctor's staff (the clinic desk). Anyone else gets ErrAppointmentNotFound,
+// so appointment IDs are not revealed.
 func (as *AppointmentService) accessible(
 	ctx context.Context,
 	actingUserID uint64,
@@ -808,14 +803,12 @@ func (as *AppointmentService) accessible(
 		return nil, nil, fmt.Errorf("get appointment by id: %w", err)
 	}
 
-	if actingRole == models.RoleDoctor {
-		doctor, err := as.doctors.GetByUserID(ctx, actingUserID)
-		if err != nil && !errors.Is(err, apperrors.ErrDoctorNotFound) {
-			return nil, nil, fmt.Errorf("get own doctor profile: %w", err)
-		}
-		if err == nil && doctor.ID == appointment.DoctorID {
-			return appointment, nil, nil
-		}
+	desk, err := as.clinic.IsDeskOf(ctx, actingUserID, actingRole, appointment.DoctorID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("check clinic desk: %w", err)
+	}
+	if desk {
+		return appointment, nil, nil
 	}
 
 	link, err := as.userPatients.GetActiveByUserAndPatient(ctx, actingUserID, appointment.PatientID)

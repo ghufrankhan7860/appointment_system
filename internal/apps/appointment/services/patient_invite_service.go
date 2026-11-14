@@ -115,7 +115,16 @@ func (pis *PatientInviteService) Create(
 	}
 
 	for try := 1; ; try++ {
-		created, code, err := pis.create(ctx, actingUserID, patientID, relationship, accessLevel, expiresIn)
+		created, code, err := pis.create(ctx, actingUserID, patientID, relationship, accessLevel, expiresIn, func(links []*models.UserPatient) error {
+			actor := findLink(links, actingUserID)
+			if actor == nil {
+				return apperrors.ErrPatientNotFound
+			}
+			if actor.AccessLevel != models.AccessLevelFull {
+				return apperrors.ErrPatientForbidden
+			}
+			return nil
+		})
 		if errors.Is(err, apperrors.ErrPatientInviteCodeExists) && try < constant.MaxPatientInviteCodeTries {
 			continue
 		}
@@ -124,6 +133,44 @@ func (pis *PatientInviteService) Create(
 		}
 
 		pis.logger.InfoContext(ctx, "patient invite created", "patient_id", patientID, "invite_id", created.ID, "access_level", accessLevel)
+
+		return created, code, nil
+	}
+}
+
+// CreateUnclaimed issues a full-access invite for a patient nobody holds yet,
+// a walk-in a clinic desk added, so the person (or whoever looks after them)
+// can take the patient over in the app. relationship is the redeemer's. The
+// caller has checked the desk may do it; a patient someone holds already is
+// ErrPatientAlreadyClaimed.
+func (pis *PatientInviteService) CreateUnclaimed(
+	ctx context.Context,
+	actingUserID uint64,
+	patientID uint64,
+	relationship models.Relationship,
+) (*models.PatientInvite, string, error) {
+	if actingUserID == 0 || patientID == 0 {
+		return nil, "", fmt.Errorf("create unclaimed invite with missing ids: %w", apperrors.ErrInvalidPatientInviteInput)
+	}
+	if !validRelationship(relationship) {
+		return nil, "", apperrors.Invalid(apperrors.ErrInvalidPatientInviteInput, "relationship", "must be one of self, father, mother, spouse, child, sibling, guardian, caregiver, other")
+	}
+
+	for try := 1; ; try++ {
+		created, code, err := pis.create(ctx, actingUserID, patientID, relationship, models.AccessLevelFull, constant.PatientInviteTTL, func(links []*models.UserPatient) error {
+			if len(links) > 0 {
+				return apperrors.ErrPatientAlreadyClaimed
+			}
+			return nil
+		})
+		if errors.Is(err, apperrors.ErrPatientInviteCodeExists) && try < constant.MaxPatientInviteCodeTries {
+			continue
+		}
+		if err != nil {
+			return nil, "", err
+		}
+
+		pis.logger.InfoContext(ctx, "unclaimed patient invite created", "patient_id", patientID, "invite_id", created.ID)
 
 		return created, code, nil
 	}
@@ -314,6 +361,7 @@ func (pis *PatientInviteService) create(
 	relationship models.Relationship,
 	accessLevel models.AccessLevel,
 	expiresIn time.Duration,
+	authorize func(links []*models.UserPatient) error,
 ) (*models.PatientInvite, string, error) {
 	code, err := utils.NewCode(constant.PatientInviteCodeAlphabet, constant.PatientInviteCodeLength)
 	if err != nil {
@@ -326,12 +374,8 @@ func (pis *PatientInviteService) create(
 		if err != nil {
 			return fmt.Errorf("list patient links: %w", err)
 		}
-		actor := findLink(links, actingUserID)
-		if actor == nil {
-			return apperrors.ErrPatientNotFound
-		}
-		if actor.AccessLevel != models.AccessLevelFull {
-			return apperrors.ErrPatientForbidden
+		if err := authorize(links); err != nil {
+			return err
 		}
 		if relationship == models.RelationshipSelf && hasSelfLink(links) {
 			return apperrors.ErrPatientSelfLinkExists
@@ -361,6 +405,7 @@ func (pis *PatientInviteService) create(
 	if err != nil {
 		if errors.Is(err, apperrors.ErrPatientNotFound) ||
 			errors.Is(err, apperrors.ErrPatientForbidden) ||
+			errors.Is(err, apperrors.ErrPatientAlreadyClaimed) ||
 			errors.Is(err, apperrors.ErrPatientSelfLinkExists) ||
 			errors.Is(err, apperrors.ErrPatientInviteLimitReached) ||
 			errors.Is(err, apperrors.ErrPatientInviteCodeExists) {

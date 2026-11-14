@@ -49,6 +49,7 @@ type appointmentRecord struct {
 	IdempotencyKey    *string    `gorm:"column:idempotency_key"`
 	PaymentStatus     string     `gorm:"column:payment_status"`
 	PaymentDueAt      *time.Time `gorm:"column:payment_due_at"`
+	BookedVia         string     `gorm:"column:booked_via"`
 	CreatedAt         time.Time  `gorm:"column:created_at"`
 	UpdatedAt         time.Time  `gorm:"column:updated_at"`
 }
@@ -139,8 +140,12 @@ func (repo *AppointmentRepository) Create(ctx context.Context, appointment *mode
 		RescheduledFromID: appointment.RescheduledFromID,
 		PaymentStatus:     string(appointment.PaymentStatus),
 		PaymentDueAt:      appointment.PaymentDueAt,
+		BookedVia:         string(models.BookedViaApp),
 		CreatedAt:         now,
 		UpdatedAt:         now,
+	}
+	if appointment.BookedVia != "" {
+		record.BookedVia = string(appointment.BookedVia)
 	}
 	if appointment.IdempotencyKey != "" {
 		record.IdempotencyKey = &appointment.IdempotencyKey
@@ -257,7 +262,7 @@ func (repo *AppointmentRepository) CancelUnpaid(ctx context.Context, id uint64, 
 			"cancelled_at": now,
 			"cancel_reason": gorm.Expr("CASE WHEN payment_status = ? THEN ? ELSE ? END",
 				string(models.AppointmentPaymentPendingVerification), string(models.CancelReasonPaymentUnverified), string(models.CancelReasonPaymentExpired)),
-			"updated_at":    now,
+			"updated_at": now,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("cancel unpaid appointment: %w", result.Error)
@@ -642,6 +647,7 @@ func toAppointmentModel(record appointmentRecord) *models.Appointment {
 		RescheduledFromID: record.RescheduledFromID,
 		PaymentStatus:     models.AppointmentPaymentStatus(record.PaymentStatus),
 		PaymentDueAt:      record.PaymentDueAt,
+		BookedVia:         models.BookedVia(record.BookedVia),
 		CreatedAt:         record.CreatedAt,
 		UpdatedAt:         record.UpdatedAt,
 	}

@@ -67,6 +67,26 @@ func newTestServicesWithMethods(
 ) (*services.AppointmentService, *services.PaymentService) {
 	t.Helper()
 
+	return newTestServicesWithClinic(t, methods, storage, newTestClinicActor(doctors), doctors, appointments, outbox, userPatients, payments, gateway, now)
+}
+
+// newTestServicesWithClinic is newTestServicesWithMethods with the clinic desk
+// resolver given, for desk and staff tests.
+func newTestServicesWithClinic(
+	t *testing.T,
+	methods []models.PaymentMethod,
+	storage *fakeFileStorage,
+	clinic *services.ClinicActor,
+	doctors *fakeDoctorRepo,
+	appointments *fakeAppointmentRepo,
+	outbox *fakeOutboxRepo,
+	userPatients *fakeUserPatientRepo,
+	payments *fakePaymentRepo,
+	gateway *fakeGateway,
+	now time.Time,
+) (*services.AppointmentService, *services.PaymentService) {
+	t.Helper()
+
 	mondayMorning := &models.AvailabilityRule{DayOfWeek: time.Monday, StartMinute: 9 * 60, EndMinute: 11 * 60, Mode: models.ConsultationModeInPerson}
 	availability, err := services.NewAvailabilityService(
 		doctors,
@@ -81,11 +101,11 @@ func newTestServicesWithMethods(
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
 
-	paymentService, err := services.NewPaymentService(payments, appointments, outbox, userPatients, doctors, gateway, methods, storage, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
+	paymentService, err := services.NewPaymentService(payments, appointments, outbox, userPatients, doctors, clinic, gateway, methods, storage, &fakeTxManager{}, func() time.Time { return now }, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
-	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, paymentService, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
+	service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, clinic, availability, paymentService, &fakeCallRoomRepo{}, &fakeCallEventRepo{}, &fakeTxManager{}, discardLogger)
 	if err != nil {
 		t.Fatalf("NewAppointmentService returned error: %v", err)
 	}
@@ -108,7 +128,7 @@ func TestNewAppointmentServiceValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAvailabilityService returned error: %v", err)
 	}
-	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
+	payments, err := services.NewPaymentService(&fakePaymentRepo{}, &fakeAppointmentRepo{}, &fakeOutboxRepo{}, &fakeUserPatientRepo{}, &fakeDoctorRepo{}, newTestClinicActor(&fakeDoctorRepo{}), &fakeGateway{}, []models.PaymentMethod{models.PaymentMethodRazorpay}, &fakeFileStorage{}, &fakeTxManager{}, time.Now, discardLogger)
 	if err != nil {
 		t.Fatalf("NewPaymentService returned error: %v", err)
 	}
@@ -139,7 +159,7 @@ func TestNewAppointmentServiceValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := services.NewAppointmentService(tt.appointments, tt.outbox, tt.userPatients, tt.doctors, tt.availability, tt.payments, tt.callRooms, tt.callEvents, tt.tx, discardLogger); !errors.Is(err, tt.wantErr) {
+			if _, err := services.NewAppointmentService(tt.appointments, tt.outbox, tt.userPatients, tt.doctors, newTestClinicActor(tt.doctors), tt.availability, tt.payments, tt.callRooms, tt.callEvents, tt.tx, discardLogger); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("NewAppointmentService error = %v, want %v", err, tt.wantErr)
 			}
 		})

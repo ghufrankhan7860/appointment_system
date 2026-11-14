@@ -199,11 +199,11 @@ func TestAppointmentServiceRescheduleRollsBackWhenTheNewBookingFails(t *testing.
 		t.Fatalf("NewPaymentRepository returned error: %v", err)
 	}
 	newService := func(appointments services.AppointmentRepository) *services.AppointmentService {
-		payments, err := services.NewPaymentService(paymentRepository, appointments, outbox, userPatients, doctors, none.New(), []models.PaymentMethod{models.PaymentMethodRazorpay}, newTestFileStorage(t), txManager, time.Now, discardLogger)
+		payments, err := services.NewPaymentService(paymentRepository, appointments, outbox, userPatients, doctors, newTestClinicActor(t, db, doctors), none.New(), []models.PaymentMethod{models.PaymentMethodRazorpay}, newTestFileStorage(t), txManager, time.Now, discardLogger)
 		if err != nil {
 			t.Fatalf("NewPaymentService returned error: %v", err)
 		}
-		service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, availability, payments, newTestCallRoomRepository(t, db), newTestCallEventRepository(t, db), txManager, discardLogger)
+		service, err := services.NewAppointmentService(appointments, outbox, userPatients, doctors, newTestClinicActor(t, db, doctors), availability, payments, newTestCallRoomRepository(t, db), newTestCallEventRepository(t, db), txManager, discardLogger)
 		if err != nil {
 			t.Fatalf("NewAppointmentService returned error: %v", err)
 		}
